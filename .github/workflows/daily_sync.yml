@@ -2,8 +2,9 @@ name: Daily Sync — AB Skyros
 
 on:
   schedule:
+    # Κάθε μέρα στις 08:00 πρωί ώρα Ελλάδας (05:00 UTC)
     - cron: '0 5 * * *'
-  workflow_dispatch:
+  workflow_dispatch:  # Επίσης χειροκίνητα από το GitHub UI
 
 jobs:
   sync:
