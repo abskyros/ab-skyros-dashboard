@@ -1,0 +1,9 @@
+streamlit
+pandas
+imap-tools
+openpyxl
+xlsxwriter
+gspread
+google-auth
+pdf2image
+pytesseract
