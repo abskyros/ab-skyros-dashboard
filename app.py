@@ -246,9 +246,16 @@ def fetch_sales_emails(pw, since=None, want_records=4, email_scan_limit=30):
     recs, errs, n = [], [], 0
     try:
         with MailBox("imap.gmail.com").login(SALES_EMAIL_USER, pw) as mb:
-            for msg in mb.fetch(AND(subject=SALES_SUBJECT_KW), limit=email_scan_limit, reverse=True, mark_seen=False):
+            # Χωρίς IMAP filter για αποφυγή encoding errors — φιλτράρουμε τοπικά
+            for msg in mb.fetch(limit=email_scan_limit, reverse=True, mark_seen=False):
                 if len(recs) >= want_records:
                     break
+                # Φίλτρο αποστολέα & subject τοπικά
+                sender = (msg.from_ or "").lower()
+                if SALES_EMAIL_SENDER.lower() not in sender:
+                    continue
+                if not _valid_sales_subj(msg.subject):
+                    continue
                 msg_dt = msg.date
                 if msg_dt and hasattr(msg_dt, "tzinfo") and msg_dt.tzinfo:
                     msg_dt = msg_dt.replace(tzinfo=None)
@@ -276,8 +283,11 @@ def deep_scan_sales(pw):
     try:
         with MailBox("imap.gmail.com").login(SALES_EMAIL_USER, pw) as mb:
             s["phase"] = "listing"; yield s.copy()
-            hdrs = [h for h in mb.fetch(AND(subject=SALES_SUBJECT_KW), limit=3000, reverse=True, mark_seen=False, headers_only=True)
-                    if h.date and h.date.date() >= cutoff]
+            all_hdrs = list(mb.fetch(limit=3000, reverse=True, mark_seen=False, headers_only=True))
+            hdrs = [h for h in all_hdrs
+                    if h.date and h.date.date() >= cutoff
+                    and SALES_EMAIL_SENDER.lower() in (h.from_ or "").lower()
+                    and _valid_sales_subj(h.subject)]
             s["total"] = len(hdrs); s["phase"] = "ocr"; yield s.copy()
             if not hdrs:
                 s["ok"] = True; yield s.copy(); return
