@@ -12,10 +12,36 @@ from datetime import datetime, date, timedelta
 from imap_tools import MailBox, AND
 from pdf2image import convert_from_bytes
 import pytesseract
+
 from gsheets_helper import (
-    load_sales, merge_sales,
-    load_invoices, merge_invoices,
+    load_sales as _raw_load_sales, merge_sales,
+    load_invoices as _raw_load_invoices, merge_invoices,
 )
+
+# ── PATCH ΓΙΑ ΔΙΟΡΘΩΣΗ ΔΕΔΟΜΕΝΩΝ (Διαίρεση με το 100) ──────────────────────────
+def load_sales():
+    df = _raw_load_sales()
+    if df is not None and not df.empty:
+        df = df.copy()
+        if "net_sales" in df.columns:
+            df["net_sales"] = df["net_sales"] / 100.0
+        if "avg_basket" in df.columns:
+            df["avg_basket"] = df["avg_basket"] / 100.0
+    return df
+# Διατήρηση της λειτουργίας clear() για το cache του gsheets_helper
+if hasattr(_raw_load_sales, "clear"):
+    load_sales.clear = _raw_load_sales.clear
+
+def load_invoices():
+    df = _raw_load_invoices()
+    if df is not None and not df.empty:
+        df = df.copy()
+        if "value" in df.columns:
+            df["value"] = df["value"] / 100.0
+    return df
+if hasattr(_raw_load_invoices, "clear"):
+    load_invoices.clear = _raw_load_invoices.clear
+# ──────────────────────────────────────────────────────────────────────────────
 
 # ── CONFIG ────────────────────────────────────────────────────────────────────
 INVOICES_EMAIL_USER   = "abf.skyros@gmail.com"
@@ -354,10 +380,8 @@ def fmt(v, suffix="€"):
     if v is None or (isinstance(v, float) and pd.isna(v)):
         return "—"
     r = round(float(v), 2)
-    if r == int(r):
-        s = f"{int(r):,}".replace(",", ".")
-    else:
-        s = f"{r:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    # Πάντα 2 δεκαδικά ψηφία για σωστή απεικόνιση νομίσματος π.χ. 1.547,73
+    s = f"{r:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
     return s + suffix
 
 def fmt_int(v):
@@ -405,7 +429,7 @@ def sales_line_chart(df, title="Πωλήσεις"):
         marker=dict(size=6, color="#3fb950"),
         fill="tozeroy",
         fillcolor="rgba(63,185,80,0.07)",
-        hovertemplate="<b>%{x}</b><br>%{y:,.0f}€<extra></extra>",
+        hovertemplate="<b>%{x}</b><br>%{y:,.2f}€<extra></extra>",
     ))
     if "customers" in df.columns:
         fig.add_trace(go.Scatter(
@@ -428,7 +452,7 @@ def basket_bar_chart(df):
     fig = go.Figure(go.Bar(
         x=df["date"], y=df["avg_basket"],
         marker_color="#bc8cff",
-        hovertemplate="<b>%{x}</b><br>%{y:.2f}€<extra></extra>",
+        hovertemplate="<b>%{x}</b><br>%{y:,.2f}€<extra></extra>",
     ))
     fig.update_layout(**PLOT_LAYOUT, title=dict(text="ΜΟ Καλαθιού", font=dict(size=13, color="#e6edf3")), height=220)
     return fig
@@ -438,7 +462,7 @@ def monthly_bar_chart(df_monthly):
     fig.add_trace(go.Bar(
         x=df_monthly["label"], y=df_monthly["net_sales"],
         marker_color="#238636",
-        hovertemplate="<b>%{x}</b><br>%{y:,.0f}€<extra></extra>",
+        hovertemplate="<b>%{x}</b><br>%{y:,.2f}€<extra></extra>",
         name="Πωλήσεις",
     ))
     fig.update_layout(**PLOT_LAYOUT, title=dict(text="Μηνιαίες Πωλήσεις", font=dict(size=13, color="#e6edf3")), height=260)
@@ -851,7 +875,7 @@ elif page == "📄 Παραστατικά":
                 disp["date"] = disp["date"].dt.strftime("%d/%m/%Y")
                 disp = disp.sort_values("date", ascending=False)
                 st.dataframe(
-                    disp.rename(columns={"date":"ΗΜΕΡΟΜΗΝΙΑ","type":"ΤΥΠΟΣ","value":"ΑΞΙΑ"}).style.format({"ΑΞΙΑ": "{:.2f} €"}),
+                    disp.rename(columns={"date":"ΗΜΕΡΟΜΗΝΙΑ","type":"ΤΥΠΟΣ","value":"ΑΞΙΑ"}).style.format({"ΑΞΙΑ": lambda v: fmt(v, " €")}),
                     use_container_width=True, hide_index=True,
                 )
             else:
@@ -900,7 +924,7 @@ elif page == "📄 Παραστατικά":
                 disp["date"] = disp["date"].dt.strftime("%d/%m/%Y")
                 disp = disp.sort_values("date", ascending=False)
                 st.dataframe(
-                    disp.rename(columns={"date":"ΗΜΕΡΟΜΗΝΙΑ","type":"ΤΥΠΟΣ","value":"ΑΞΙΑ"}).style.format({"ΑΞΙΑ": "{:.2f} €"}),
+                    disp.rename(columns={"date":"ΗΜΕΡΟΜΗΝΙΑ","type":"ΤΥΠΟΣ","value":"ΑΞΙΑ"}).style.format({"ΑΞΙΑ": lambda v: fmt(v, " €")}),
                     use_container_width=True, hide_index=True,
                 )
                 csv = m_df.rename(columns={"date":"ΗΜΕΡΟΜΗΝΙΑ","type":"ΤΥΠΟΣ","value":"ΑΞΙΑ"}).to_csv(index=False).encode("utf-8-sig")
