@@ -84,9 +84,9 @@ def load_sales() -> pd.DataFrame:
             return pd.DataFrame(columns=SALES_COLS)
         df = pd.DataFrame(records)
         df["date"]       = pd.to_datetime(df["date"], errors="coerce").dt.date
-        df["net_sales"]  = df["net_sales"].apply(_parse_number)
+        df["net_sales"]  = df["net_sales"].apply(_parse_number) / 100.0
         df["customers"]  = pd.to_numeric(df["customers"], errors="coerce")
-        df["avg_basket"] = df["avg_basket"].apply(_parse_number)
+        df["avg_basket"] = df["avg_basket"].apply(_parse_number) / 100.0
         df = df.dropna(subset=["date", "net_sales"])
         df = df[df["net_sales"] > 0]
         df = df.sort_values("date", ascending=False).reset_index(drop=True)
@@ -113,11 +113,12 @@ def merge_sales(records: list) -> int:
             if d_str in existing_dates:
                 continue
             existing_dates.add(d_str)
+            # Αποθήκευση x100 (integers) ώστε load_sales(/100) να επιστρέφει σωστή τιμή
             new_rows.append([
                 d_str,
-                round(float(rec["net_sales"]), 2) if rec.get("net_sales") is not None else "",
+                round(float(rec["net_sales"]) * 100) if rec.get("net_sales") is not None else "",
                 int(rec["customers"]) if rec.get("customers") is not None else "",
-                round(float(rec["avg_basket"]), 2) if rec.get("avg_basket") is not None else "",
+                round(float(rec["avg_basket"]) * 100) if rec.get("avg_basket") is not None else "",
             ])
         if new_rows:
             ws.append_rows(new_rows, value_input_option="RAW")
@@ -142,7 +143,7 @@ def load_invoices() -> pd.DataFrame:
         df = pd.DataFrame(records)
         df.columns = [c.lower() for c in df.columns]
         df["date"]  = pd.to_datetime(df["date"], errors="coerce")
-        df["value"] = df["value"].apply(_parse_number)
+        df["value"] = df["value"].apply(_parse_number) / 100.0
         df = df.dropna(subset=["date"])
         df = df.sort_values("date", ascending=False).reset_index(drop=True)
         return df
@@ -158,7 +159,9 @@ def merge_invoices(records: list) -> int:
         existing = ws.get_all_records()
         existing_keys = set()
         for r in existing:
-            key = f"{r.get('date','')}|{r.get('type','')}|{round(float(r.get('value', 0)), 2)}"
+            # Οι τιμές στο sheet είναι x100 integers
+            raw_v = float(r.get('value', 0))
+            key = f"{r.get('date','')}|{r.get('type','')}|{round(raw_v / 100.0, 2)}"
             existing_keys.add(key)
         if not existing:
             ws.append_row(["date", "type", "value"])
@@ -175,7 +178,8 @@ def merge_invoices(records: list) -> int:
             if key in existing_keys:
                 continue
             existing_keys.add(key)
-            new_rows.append([d_str, t, v_rounded])
+            # Αποθήκευση x100 ώστε load_invoices(/100) να επιστρέφει σωστή τιμή
+            new_rows.append([d_str, t, round(v_rounded * 100)])
         if new_rows:
             ws.append_rows(new_rows, value_input_option="RAW")
             load_invoices.clear()
