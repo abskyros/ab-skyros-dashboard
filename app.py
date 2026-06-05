@@ -39,9 +39,9 @@ def load_sales():
     if df is not None and not df.empty:
         df = df.copy()
         if "net_sales" in df.columns:
-            df["net_sales"] = df["net_sales"].apply(_clean_numeric) / 100.0
+            df["net_sales"] = df["net_sales"].apply(_clean_numeric)
         if "avg_basket" in df.columns:
-            df["avg_basket"] = df["avg_basket"].apply(_clean_numeric) / 100.0
+            df["avg_basket"] = df["avg_basket"].apply(_clean_numeric)
         # Αφαίρεση διπλοεγγραφών ανά ημερομηνία για καθαρή εικόνα
         if "date" in df.columns:
             df = df.drop_duplicates(subset=["date"])
@@ -54,7 +54,7 @@ def load_invoices():
     df = _raw_load_invoices()
     if df is not None and not df.empty:
         df = df.copy()
-        # Invoices: καθαρισμός χωρίς /100 — οι τιμές είναι ήδη σωστές
+        # Invoices: το Google Sheet αποθηκεύει x100 (σε λεπτά) — ίδια λογική με πωλήσεις
         if "value" in df.columns:
             df["value"] = df["value"].apply(_clean_numeric)
         if "date" in df.columns and "type" in df.columns and "value" in df.columns:
