@@ -464,6 +464,46 @@ def fetch_and_store_invoices(pw, limit=30):
     saved = merge_invoices(new_recs)
     return saved, errors, len(new_recs)
 
+def deep_scan_invoices(pw, limit=2000):
+    """Βαθιά σάρωση ΟΛΩΝ των emails παραστατικών (2 χρόνια)."""
+    from imap_tools import AND
+    cutoff = date.today() - timedelta(days=365 * DEEP_SCAN_YEARS)
+    s = {"phase": "connect", "total": 0, "done": 0, "saved": 0, "cur": "", "err": None, "ok": False}
+    yield s.copy()
+    try:
+        with MailBox("imap.gmail.com").login(INVOICES_EMAIL_USER, pw) as mb:
+            s["phase"] = "listing"; yield s.copy()
+            all_hdrs = list(mb.fetch(
+                AND(from_=INVOICES_EMAIL_SENDER),
+                limit=limit, reverse=True, mark_seen=False, headers_only=True
+            ))
+            hdrs = [h for h in all_hdrs if h.date and h.date.date() >= cutoff]
+            s["total"] = len(hdrs); s["phase"] = "fetch"; yield s.copy()
+            if not hdrs:
+                s["ok"] = True; yield s.copy(); return
+            batch = []
+            for i, h in enumerate(hdrs):
+                s["done"] = i + 1
+                s["cur"] = (h.subject or "")[:60]
+                yield s.copy()
+                try:
+                    full = list(mb.fetch(AND(uid=str(h.uid)), mark_seen=False))
+                    if not full: continue
+                    for att in full[0].attachments:
+                        fname = att.filename or ""
+                        if fname.lower().endswith((".xlsx", ".xls", ".csv")):
+                            batch.extend(parse_invoice_xlsx(att.payload, fname))
+                    if len(batch) >= BATCH_SIZE:
+                        s["saved"] += merge_invoices(batch)
+                        batch = []
+                        yield s.copy()
+                except: continue
+            if batch:
+                s["saved"] += merge_invoices(batch)
+            s["ok"] = True; yield s.copy()
+    except Exception as e:
+        s["err"] = str(e); s["ok"] = True; yield s.copy()
+
 def extract_sales_from_pdf(pdf_bytes):
     r = {"date": None, "net_sales": None, "customers": None, "avg_basket": None}
     try:
@@ -885,26 +925,64 @@ elif page == "📈 Πωλήσεις":
     </div>
     """, unsafe_allow_html=True)
 
-    # ── Κουμπί Ενημέρωσης ──
-    col_ref, col_status = st.columns([1.6, 4])
-    with col_ref:
+    # ── Κουμπιά Ενημέρωσης ──
+    _sc1, _sc2, _sc3 = st.columns([1.5, 1.8, 4])
+    with _sc1:
         st.markdown('<div class="btn-primary">', unsafe_allow_html=True)
-        if st.button("🔄 Ενημέρωση Πωλήσεων", key="sales_refresh", use_container_width=True):
-            if SALES_PW:
-                with st.spinner("Σύνδεση & ανάγνωση..."):
-                    _ex = _raw_load_sales()
-                    _since = (max(_ex["date"]) - timedelta(days=3)) if (_ex is not None and not _ex.empty) else None
-                    _recs, _errs, _n = fetch_sales_emails(SALES_PW, since=_since, want_records=60, email_scan_limit=200)
-                if _errs:
-                    col_status.markdown(f'<div class="alert alert-error">❌ {_errs[0]}</div>', unsafe_allow_html=True)
-                else:
-                    _saved = merge_sales(_recs) if _recs else 0
-                    _raw_load_sales.clear()
-                    col_status.markdown(f'<div class="alert alert-success">✅ {_saved} νέες εγγραφές από {_n} email.</div>', unsafe_allow_html=True)
-                    st.rerun()
-            else:
-                col_status.markdown('<div class="alert alert-error">❌ Δεν βρέθηκε SALES_EMAIL_PASS στα Secrets.</div>', unsafe_allow_html=True)
+        _s_inc = st.button("⚡ Νέες Εγγραφές", key="sales_refresh", use_container_width=True)
+        st.markdown('<div style="font-size:.65rem;color:#8b949e;margin-top:.25rem">Τελευταίες μέρες</div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
+    with _sc2:
+        st.markdown('<div class="btn-danger">', unsafe_allow_html=True)
+        _s_deep = st.button("🔍 Βαθιά Σάρωση 2 Χρόνων", key="sales_deep", use_container_width=True)
+        st.markdown('<div style="font-size:.65rem;color:#8b949e;margin-top:.25rem">Όλο το ιστορικό — αργό</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    _s_status = st.empty()
+
+    if _s_inc and SALES_PW:
+        with st.spinner("Σύνδεση & ανάγνωση..."):
+            _ex = _raw_load_sales()
+            _since = (max(_ex["date"]) - timedelta(days=3)) if (_ex is not None and not _ex.empty) else None
+            _recs, _errs, _n = fetch_sales_emails(SALES_PW, since=_since, want_records=60, email_scan_limit=200)
+        if _errs:
+            _s_status.markdown(f'<div class="alert alert-error">❌ {_errs[0]}</div>', unsafe_allow_html=True)
+        else:
+            _saved = merge_sales(_recs) if _recs else 0
+            _raw_load_sales.clear()
+            _s_status.markdown(f'<div class="alert alert-success">✅ {_saved} νέες εγγραφές από {_n} email.</div>', unsafe_allow_html=True)
+            st.rerun()
+    elif _s_inc and not SALES_PW:
+        _s_status.markdown('<div class="alert alert-error">❌ Δεν βρέθηκε SALES_EMAIL_PASS στα Secrets.</div>', unsafe_allow_html=True)
+
+    if _s_deep and SALES_PW:
+        _s_status.markdown('<div class="alert alert-warn">⏳ Βαθιά Σάρωση — μην κλείσετε τη σελίδα...</div>', unsafe_allow_html=True)
+        _pb = st.progress(0)
+        _ib = st.empty()
+        for _st in deep_scan_sales(SALES_PW):
+            if _st["err"]:
+                _ib.markdown(f'<div class="alert alert-error">❌ {_st["err"]}</div>', unsafe_allow_html=True)
+                break
+            if _st["phase"] == "connect":
+                _ib.markdown('<div class="prog-card"><div class="prog-title">⚡ Σύνδεση...</div></div>', unsafe_allow_html=True)
+            elif _st["phase"] == "listing":
+                _ib.markdown('<div class="prog-card"><div class="prog-title">📋 Ανάκτηση λίστας emails...</div></div>', unsafe_allow_html=True)
+            elif _st["phase"] == "ocr":
+                _tt = _st["total"]; _dd = _st["done"]
+                _pct = int(_dd / _tt * 100) if _tt else 0
+                _pb.progress(_pct)
+                _ib.markdown(f'''<div class="prog-card">
+                    <div class="prog-title">🔍 OCR: {_dd}/{_tt} ({_pct}%)</div>
+                    <div class="prog-sub">💾 {_st["saved"]} αποθηκεύτηκαν — {_st["cur"]}</div>
+                </div>''', unsafe_allow_html=True)
+            if _st["ok"]:
+                _pb.progress(100)
+                _ib.empty()
+                _s_status.markdown(f'<div class="alert alert-success">✅ Ολοκλήρωση! {_st["total"]} emails → {_st["saved"]} εγγραφές αποθηκεύτηκαν.</div>', unsafe_allow_html=True)
+                _raw_load_sales.clear()
+                st.rerun()
+    elif _s_deep and not SALES_PW:
+        _s_status.markdown('<div class="alert alert-error">❌ Δεν βρέθηκε SALES_EMAIL_PASS στα Secrets.</div>', unsafe_allow_html=True)
 
     df_s = load_sales()
 
@@ -1098,23 +1176,61 @@ elif page == "📄 Παραστατικά":
     </div>
     """, unsafe_allow_html=True)
 
-    # ── Κουμπί Ενημέρωσης ──
-    col_ref, col_status = st.columns([1.8, 4])
-    with col_ref:
+    # ── Κουμπιά Ενημέρωσης ──
+    _ic1, _ic2, _ic3 = st.columns([1.5, 1.8, 4])
+    with _ic1:
         st.markdown('<div class="btn-primary">', unsafe_allow_html=True)
-        if st.button("🔄 Ανανέωση Παραστατικών", key="inv_refresh_v2", use_container_width=True):
-            if INV_PW:
-                with st.spinner("Σύνδεση & αποθήκευση..."):
-                    saved, errs, total = fetch_and_store_invoices(INV_PW, limit=30)
-                if errs:
-                    col_status.markdown(f'<div class="alert alert-error">❌ {errs[0]}</div>', unsafe_allow_html=True)
-                else:
-                    col_status.markdown(f'<div class="alert alert-success">✅ {total} εγγραφές — {saved} νέες αποθηκεύτηκαν.</div>', unsafe_allow_html=True)
-                    _raw_load_invoices.clear()
-                    st.rerun()
-            else:
-                col_status.markdown('<div class="alert alert-error">❌ Δεν βρέθηκε EMAIL_PASS στα Secrets.</div>', unsafe_allow_html=True)
+        _i_inc = st.button("⚡ Νέα Παραστατικά", key="inv_refresh_v2", use_container_width=True)
+        st.markdown('<div style="font-size:.65rem;color:#8b949e;margin-top:.25rem">Τελευταία 30 emails</div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
+    with _ic2:
+        st.markdown('<div class="btn-danger">', unsafe_allow_html=True)
+        _i_deep = st.button("🔍 Βαθιά Σάρωση 2 Χρόνων", key="inv_deep", use_container_width=True)
+        st.markdown('<div style="font-size:.65rem;color:#8b949e;margin-top:.25rem">200+ emails — αργό</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    _i_status = st.empty()
+
+    if _i_inc and INV_PW:
+        with st.spinner("Σύνδεση & αποθήκευση..."):
+            _saved_i, _errs_i, _total_i = fetch_and_store_invoices(INV_PW, limit=50)
+        if _errs_i:
+            _i_status.markdown(f'<div class="alert alert-error">❌ {_errs_i[0]}</div>', unsafe_allow_html=True)
+        else:
+            _i_status.markdown(f'<div class="alert alert-success">✅ {_total_i} εγγραφές — {_saved_i} νέες αποθηκεύτηκαν.</div>', unsafe_allow_html=True)
+            _raw_load_invoices.clear()
+            st.rerun()
+    elif _i_inc and not INV_PW:
+        _i_status.markdown('<div class="alert alert-error">❌ Δεν βρέθηκε EMAIL_PASS στα Secrets.</div>', unsafe_allow_html=True)
+
+    if _i_deep and INV_PW:
+        _i_status.markdown('<div class="alert alert-warn">⏳ Βαθιά Σάρωση Παραστατικών — μην κλείσετε τη σελίδα...</div>', unsafe_allow_html=True)
+        _ipb = st.progress(0)
+        _iib = st.empty()
+        for _ist in deep_scan_invoices(INV_PW, limit=3000):
+            if _ist["err"]:
+                _iib.markdown(f'<div class="alert alert-error">❌ {_ist["err"]}</div>', unsafe_allow_html=True)
+                break
+            if _ist["phase"] == "connect":
+                _iib.markdown('<div class="prog-card"><div class="prog-title">⚡ Σύνδεση...</div></div>', unsafe_allow_html=True)
+            elif _ist["phase"] == "listing":
+                _iib.markdown('<div class="prog-card"><div class="prog-title">📋 Ανάκτηση λίστας emails...</div></div>', unsafe_allow_html=True)
+            elif _ist["phase"] == "fetch":
+                _itt = _ist["total"]; _idd = _ist["done"]
+                _ipct = int(_idd / _itt * 100) if _itt else 0
+                _ipb.progress(_ipct)
+                _iib.markdown(f'''<div class="prog-card">
+                    <div class="prog-title">📂 Επεξεργασία: {_idd}/{_itt} ({_ipct}%)</div>
+                    <div class="prog-sub">💾 {_ist["saved"]} αποθηκεύτηκαν — {_ist["cur"]}</div>
+                </div>''', unsafe_allow_html=True)
+            if _ist["ok"]:
+                _ipb.progress(100)
+                _iib.empty()
+                _i_status.markdown(f'<div class="alert alert-success">✅ Ολοκλήρωση! {_ist["total"]} emails → {_ist["saved"]} εγγραφές αποθηκεύτηκαν.</div>', unsafe_allow_html=True)
+                _raw_load_invoices.clear()
+                st.rerun()
+    elif _i_deep and not INV_PW:
+        _i_status.markdown('<div class="alert alert-error">❌ Δεν βρέθηκε EMAIL_PASS στα Secrets.</div>', unsafe_allow_html=True)
 
     df_inv = load_invoices()
 
