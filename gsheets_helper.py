@@ -104,7 +104,7 @@ def merge_sales(records: list) -> int:
             ])
 
         if new_rows:
-            ws.append_rows(new_rows, value_input_option="USER_ENTERED")
+            ws.append_rows(new_rows, value_input_option="RAW")
         load_sales.clear()
         return len(new_rows)
     except Exception as e:
@@ -171,7 +171,7 @@ def merge_invoices(records: list) -> int:
             new_rows.append([d_str, t, float(v_str)])
 
         if new_rows:
-            ws.append_rows(new_rows, value_input_option="USER_ENTERED")
+            ws.append_rows(new_rows, value_input_option="RAW")
         load_invoices.clear()
         return len(new_rows)
     except Exception as e:
