@@ -246,7 +246,7 @@ def fetch_sales_emails(pw, since=None, want_records=4, email_scan_limit=30):
     recs, errs, n = [], [], 0
     try:
         with MailBox("imap.gmail.com").login(SALES_EMAIL_USER, pw) as mb:
-            for msg in mb.fetch(AND(from_=SALES_EMAIL_SENDER), limit=email_scan_limit, reverse=True, mark_seen=False):
+            for msg in mb.fetch(AND(subject=SALES_SUBJECT_KW), limit=email_scan_limit, reverse=True, mark_seen=False):
                 if len(recs) >= want_records:
                     break
                 msg_dt = msg.date
@@ -254,8 +254,6 @@ def fetch_sales_emails(pw, since=None, want_records=4, email_scan_limit=30):
                     msg_dt = msg_dt.replace(tzinfo=None)
                 msg_d = msg_dt.date() if msg_dt else None
                 if since and msg_d and msg_d < since:
-                    continue
-                if not _valid_sales_subj(msg.subject):
                     continue
                 pdfs = [a for a in msg.attachments if a.filename and a.filename.lower().endswith(".pdf")]
                 if not pdfs:
@@ -278,8 +276,8 @@ def deep_scan_sales(pw):
     try:
         with MailBox("imap.gmail.com").login(SALES_EMAIL_USER, pw) as mb:
             s["phase"] = "listing"; yield s.copy()
-            hdrs = [h for h in mb.fetch(AND(from_=SALES_EMAIL_SENDER), limit=3000, reverse=True, mark_seen=False, headers_only=True)
-                    if h.date and h.date.date() >= cutoff and _valid_sales_subj(h.subject)]
+            hdrs = [h for h in mb.fetch(AND(subject=SALES_SUBJECT_KW), limit=3000, reverse=True, mark_seen=False, headers_only=True)
+                    if h.date and h.date.date() >= cutoff]
             s["total"] = len(hdrs); s["phase"] = "ocr"; yield s.copy()
             if not hdrs:
                 s["ok"] = True; yield s.copy(); return
