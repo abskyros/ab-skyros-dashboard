@@ -365,7 +365,192 @@ hr { border-color: #21262d !important; margin: 1.5rem 0 !important; }
 </style>
 """, unsafe_allow_html=True)
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+# INVOICE PARSER & EMAIL FUNCTIONS (Μετακινήθηκαν εδώ για να λυθεί το NameError)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def parse_invoice_xlsx(file_content, filename):
+    records = []
+    try:
+        if filename.lower().endswith(('.xlsx', '.xls')):
+            df_raw = pd.read_excel(io.BytesIO(file_content), header=None)
+        else:
+            try:
+                df_raw = pd.read_csv(io.BytesIO(file_content), header=None, sep=None, engine='python')
+            except:
+                df_raw = pd.read_csv(io.BytesIO(file_content), header=None, encoding='cp1253', sep=None, engine='python')
+        header_idx = -1
+        for i in range(min(20, len(df_raw))):
+            row_str = " ".join([str(x).upper() for x in df_raw.iloc[i].values if pd.notna(x)])
+            if "ΤΥΠΟΣ" in row_str and ("ΠΑΡΑΣΤΑΤ" in row_str or "ΗΜΕΡΟΜΗΝΙΑ" in row_str):
+                header_idx = i
+                break
+        if header_idx == -1:
+            return records
+        headers = [str(h).strip() for h in df_raw.iloc[header_idx].values]
+        df = df_raw.iloc[header_idx + 1:].copy()
+        df.columns = headers
+        df = df.reset_index(drop=True)
+        col_date  = next((c for c in df.columns if "ΗΜΕΡΟΜΗΝΙΑ" in str(c).upper()), None)
+        col_value = next((c for c in df.columns if "ΣΥΝΟΛΙΚΗ" in str(c).upper() or ("ΑΞΙΑ" in str(c).upper() and "ΣΧΕΤ" not in str(c).upper())), None)
+        col_type  = next((c for c in df.columns if "ΤΥΠΟΣ" in str(c).upper()), None)
+        if not (col_date and col_value and col_type):
+            return records
+        for _, row in df.iterrows():
+            d_raw = row[col_date]
+            if pd.isna(d_raw): continue
+            d = pd.to_datetime(d_raw, errors="coerce")
+            if pd.isna(d): continue
+            v_raw = row[col_value]
+            if isinstance(v_raw, (int, float)):
+                v = float(v_raw)
+            else:
+                v_str = str(v_raw).replace("€","").replace(" ","").strip()
+                if "," in v_str and "." in v_str:
+                    v_str = v_str.replace(".","").replace(",",".")
+                elif "," in v_str:
+                    v_str = v_str.replace(",",".")
+                try: v = float(v_str)
+                except: v = 0.0
+            t = str(row[col_type]).strip()
+            if not t or t.lower() == "nan": continue
+            records.append({"date": d, "type": t, "value": v})
+    except:
+        pass
+    return records
+
+def fetch_and_store_invoices(pw, limit=30):
+    new_recs, errors = [], []
+    try:
+        with MailBox("imap.gmail.com").login(INVOICES_EMAIL_USER, pw) as mb:
+            msgs = list(mb.fetch(AND(from_=INVOICES_EMAIL_SENDER), limit=limit, reverse=True))
+            for msg in msgs:
+                for att in msg.attachments:
+                    fname = att.filename or ""
+                    if fname.lower().endswith((".xlsx", ".xls", ".csv")):
+                        new_recs.extend(parse_invoice_xlsx(att.payload, fname))
+    except Exception as e:
+        errors.append(str(e))
+    saved = merge_invoices(new_recs)
+    return saved, errors, len(new_recs)
+
+def extract_sales_from_pdf(pdf_bytes):
+    r = {"date": None, "net_sales": None, "customers": None, "avg_basket": None}
+    try:
+        images = convert_from_bytes(pdf_bytes, dpi=180, first_page=1, last_page=1)
+        if not images:
+            return r
+        t = pytesseract.image_to_string(
+            images[0].rotate(90, expand=True),
+            lang="ell+eng", config="--psm 6 --oem 3"
+        )
+        m = re.search(r"Run\s+[Oo0]n\s*[:\s]+(\d{1,2})[/.](\d{1,2})[/.](\d{4})", t, re.IGNORECASE)
+        if m:
+            try: r["date"] = date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
+            except: pass
+        if not r["date"]:
+            m = re.search(r"\bFor\s+(\d{1,2})[/.](\d{1,2})[/.](\d{4})", t, re.IGNORECASE)
+            if m:
+                try:
+                    d_for = date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
+                    r["date"] = d_for - timedelta(days=1)
+                except: pass
+        m = re.search(r"Net[Dd]ay[Ss]al[Dd]is\s+([\d.,]+)", t, re.IGNORECASE)
+        if not m:
+            m = re.search(r"Ne[t7][Dd]ay\S+\s+([\d.,]+)", t, re.IGNORECASE)
+        if m:
+            raw = m.group(1).replace(".", "").replace(",", ".")
+            try:
+                v = float(raw)
+                if 500 < v < 500000: r["net_sales"] = round(v, 2)
+            except: pass
+        m = re.search(r"Num[O0]fCus\s+([\d.,]+)", t, re.IGNORECASE)
+        if m:
+            try:
+                v = int(re.sub(r"[.,]", "", m.group(1).split()[0]))
+                if 10 < v < 5000: r["customers"] = v
+            except: pass
+        m = re.search(r"Avg[Ss]al[Cc]us\s+([\d.,]+)", t, re.IGNORECASE)
+        if m:
+            try:
+                raw = m.group(1).replace(".", "").replace(",", ".")
+                v = float(raw)
+                if 1 < v < 1000: r["avg_basket"] = round(v, 2)
+            except: pass
+        if r["net_sales"] and r["customers"] and not r["avg_basket"]:
+            ab = r["net_sales"] / r["customers"]
+            if 1 < ab < 1000: r["avg_basket"] = round(ab, 2)
+    except: pass
+    return r
+
+def _valid_sales_subj(subj):
+    s = (subj or "").upper()
+    return SALES_SUBJECT_KW in s or "SKYROS" in s
+
+def fetch_sales_emails(pw, since=None, want_records=4, email_scan_limit=30):
+    recs, errs, n = [], [], 0
+    try:
+        with MailBox("imap.gmail.com").login(SALES_EMAIL_USER, pw) as mb:
+            for msg in mb.fetch(limit=email_scan_limit, reverse=True, mark_seen=False):
+                if len(recs) >= want_records: break
+                sender = (msg.from_ or "").lower()
+                if SALES_EMAIL_SENDER.lower() not in sender: continue
+                if not _valid_sales_subj(msg.subject): continue
+                msg_dt = msg.date
+                if msg_dt and hasattr(msg_dt, "tzinfo") and msg_dt.tzinfo:
+                    msg_dt = msg_dt.replace(tzinfo=None)
+                msg_d = msg_dt.date() if msg_dt else None
+                if since and msg_d and msg_d < since: continue
+                pdfs = [a for a in msg.attachments if a.filename and a.filename.lower().endswith(".pdf")]
+                if not pdfs: continue
+                n += 1
+                for pdf in pdfs:
+                    rec = extract_sales_from_pdf(pdf.payload)
+                    if rec["date"] and rec["net_sales"] is not None:
+                        recs.append(rec); break
+    except Exception as e:
+        errs.append(str(e))
+    return recs, errs, n
+
+def deep_scan_sales(pw):
+    cutoff = date.today() - timedelta(days=365 * DEEP_SCAN_YEARS)
+    s = {"phase":"connect","total":0,"done":0,"saved":0,"cur":"","err":None,"ok":False}
+    yield s.copy()
+    try:
+        with MailBox("imap.gmail.com").login(SALES_EMAIL_USER, pw) as mb:
+            s["phase"] = "listing"; yield s.copy()
+            all_hdrs = list(mb.fetch(limit=3000, reverse=True, mark_seen=False, headers_only=True))
+            hdrs = [h for h in all_hdrs
+                    if h.date and h.date.date() >= cutoff
+                    and SALES_EMAIL_SENDER.lower() in (h.from_ or "").lower()
+                    and _valid_sales_subj(h.subject)]
+            s["total"] = len(hdrs); s["phase"] = "ocr"; yield s.copy()
+            if not hdrs:
+                s["ok"] = True; yield s.copy(); return
+            batch = []
+            for i, h in enumerate(hdrs):
+                s["done"] = i + 1; s["cur"] = (h.subject or "")[:60]; yield s.copy()
+                try:
+                    full = list(mb.fetch(AND(uid=str(h.uid)), mark_seen=False))
+                    if not full: continue
+                    pdfs = [a for a in full[0].attachments if a.filename and a.filename.lower().endswith(".pdf")]
+                    if not pdfs: continue
+                    for pdf in pdfs:
+                        rec = extract_sales_from_pdf(pdf.payload)
+                        if rec["date"] and rec["net_sales"] is not None:
+                            batch.append(rec); break
+                    if len(batch) >= BATCH_SIZE:
+                        s["saved"] += merge_sales(batch); batch = []; yield s.copy()
+                except: continue
+            if batch:
+                s["saved"] += merge_sales(batch)
+            s["ok"] = True; yield s.copy()
+    except Exception as e:
+        s["err"] = str(e); s["ok"] = True; yield s.copy()
+
 # ── HELPERS ───────────────────────────────────────────────────────────────────
+
 def _secret(key, fallback=""):
     try:
         v = st.secrets.get(key, "")
@@ -1064,186 +1249,3 @@ elif page == "🔄 Ενημέρωση":
             </div>
         </div>
         """, unsafe_allow_html=True)
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# INVOICE PARSER & EMAIL FUNCTIONS (unchanged logic)
-# ══════════════════════════════════════════════════════════════════════════════
-def parse_invoice_xlsx(file_content, filename):
-    records = []
-    try:
-        if filename.lower().endswith(('.xlsx', '.xls')):
-            df_raw = pd.read_excel(io.BytesIO(file_content), header=None)
-        else:
-            try:
-                df_raw = pd.read_csv(io.BytesIO(file_content), header=None, sep=None, engine='python')
-            except:
-                df_raw = pd.read_csv(io.BytesIO(file_content), header=None, encoding='cp1253', sep=None, engine='python')
-        header_idx = -1
-        for i in range(min(20, len(df_raw))):
-            row_str = " ".join([str(x).upper() for x in df_raw.iloc[i].values if pd.notna(x)])
-            if "ΤΥΠΟΣ" in row_str and ("ΠΑΡΑΣΤΑΤ" in row_str or "ΗΜΕΡΟΜΗΝΙΑ" in row_str):
-                header_idx = i
-                break
-        if header_idx == -1:
-            return records
-        headers = [str(h).strip() for h in df_raw.iloc[header_idx].values]
-        df = df_raw.iloc[header_idx + 1:].copy()
-        df.columns = headers
-        df = df.reset_index(drop=True)
-        col_date  = next((c for c in df.columns if "ΗΜΕΡΟΜΗΝΙΑ" in str(c).upper()), None)
-        col_value = next((c for c in df.columns if "ΣΥΝΟΛΙΚΗ" in str(c).upper() or ("ΑΞΙΑ" in str(c).upper() and "ΣΧΕΤ" not in str(c).upper())), None)
-        col_type  = next((c for c in df.columns if "ΤΥΠΟΣ" in str(c).upper()), None)
-        if not (col_date and col_value and col_type):
-            return records
-        for _, row in df.iterrows():
-            d_raw = row[col_date]
-            if pd.isna(d_raw): continue
-            d = pd.to_datetime(d_raw, errors="coerce")
-            if pd.isna(d): continue
-            v_raw = row[col_value]
-            if isinstance(v_raw, (int, float)):
-                v = float(v_raw)
-            else:
-                v_str = str(v_raw).replace("€","").replace(" ","").strip()
-                if "," in v_str and "." in v_str:
-                    v_str = v_str.replace(".","").replace(",",".")
-                elif "," in v_str:
-                    v_str = v_str.replace(",",".")
-                try: v = float(v_str)
-                except: v = 0.0
-            t = str(row[col_type]).strip()
-            if not t or t.lower() == "nan": continue
-            records.append({"date": d, "type": t, "value": v})
-    except:
-        pass
-    return records
-
-def fetch_and_store_invoices(pw, limit=30):
-    new_recs, errors = [], []
-    try:
-        with MailBox("imap.gmail.com").login(INVOICES_EMAIL_USER, pw) as mb:
-            msgs = list(mb.fetch(AND(from_=INVOICES_EMAIL_SENDER), limit=limit, reverse=True))
-            for msg in msgs:
-                for att in msg.attachments:
-                    fname = att.filename or ""
-                    if fname.lower().endswith((".xlsx", ".xls", ".csv")):
-                        new_recs.extend(parse_invoice_xlsx(att.payload, fname))
-    except Exception as e:
-        errors.append(str(e))
-    saved = merge_invoices(new_recs)
-    return saved, errors, len(new_recs)
-
-def extract_sales_from_pdf(pdf_bytes):
-    r = {"date": None, "net_sales": None, "customers": None, "avg_basket": None}
-    try:
-        images = convert_from_bytes(pdf_bytes, dpi=180, first_page=1, last_page=1)
-        if not images:
-            return r
-        t = pytesseract.image_to_string(
-            images[0].rotate(90, expand=True),
-            lang="ell+eng", config="--psm 6 --oem 3"
-        )
-        m = re.search(r"Run\s+[Oo0]n\s*[:\s]+(\d{1,2})[/.](\d{1,2})[/.](\d{4})", t, re.IGNORECASE)
-        if m:
-            try: r["date"] = date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
-            except: pass
-        if not r["date"]:
-            m = re.search(r"\bFor\s+(\d{1,2})[/.](\d{1,2})[/.](\d{4})", t, re.IGNORECASE)
-            if m:
-                try:
-                    d_for = date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
-                    r["date"] = d_for - timedelta(days=1)
-                except: pass
-        m = re.search(r"Net[Dd]ay[Ss]al[Dd]is\s+([\d.,]+)", t, re.IGNORECASE)
-        if not m:
-            m = re.search(r"Ne[t7][Dd]ay\S+\s+([\d.,]+)", t, re.IGNORECASE)
-        if m:
-            raw = m.group(1).replace(".", "").replace(",", ".")
-            try:
-                v = float(raw)
-                if 500 < v < 500000: r["net_sales"] = round(v, 2)
-            except: pass
-        m = re.search(r"Num[O0]fCus\s+([\d.,]+)", t, re.IGNORECASE)
-        if m:
-            try:
-                v = int(re.sub(r"[.,]", "", m.group(1).split()[0]))
-                if 10 < v < 5000: r["customers"] = v
-            except: pass
-        m = re.search(r"Avg[Ss]al[Cc]us\s+([\d.,]+)", t, re.IGNORECASE)
-        if m:
-            try:
-                raw = m.group(1).replace(".", "").replace(",", ".")
-                v = float(raw)
-                if 1 < v < 1000: r["avg_basket"] = round(v, 2)
-            except: pass
-        if r["net_sales"] and r["customers"] and not r["avg_basket"]:
-            ab = r["net_sales"] / r["customers"]
-            if 1 < ab < 1000: r["avg_basket"] = round(ab, 2)
-    except: pass
-    return r
-
-def _valid_sales_subj(subj):
-    s = (subj or "").upper()
-    return SALES_SUBJECT_KW in s or "SKYROS" in s
-
-def fetch_sales_emails(pw, since=None, want_records=4, email_scan_limit=30):
-    recs, errs, n = [], [], 0
-    try:
-        with MailBox("imap.gmail.com").login(SALES_EMAIL_USER, pw) as mb:
-            for msg in mb.fetch(limit=email_scan_limit, reverse=True, mark_seen=False):
-                if len(recs) >= want_records: break
-                sender = (msg.from_ or "").lower()
-                if SALES_EMAIL_SENDER.lower() not in sender: continue
-                if not _valid_sales_subj(msg.subject): continue
-                msg_dt = msg.date
-                if msg_dt and hasattr(msg_dt, "tzinfo") and msg_dt.tzinfo:
-                    msg_dt = msg_dt.replace(tzinfo=None)
-                msg_d = msg_dt.date() if msg_dt else None
-                if since and msg_d and msg_d < since: continue
-                pdfs = [a for a in msg.attachments if a.filename and a.filename.lower().endswith(".pdf")]
-                if not pdfs: continue
-                n += 1
-                for pdf in pdfs:
-                    rec = extract_sales_from_pdf(pdf.payload)
-                    if rec["date"] and rec["net_sales"] is not None:
-                        recs.append(rec); break
-    except Exception as e:
-        errs.append(str(e))
-    return recs, errs, n
-
-def deep_scan_sales(pw):
-    cutoff = date.today() - timedelta(days=365 * DEEP_SCAN_YEARS)
-    s = {"phase":"connect","total":0,"done":0,"saved":0,"cur":"","err":None,"ok":False}
-    yield s.copy()
-    try:
-        with MailBox("imap.gmail.com").login(SALES_EMAIL_USER, pw) as mb:
-            s["phase"] = "listing"; yield s.copy()
-            all_hdrs = list(mb.fetch(limit=3000, reverse=True, mark_seen=False, headers_only=True))
-            hdrs = [h for h in all_hdrs
-                    if h.date and h.date.date() >= cutoff
-                    and SALES_EMAIL_SENDER.lower() in (h.from_ or "").lower()
-                    and _valid_sales_subj(h.subject)]
-            s["total"] = len(hdrs); s["phase"] = "ocr"; yield s.copy()
-            if not hdrs:
-                s["ok"] = True; yield s.copy(); return
-            batch = []
-            for i, h in enumerate(hdrs):
-                s["done"] = i + 1; s["cur"] = (h.subject or "")[:60]; yield s.copy()
-                try:
-                    full = list(mb.fetch(AND(uid=str(h.uid)), mark_seen=False))
-                    if not full: continue
-                    pdfs = [a for a in full[0].attachments if a.filename and a.filename.lower().endswith(".pdf")]
-                    if not pdfs: continue
-                    for pdf in pdfs:
-                        rec = extract_sales_from_pdf(pdf.payload)
-                        if rec["date"] and rec["net_sales"] is not None:
-                            batch.append(rec); break
-                    if len(batch) >= BATCH_SIZE:
-                        s["saved"] += merge_sales(batch); batch = []; yield s.copy()
-                except: continue
-            if batch:
-                s["saved"] += merge_sales(batch)
-            s["ok"] = True; yield s.copy()
-    except Exception as e:
-        s["err"] = str(e); s["ok"] = True; yield s.copy()
