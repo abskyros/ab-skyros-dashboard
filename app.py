@@ -749,31 +749,31 @@ today = date.today()
 # ══════════════════════════════════════════════════════════════════════════════
 # AUTO-UPDATE ON APP OPEN (τρέχει μία φορά ανά session)
 # ══════════════════════════════════════════════════════════════════════════════
-if "auto_updated" not in st.session_state:
-    st.session_state["auto_updated"] = False
+import threading
 
-if not st.session_state["auto_updated"]:
-    _au_placeholder = st.empty()
+def _background_auto_update():
+    """Background thread — δεν αγγίζει Streamlit state, δεν μπλοκάρει UI."""
     try:
-        # Ενημέρωση πωλήσεων
         if SALES_PW:
-            _au_placeholder.markdown('<div class="alert alert-info">🔄 Αυτόματη ενημέρωση πωλήσεων...</div>', unsafe_allow_html=True)
             _ex = _raw_load_sales()
             _since = (max(_ex["date"]) - timedelta(days=3)) if (_ex is not None and not _ex.empty) else None
             _recs, _, _ = fetch_sales_emails(SALES_PW, since=_since, want_records=60, email_scan_limit=200)
             if _recs:
                 merge_sales(_recs)
                 _raw_load_sales.clear()
-        # Ενημέρωση παραστατικών
+    except Exception:
+        pass
+    try:
         if INV_PW:
-            _au_placeholder.markdown('<div class="alert alert-info">🔄 Αυτόματη ενημέρωση παραστατικών...</div>', unsafe_allow_html=True)
             fetch_and_store_invoices(INV_PW, limit=30)
             _raw_load_invoices.clear()
     except Exception:
         pass
-    finally:
-        _au_placeholder.empty()
-        st.session_state["auto_updated"] = True
+
+if "auto_updated" not in st.session_state:
+    st.session_state["auto_updated"] = True
+    _t = threading.Thread(target=_background_auto_update, daemon=True)
+    _t.start()
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE: OVERVIEW
