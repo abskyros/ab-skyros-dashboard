@@ -54,9 +54,9 @@ def load_invoices():
     df = _raw_load_invoices()
     if df is not None and not df.empty:
         df = df.copy()
+        # Invoices: καθαρισμός χωρίς /100 — οι τιμές είναι ήδη σωστές
         if "value" in df.columns:
-            df["value"] = df["value"].apply(_clean_numeric) / 100.0
-        # Αφαίρεση διπλοεγγραφών (αν το sheet έχει το ίδιο τιμολόγιο πολλές φορές)
+            df["value"] = df["value"].apply(_clean_numeric)
         if "date" in df.columns and "type" in df.columns and "value" in df.columns:
             df = df.drop_duplicates(subset=["date", "type", "value"])
     return df
@@ -393,6 +393,7 @@ hr { border-color: #21262d !important; margin: 1.5rem 0 !important; }
 # ══════════════════════════════════════════════════════════════════════════════
 
 def parse_invoice_xlsx(file_content, filename):
+    """Parser βασισμένος στη λογική του my_app που δουλεύει σωστά."""
     records = []
     try:
         if filename.lower().endswith(('.xlsx', '.xls')):
@@ -402,42 +403,48 @@ def parse_invoice_xlsx(file_content, filename):
                 df_raw = pd.read_csv(io.BytesIO(file_content), header=None, sep=None, engine='python')
             except:
                 df_raw = pd.read_csv(io.BytesIO(file_content), header=None, encoding='cp1253', sep=None, engine='python')
+
+        # Βρες header row (έως γραμμή 40)
         header_idx = -1
-        for i in range(min(20, len(df_raw))):
+        for i in range(min(40, len(df_raw))):
             row_str = " ".join([str(x).upper() for x in df_raw.iloc[i].values if pd.notna(x)])
-            if "ΤΥΠΟΣ" in row_str and ("ΠΑΡΑΣΤΑΤ" in row_str or "ΗΜΕΡΟΜΗΝΙΑ" in row_str):
+            if "ΤΥΠΟΣ" in row_str and "ΗΜΕΡΟΜΗΝΙΑ" in row_str:
                 header_idx = i
                 break
         if header_idx == -1:
             return records
-        headers = [str(h).strip() for h in df_raw.iloc[header_idx].values]
+
         df = df_raw.iloc[header_idx + 1:].copy()
+        headers = [str(h).strip().upper() for h in df_raw.iloc[header_idx].values]
         df.columns = headers
+        df = df.loc[:, df.columns.notna()]
+        df = df.loc[:, ~df.columns.str.contains('NAN|UNNAMED', case=False, na=False)]
         df = df.reset_index(drop=True)
-        col_date  = next((c for c in df.columns if "ΗΜΕΡΟΜΗΝΙΑ" in str(c).upper()), None)
-        col_value = next((c for c in df.columns if "ΣΥΝΟΛΙΚΗ" in str(c).upper() or ("ΑΞΙΑ" in str(c).upper() and "ΣΧΕΤ" not in str(c).upper())), None)
-        col_type  = next((c for c in df.columns if "ΤΥΠΟΣ" in str(c).upper()), None)
+
+        # Βρες τις στήλες — ίδια λογική με my_app
+        col_date  = next((c for c in df.columns if 'ΗΜΕΡΟΜΗΝΙΑ' in c), None)
+        col_value = next((c for c in df.columns if 'ΑΞΙΑ' in c or 'ΣΥΝΟΛΟ' in c), None)
+        col_type  = next((c for c in df.columns if 'ΤΥΠΟΣ' in c), None)
+
         if not (col_date and col_value and col_type):
             return records
-        for _, row in df.iterrows():
-            d_raw = row[col_date]
-            if pd.isna(d_raw): continue
-            d = pd.to_datetime(d_raw, errors="coerce")
-            if pd.isna(d): continue
-            v_raw = row[col_value]
-            if isinstance(v_raw, (int, float)):
-                v = float(v_raw)
-            else:
-                v_str = str(v_raw).replace("€","").replace(" ","").strip()
-                if "," in v_str and "." in v_str:
-                    v_str = v_str.replace(".","").replace(",",".")
-                elif "," in v_str:
-                    v_str = v_str.replace(",",".")
-                try: v = float(v_str)
-                except: v = 0.0
-            t = str(row[col_type]).strip()
-            if not t or t.lower() == "nan": continue
-            records.append({"date": d, "type": t, "value": v})
+
+        temp = df[[col_date, col_type, col_value]].copy()
+        temp.columns = ['date', 'type', 'value']
+        temp['date'] = pd.to_datetime(temp['date'], errors='coerce')
+        # Καθαρισμός αξίας — ακριβώς όπως my_app
+        if temp['value'].dtype == object:
+            temp['value'] = (temp['value'].astype(str)
+                             .str.replace('€', '', regex=False)
+                             .str.replace(',', '.', regex=False)
+                             .str.strip())
+        temp['value'] = pd.to_numeric(temp['value'], errors='coerce').fillna(0)
+        temp['type'] = temp['type'].astype(str).str.strip()
+        temp = temp.dropna(subset=['date'])
+        temp = temp[temp['type'].str.lower() != 'nan']
+
+        for _, row in temp.iterrows():
+            records.append({"date": row['date'], "type": row['type'], "value": float(row['value'])})
     except:
         pass
     return records
