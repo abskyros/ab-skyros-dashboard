@@ -18,17 +18,35 @@ from gsheets_helper import (
     load_invoices as _raw_load_invoices, merge_invoices,
 )
 
-# ── PATCH ΓΙΑ ΔΙΟΡΘΩΣΗ ΔΕΔΟΜΕΝΩΝ (Διαίρεση με το 100) ──────────────────────────
+# ── PATCH ΓΙΑ ΔΙΟΡΘΩΣΗ ΔΕΔΟΜΕΝΩΝ (Ασφαλής Μετατροπή & Αφαίρεση Διπλών) ─────────
+def _clean_numeric(x):
+    if pd.isna(x): return 0.0
+    if isinstance(x, (int, float)): return float(x)
+    s = str(x).replace("€", "").replace(" ", "").strip()
+    # Αν υπάρχει και τελεία και κόμμα, π.χ. "1.500,50"
+    if "." in s and "," in s:
+        s = s.replace(".", "").replace(",", ".")
+    # Αν υπάρχει μόνο κόμμα, π.χ. "1500,50"
+    elif "," in s:
+        s = s.replace(",", ".")
+    try:
+        return float(s)
+    except:
+        return 0.0
+
 def load_sales():
     df = _raw_load_sales()
     if df is not None and not df.empty:
         df = df.copy()
         if "net_sales" in df.columns:
-            df["net_sales"] = df["net_sales"] / 100.0
+            df["net_sales"] = df["net_sales"].apply(_clean_numeric) / 100.0
         if "avg_basket" in df.columns:
-            df["avg_basket"] = df["avg_basket"] / 100.0
+            df["avg_basket"] = df["avg_basket"].apply(_clean_numeric) / 100.0
+        # Αφαίρεση διπλοεγγραφών ανά ημερομηνία για καθαρή εικόνα
+        if "date" in df.columns:
+            df = df.drop_duplicates(subset=["date"])
     return df
-# Διατήρηση της λειτουργίας clear() για το cache του gsheets_helper
+
 if hasattr(_raw_load_sales, "clear"):
     load_sales.clear = _raw_load_sales.clear
 
@@ -37,8 +55,12 @@ def load_invoices():
     if df is not None and not df.empty:
         df = df.copy()
         if "value" in df.columns:
-            df["value"] = df["value"] / 100.0
+            df["value"] = df["value"].apply(_clean_numeric) / 100.0
+        # Αφαίρεση διπλοεγγραφών (αν το sheet έχει το ίδιο τιμολόγιο πολλές φορές)
+        if "date" in df.columns and "type" in df.columns and "value" in df.columns:
+            df = df.drop_duplicates(subset=["date", "type", "value"])
     return df
+
 if hasattr(_raw_load_invoices, "clear"):
     load_invoices.clear = _raw_load_invoices.clear
 # ──────────────────────────────────────────────────────────────────────────────
@@ -367,7 +389,7 @@ hr { border-color: #21262d !important; margin: 1.5rem 0 !important; }
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# INVOICE PARSER & EMAIL FUNCTIONS (Μετακινήθηκαν εδώ για να λυθεί το NameError)
+# INVOICE PARSER & EMAIL FUNCTIONS
 # ══════════════════════════════════════════════════════════════════════════════
 
 def parse_invoice_xlsx(file_content, filename):
@@ -561,27 +583,35 @@ def _secret(key, fallback=""):
 INV_PW   = _secret("EMAIL_PASS")
 SALES_PW = _secret("SALES_EMAIL_PASS") or _secret("EMAIL_PASS")
 
-def fmt(v, suffix="€"):
+def fmt(v, suffix=" €"):
     if v is None or (isinstance(v, float) and pd.isna(v)):
         return "—"
-    r = round(float(v), 2)
-    # Πάντα 2 δεκαδικά ψηφία για σωστή απεικόνιση νομίσματος π.χ. 1.547,73
-    s = f"{r:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    return s + suffix
+    try:
+        r = round(float(v), 2)
+        s = f"{r:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        return s + suffix
+    except:
+        return "—"
 
 def fmt_int(v):
     if v is None or (isinstance(v, float) and pd.isna(v)):
         return "—"
-    return f"{int(v):,}".replace(",", ".")
+    try:
+        return f"{int(v):,}".replace(",", ".")
+    except:
+        return "—"
 
 def trend_html(current, previous, unit="€", lower_is_better=False):
     if previous is None or previous == 0 or pd.isna(previous):
         return '<span class="kpi-trend flat">— χωρίς σύγκριση</span>'
-    diff = current - previous
-    pct  = diff / previous * 100
-    arrow = "↑" if diff > 0 else "↓"
-    cls   = ("up" if diff > 0 else "down") if not lower_is_better else ("down" if diff > 0 else "up")
-    return f'<span class="kpi-trend {cls}">{arrow} {abs(pct):.1f}% vs προηγούμενη</span>'
+    try:
+        diff = current - previous
+        pct  = diff / previous * 100
+        arrow = "↑" if diff > 0 else "↓"
+        cls   = ("up" if diff > 0 else "down") if not lower_is_better else ("down" if diff > 0 else "up")
+        return f'<span class="kpi-trend {cls}">{arrow} {abs(pct):.1f}% vs προηγούμενη</span>'
+    except:
+        return '<span class="kpi-trend flat">—</span>'
 
 def get_week_range(d):
     if isinstance(d, datetime): d = d.date()
@@ -1147,9 +1177,9 @@ elif page == "🔄 Ενημέρωση":
 
     with c1:
         st.markdown('<div class="btn-blue">', unsafe_allow_html=True)
-        r_test = st.button("🧪 Δοκιμή (4 email)", use_container_width=True, key="r_test_v2")
+        r_test = st.button("🧪 Δοκιμή (7 email)", use_container_width=True, key="r_test_v2")
         st.markdown('</div>', unsafe_allow_html=True)
-        st.markdown('<div style="font-size:.68rem;color:#8b949e;margin-top:.3rem">Έλεγχος OCR στα 4 τελευταία</div>', unsafe_allow_html=True)
+        st.markdown('<div style="font-size:.68rem;color:#8b949e;margin-top:.3rem">Έλεγχος OCR στα 7 τελευταία</div>', unsafe_allow_html=True)
 
     with c2:
         st.markdown('<div class="btn-primary">', unsafe_allow_html=True)
@@ -1165,8 +1195,8 @@ elif page == "🔄 Ενημέρωση":
 
     # ── Actions ──
     if r_test and spw:
-        with st.spinner("OCR σε 4 email..."):
-            recs, errs, n = fetch_sales_emails(spw, want_records=4, email_scan_limit=20)
+        with st.spinner("OCR σε 7 email..."):
+            recs, errs, n = fetch_sales_emails(spw, want_records=7, email_scan_limit=30)
         if errs:
             st.markdown(f'<div class="alert alert-error">❌ {errs[0]}</div>', unsafe_allow_html=True)
         elif recs:
