@@ -352,6 +352,29 @@ label { color: #8b949e !important; font-size: .72rem !important; font-weight: 60
 /* ── Divider ── */
 hr { border-color: #21262d !important; margin: 1.5rem 0 !important; }
 
+/* ── Sidebar toggle button ── */
+.sidebar-toggle-btn {
+    position: fixed;
+    top: 50%;
+    left: 0;
+    transform: translateY(-50%);
+    z-index: 99999;
+    background: #238636;
+    border: none;
+    border-radius: 0 8px 8px 0;
+    width: 20px;
+    height: 60px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 12px;
+    font-weight: bold;
+    transition: width .2s, background .2s;
+}
+.sidebar-toggle-btn:hover { width: 28px; background: #2ea043; }
+
 /* ── Sidebar nav items ── */
 .nav-item {
     display: flex;
@@ -386,6 +409,16 @@ hr { border-color: #21262d !important; margin: 1.5rem 0 !important; }
 
 </style>
 """, unsafe_allow_html=True)
+
+st.markdown("""
+<button onclick="
+var btns=window.parent.document.querySelectorAll('button');
+btns.forEach(function(b){if(b.getAttribute('aria-label') && b.getAttribute('aria-label').includes('sidebar'))b.click();});
+var btn2=window.parent.document.querySelector('[data-testid=collapsedControl]');
+if(btn2)btn2.click();
+" style="position:fixed;top:50%;left:0;transform:translateY(-50%);z-index:99999;background:#238636;border:none;border-radius:0 8px 8px 0;width:22px;height:64px;cursor:pointer;color:white;font-size:16px;display:flex;align-items:center;justify-content:center;" title="Άνοιγμα μενού">&#9776;</button>
+""", unsafe_allow_html=True)
+
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -757,7 +790,7 @@ with st.sidebar:
         <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:.5rem">
             <div style="background:linear-gradient(135deg,#238636,#2ea043);border-radius:10px;
                         width:40px;height:40px;display:flex;align-items:center;
-                        justify-content:center;font-size:1.2rem">🏪</div>
+                        justify-content:center;font-size:1.2rem">🏢</div>
             <div>
                 <div style="font-size:.95rem;font-weight:700;color:#e6edf3">ΑΒ Σκύρος</div>
                 <div style="font-size:.65rem;color:#8b949e">Dashboard v2</div>
@@ -770,7 +803,7 @@ with st.sidebar:
 
     page = st.radio(
         "Σελίδα",
-        ["📊 Overview", "📈 Πωλήσεις", "📄 Παραστατικά"],
+        ["🏢 Overview", "💼 Πωλήσεις", "📋 Παραστατικά"],
         label_visibility="collapsed",
     )
 
@@ -825,10 +858,10 @@ if "auto_updated" not in st.session_state:
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE: OVERVIEW
 # ══════════════════════════════════════════════════════════════════════════════
-if page == "📊 Overview":
+if page == "🏢 Overview":
     st.markdown("""
     <div class="page-header">
-        <div class="icon">📊</div>
+        <div class="icon">🏢</div>
         <div><h1>Overview</h1><div class="sub">Γενική εικόνα · Τρέχουσα εβδομάδα</div></div>
     </div>
     """, unsafe_allow_html=True)
@@ -917,27 +950,24 @@ if page == "📊 Overview":
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE: ΠΩΛΗΣΕΙΣ
 # ══════════════════════════════════════════════════════════════════════════════
-elif page == "📈 Πωλήσεις":
+elif page == "💼 Πωλήσεις":
     st.markdown("""
     <div class="page-header">
-        <div class="icon">📈</div>
+        <div class="icon">💼</div>
         <div><h1>Πωλήσεις</h1><div class="sub">Εβδομαδιαία & Μηνιαία ανάλυση</div></div>
     </div>
     """, unsafe_allow_html=True)
 
     # ── Κουμπιά Ενημέρωσης ──
-    _sc1, _sc2, _sc3 = st.columns([1.5, 1.8, 4])
+    _sc1, _sc2, _sc3 = st.columns([1.8, 2.0, 4])
     with _sc1:
         st.markdown('<div class="btn-primary">', unsafe_allow_html=True)
-        _s_inc = st.button("⚡ Νέες Εγγραφές", key="sales_refresh", use_container_width=True)
-        st.markdown('<div style="font-size:.65rem;color:#8b949e;margin-top:.25rem">Τελευταίες μέρες</div>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+        _s_inc = st.button("🔁 Ενημέρωση", key="sales_refresh", use_container_width=True)
+        st.markdown('<div style="font-size:.62rem;color:#8b949e;margin-top:.2rem">Τελευταίες μέρες</div></div>', unsafe_allow_html=True)
     with _sc2:
         st.markdown('<div class="btn-danger">', unsafe_allow_html=True)
         _s_deep = st.button("🔍 Βαθιά Σάρωση 2 Χρόνων", key="sales_deep", use_container_width=True)
-        st.markdown('<div style="font-size:.65rem;color:#8b949e;margin-top:.25rem">Όλο το ιστορικό — αργό</div>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-
+        st.markdown('<div style="font-size:.62rem;color:#8b949e;margin-top:.2rem">Πλήρες ιστορικό — αργό</div></div>', unsafe_allow_html=True)
     _s_status = st.empty()
 
     if _s_inc and SALES_PW:
@@ -953,36 +983,36 @@ elif page == "📈 Πωλήσεις":
             _s_status.markdown(f'<div class="alert alert-success">✅ {_saved} νέες εγγραφές από {_n} email.</div>', unsafe_allow_html=True)
             st.rerun()
     elif _s_inc and not SALES_PW:
-        _s_status.markdown('<div class="alert alert-error">❌ Δεν βρέθηκε SALES_EMAIL_PASS στα Secrets.</div>', unsafe_allow_html=True)
+        _s_status.markdown('<div class="alert alert-error">❌ Δεν βρέθηκε SALES_EMAIL_PASS.</div>', unsafe_allow_html=True)
 
     if _s_deep and SALES_PW:
         _s_status.markdown('<div class="alert alert-warn">⏳ Βαθιά Σάρωση — μην κλείσετε τη σελίδα...</div>', unsafe_allow_html=True)
         _pb = st.progress(0)
         _ib = st.empty()
-        for _st in deep_scan_sales(SALES_PW):
-            if _st["err"]:
-                _ib.markdown(f'<div class="alert alert-error">❌ {_st["err"]}</div>', unsafe_allow_html=True)
+        for _st_s in deep_scan_sales(SALES_PW):
+            if _st_s["err"]:
+                _ib.markdown(f'<div class="alert alert-error">❌ {_st_s["err"]}</div>', unsafe_allow_html=True)
                 break
-            if _st["phase"] == "connect":
-                _ib.markdown('<div class="prog-card"><div class="prog-title">⚡ Σύνδεση...</div></div>', unsafe_allow_html=True)
-            elif _st["phase"] == "listing":
-                _ib.markdown('<div class="prog-card"><div class="prog-title">📋 Ανάκτηση λίστας emails...</div></div>', unsafe_allow_html=True)
-            elif _st["phase"] == "ocr":
-                _tt = _st["total"]; _dd = _st["done"]
+            if _st_s["phase"] == "connect":
+                _ib.markdown('<div class="prog-card"><div class="prog-title">Σύνδεση...</div></div>', unsafe_allow_html=True)
+            elif _st_s["phase"] == "listing":
+                _ib.markdown('<div class="prog-card"><div class="prog-title">Ανάκτηση λίστας emails...</div></div>', unsafe_allow_html=True)
+            elif _st_s["phase"] == "ocr":
+                _tt = _st_s["total"]; _dd = _st_s["done"]
                 _pct = int(_dd / _tt * 100) if _tt else 0
                 _pb.progress(_pct)
                 _ib.markdown(f'''<div class="prog-card">
-                    <div class="prog-title">🔍 OCR: {_dd}/{_tt} ({_pct}%)</div>
-                    <div class="prog-sub">💾 {_st["saved"]} αποθηκεύτηκαν — {_st["cur"]}</div>
+                    <div class="prog-title">OCR: {_dd}/{_tt} ({_pct}%)</div>
+                    <div class="prog-sub">Αποθηκεύτηκαν: {_st_s["saved"]} — {_st_s["cur"]}</div>
                 </div>''', unsafe_allow_html=True)
-            if _st["ok"]:
+            if _st_s["ok"]:
                 _pb.progress(100)
                 _ib.empty()
-                _s_status.markdown(f'<div class="alert alert-success">✅ Ολοκλήρωση! {_st["total"]} emails → {_st["saved"]} εγγραφές αποθηκεύτηκαν.</div>', unsafe_allow_html=True)
+                _s_status.markdown(f'<div class="alert alert-success">✅ {_st_s["total"]} emails → {_st_s["saved"]} εγγραφές.</div>', unsafe_allow_html=True)
                 _raw_load_sales.clear()
                 st.rerun()
     elif _s_deep and not SALES_PW:
-        _s_status.markdown('<div class="alert alert-error">❌ Δεν βρέθηκε SALES_EMAIL_PASS στα Secrets.</div>', unsafe_allow_html=True)
+        _s_status.markdown('<div class="alert alert-error">❌ Δεν βρέθηκε SALES_EMAIL_PASS.</div>', unsafe_allow_html=True)
 
     df_s = load_sales()
 
@@ -990,29 +1020,14 @@ elif page == "📈 Πωλήσεις":
         st.markdown('<div class="alert alert-warn">⚠️ Δεν υπάρχουν δεδομένα. Πατήστε Ενημέρωση.</div>', unsafe_allow_html=True)
         st.stop()
 
-    t_wk, t_mo = st.tabs(["📅 Εβδομαδιαία", "📆 Μηνιαία"])
+    t_wk, t_mo = st.tabs(["Εβδομαδιαία", "Μηνιαία"])
 
     # ── WEEKLY (Δευτέρα–Κυριακή) ──
     with t_wk:
-        # Πλοήγηση εβδομάδων με ← →
-        if "sales_week_offset" not in st.session_state:
-            st.session_state["sales_week_offset"] = 0
-
-        col_prev, col_cur, col_next = st.columns([1, 3, 1])
-        with col_prev:
-            if st.button("← Προηγ.", key="sales_wk_prev"):
-                st.session_state["sales_week_offset"] -= 1
-        with col_next:
-            if st.button("Επόμ. →", key="sales_wk_next"):
-                st.session_state["sales_week_offset"] += 1
-        with col_cur:
-            if st.button("Τρέχουσα", key="sales_wk_reset"):
-                st.session_state["sales_week_offset"] = 0
-
-        offset = st.session_state["sales_week_offset"]
-        ref_day = today + timedelta(weeks=offset)
-        sw, ew   = get_week_range(ref_day)
+        sel_s = st.date_input("Επίλεξε ημέρα:", today, key="sales_wk_date")
+        sw, ew   = get_week_range(sel_s)
         psw, pew = prev_week_range(sw)
+        offset   = 0  # χρησιμοποιείται μόνο για chart keys
 
         st.markdown(f'<div class="date-badge">📅 Δευτ. {sw.strftime("%d/%m/%Y")} — Κυρ. {ew.strftime("%d/%m/%Y")}</div>', unsafe_allow_html=True)
 
@@ -1073,27 +1088,13 @@ elif page == "📈 Πωλήσεις":
 
     # ── MONTHLY με πλοήγηση ←→ ──
     with t_mo:
-        if "sales_month_offset" not in st.session_state:
-            st.session_state["sales_month_offset"] = 0
-
-        col_prev, col_cur, col_next = st.columns([1, 3, 1])
-        with col_prev:
-            if st.button("← Προηγ.", key="sales_mo_prev"):
-                st.session_state["sales_month_offset"] -= 1
-        with col_next:
-            if st.button("Επόμ. →", key="sales_mo_next"):
-                st.session_state["sales_month_offset"] += 1
-        with col_cur:
-            if st.button("Τρέχων", key="sales_mo_reset"):
-                st.session_state["sales_month_offset"] = 0
-
-        mo_off = st.session_state["sales_month_offset"]
-        # Υπολογισμός μήνα από offset
-        _ref_mo = today.month - 1 + mo_off  # 0-based
-        sm = (_ref_mo % 12) + 1
-        sy = today.year + (_ref_mo // 12)
-
-        st.markdown(f'<div class="date-badge">📆 {MONTHS_GR[sm-1]} {sy}</div>', unsafe_allow_html=True)
+        _ca, _cb = st.columns(2)
+        with _ca:
+            sm = st.selectbox("Μήνας", range(1,13), format_func=lambda x: MONTHS_GR[x-1], index=today.month-1, key="sales_mo_sel")
+        with _cb:
+            _yrs_s = sorted({r.year for r in df_s["date"]}, reverse=True)
+            sy = st.selectbox("Έτος", _yrs_s, key="sales_yr_sel")
+        mo_off = 0  # για chart keys
 
         m_df = df_s[(df_s["date"].apply(lambda d: d.month) == sm) & (df_s["date"].apply(lambda d: d.year) == sy)]
         pm   = sm - 1 if sm > 1 else 12
@@ -1168,27 +1169,20 @@ elif page == "📈 Πωλήσεις":
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE: ΠΑΡΑΣΤΑΤΙΚΑ
 # ══════════════════════════════════════════════════════════════════════════════
-elif page == "📄 Παραστατικά":
+elif page == "📋 Παραστατικά":
     st.markdown("""
     <div class="page-header">
-        <div class="icon">📄</div>
+        <div class="icon">📋</div>
         <div><h1>Παραστατικά</h1><div class="sub">Τιμολόγια & Πιστωτικά</div></div>
     </div>
     """, unsafe_allow_html=True)
 
-    # ── Κουμπιά Ενημέρωσης ──
-    _ic1, _ic2, _ic3 = st.columns([1.5, 1.8, 4])
+    # ── Κουμπί Ενημέρωσης ──
+    _ic1, _ic2 = st.columns([1.9, 4])
     with _ic1:
         st.markdown('<div class="btn-primary">', unsafe_allow_html=True)
-        _i_inc = st.button("⚡ Νέα Παραστατικά", key="inv_refresh_v2", use_container_width=True)
-        st.markdown('<div style="font-size:.65rem;color:#8b949e;margin-top:.25rem">Τελευταία 30 emails</div>', unsafe_allow_html=True)
+        _i_inc = st.button("🔁 Ενημέρωση Παραστατικών", key="inv_refresh_v2", use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
-    with _ic2:
-        st.markdown('<div class="btn-danger">', unsafe_allow_html=True)
-        _i_deep = st.button("🔍 Βαθιά Σάρωση 2 Χρόνων", key="inv_deep", use_container_width=True)
-        st.markdown('<div style="font-size:.65rem;color:#8b949e;margin-top:.25rem">200+ emails — αργό</div>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-
     _i_status = st.empty()
 
     if _i_inc and INV_PW:
@@ -1203,61 +1197,18 @@ elif page == "📄 Παραστατικά":
     elif _i_inc and not INV_PW:
         _i_status.markdown('<div class="alert alert-error">❌ Δεν βρέθηκε EMAIL_PASS στα Secrets.</div>', unsafe_allow_html=True)
 
-    if _i_deep and INV_PW:
-        _i_status.markdown('<div class="alert alert-warn">⏳ Βαθιά Σάρωση Παραστατικών — μην κλείσετε τη σελίδα...</div>', unsafe_allow_html=True)
-        _ipb = st.progress(0)
-        _iib = st.empty()
-        for _ist in deep_scan_invoices(INV_PW, limit=3000):
-            if _ist["err"]:
-                _iib.markdown(f'<div class="alert alert-error">❌ {_ist["err"]}</div>', unsafe_allow_html=True)
-                break
-            if _ist["phase"] == "connect":
-                _iib.markdown('<div class="prog-card"><div class="prog-title">⚡ Σύνδεση...</div></div>', unsafe_allow_html=True)
-            elif _ist["phase"] == "listing":
-                _iib.markdown('<div class="prog-card"><div class="prog-title">📋 Ανάκτηση λίστας emails...</div></div>', unsafe_allow_html=True)
-            elif _ist["phase"] == "fetch":
-                _itt = _ist["total"]; _idd = _ist["done"]
-                _ipct = int(_idd / _itt * 100) if _itt else 0
-                _ipb.progress(_ipct)
-                _iib.markdown(f'''<div class="prog-card">
-                    <div class="prog-title">📂 Επεξεργασία: {_idd}/{_itt} ({_ipct}%)</div>
-                    <div class="prog-sub">💾 {_ist["saved"]} αποθηκεύτηκαν — {_ist["cur"]}</div>
-                </div>''', unsafe_allow_html=True)
-            if _ist["ok"]:
-                _ipb.progress(100)
-                _iib.empty()
-                _i_status.markdown(f'<div class="alert alert-success">✅ Ολοκλήρωση! {_ist["total"]} emails → {_ist["saved"]} εγγραφές αποθηκεύτηκαν.</div>', unsafe_allow_html=True)
-                _raw_load_invoices.clear()
-                st.rerun()
-    elif _i_deep and not INV_PW:
-        _i_status.markdown('<div class="alert alert-error">❌ Δεν βρέθηκε EMAIL_PASS στα Secrets.</div>', unsafe_allow_html=True)
-
     df_inv = load_invoices()
 
-    t_wk, t_mo = st.tabs(["📅 Εβδομαδιαία", "📆 Μηνιαία"])
+    t_wk, t_mo = st.tabs(["Εβδομαδιαία", "Μηνιαία"])
 
     # ── WEEKLY (Δευτέρα–Κυριακή) με ←→ ──
     with t_wk:
         if df_inv.empty:
             st.markdown('<div class="alert alert-warn">⚠️ Δεν υπάρχουν δεδομένα. Πατήστε "Ανανέωση Παραστατικών".</div>', unsafe_allow_html=True)
         else:
-            if "inv_week_offset" not in st.session_state:
-                st.session_state["inv_week_offset"] = 0
-
-            col_prev, col_cur, col_next = st.columns([1, 3, 1])
-            with col_prev:
-                if st.button("← Προηγ.", key="inv_wk_prev"):
-                    st.session_state["inv_week_offset"] -= 1
-            with col_next:
-                if st.button("Επόμ. →", key="inv_wk_next"):
-                    st.session_state["inv_week_offset"] += 1
-            with col_cur:
-                if st.button("Τρέχουσα", key="inv_wk_reset"):
-                    st.session_state["inv_week_offset"] = 0
-
-            inv_wk_off = st.session_state["inv_week_offset"]
-            ref_inv = today + timedelta(weeks=inv_wk_off)
-            sw, ew  = get_week_range(ref_inv)
+            sel_i = st.date_input("Επίλεξε ημέρα:", today, key="inv_wk_date")
+            sw, ew = get_week_range(sel_i)
+            inv_wk_off = 0  # για chart keys
 
             st.markdown(f'<div class="date-badge">📅 Δευτ. {sw.strftime("%d/%m/%Y")} — Κυρ. {ew.strftime("%d/%m/%Y")}</div>', unsafe_allow_html=True)
 
@@ -1306,26 +1257,13 @@ elif page == "📄 Παραστατικά":
         if df_inv.empty:
             st.markdown('<div class="alert alert-warn">⚠️ Δεν υπάρχουν δεδομένα.</div>', unsafe_allow_html=True)
         else:
-            if "inv_month_offset" not in st.session_state:
-                st.session_state["inv_month_offset"] = 0
-
-            col_prev, col_cur, col_next = st.columns([1, 3, 1])
-            with col_prev:
-                if st.button("← Προηγ.", key="inv_mo_prev"):
-                    st.session_state["inv_month_offset"] -= 1
-            with col_next:
-                if st.button("Επόμ. →", key="inv_mo_next"):
-                    st.session_state["inv_month_offset"] += 1
-            with col_cur:
-                if st.button("Τρέχων", key="inv_mo_reset"):
-                    st.session_state["inv_month_offset"] = 0
-
-            inv_mo_off = st.session_state["inv_month_offset"]
-            _ref_mo = today.month - 1 + inv_mo_off
-            sm = (_ref_mo % 12) + 1
-            sy = today.year + (_ref_mo // 12)
-
-            st.markdown(f'<div class="date-badge">📆 {MONTHS_GR[sm-1]} {sy}</div>', unsafe_allow_html=True)
+            _ia, _ib = st.columns(2)
+            with _ia:
+                sm = st.selectbox("Μήνας", range(1,13), format_func=lambda x: MONTHS_GR[x-1], index=today.month-1, key="inv_mo_sel")
+            with _ib:
+                _yrs_i = sorted(df_inv["date"].dt.year.unique(), reverse=True)
+                sy = st.selectbox("Έτος", _yrs_i, key="inv_yr_sel")
+            inv_mo_off = 0  # για chart keys
 
             m_df = df_inv[(df_inv["date"].dt.month == sm) & (df_inv["date"].dt.year == sy)]
 
