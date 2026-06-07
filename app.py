@@ -352,28 +352,25 @@ label { color: #8b949e !important; font-size: .72rem !important; font-weight: 60
 /* ── Divider ── */
 hr { border-color: #21262d !important; margin: 1.5rem 0 !important; }
 
-/* ── Sidebar toggle button ── */
-.sidebar-toggle-btn {
-    position: fixed;
-    top: 50%;
-    left: 0;
-    transform: translateY(-50%);
-    z-index: 99999;
-    background: #238636;
-    border: none;
-    border-radius: 0 8px 8px 0;
-    width: 20px;
-    height: 60px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: white;
-    font-size: 12px;
-    font-weight: bold;
-    transition: width .2s, background .2s;
+/* ── Sidebar collapse/expand button — native Streamlit ── */
+button[kind="header"] {
+    background: #238636 !important;
+    color: white !important;
+    border-radius: 0 8px 8px 0 !important;
+    opacity: 1 !important;
 }
-.sidebar-toggle-btn:hover { width: 28px; background: #2ea043; }
+[data-testid="collapsedControl"] {
+    background: #238636 !important;
+    border-radius: 0 8px 8px 0 !important;
+    width: 24px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+[data-testid="collapsedControl"] svg {
+    color: white !important;
+    fill: white !important;
+}
 
 /* ── Sidebar nav items ── */
 .nav-item {
@@ -408,15 +405,6 @@ hr { border-color: #21262d !important; margin: 1.5rem 0 !important; }
 .ss-item span { display: block; font-size: .88rem; font-weight: 700; color: #3fb950; margin-top: .15rem; }
 
 </style>
-""", unsafe_allow_html=True)
-
-st.markdown("""
-<button onclick="
-var btns=window.parent.document.querySelectorAll('button');
-btns.forEach(function(b){if(b.getAttribute('aria-label') && b.getAttribute('aria-label').includes('sidebar'))b.click();});
-var btn2=window.parent.document.querySelector('[data-testid=collapsedControl]');
-if(btn2)btn2.click();
-" style="position:fixed;top:50%;left:0;transform:translateY(-50%);z-index:99999;background:#238636;border:none;border-radius:0 8px 8px 0;width:22px;height:64px;cursor:pointer;color:white;font-size:16px;display:flex;align-items:center;justify-content:center;" title="Άνοιγμα μενού">&#9776;</button>
 """, unsafe_allow_html=True)
 
 
@@ -808,6 +796,14 @@ with st.sidebar:
     )
 
     st.markdown("<hr>", unsafe_allow_html=True)
+
+    # ── Οδηγία για sidebar ──
+    st.markdown("""
+    <div style="font-size:.62rem;color:#484f58;text-align:center;padding:.5rem 0;line-height:1.6">
+        Για να κλείσετε/ανοίξετε<br>το μενού χρησιμοποιήστε<br>
+        το <b style="color:#8b949e">≡</b> στην επάνω αριστερά γωνία
+    </div>
+    """, unsafe_allow_html=True)
 
     # Live stats in sidebar
     df_s_sb  = load_sales()
