@@ -376,58 +376,53 @@ label { color: var(--text-muted) !important; font-size: .72rem !important; font-
 /* ── Divider ── */
 hr { border-color: var(--border) !important; margin: 1.5rem 0 !important; }
 
-/* ── Sidebar collapse/expand button — visible on dark bg ── */
-[data-testid="collapsedControl"] {
-    background: #2ea043 !important;
-    border-radius: 0 10px 10px 0 !important;
-    width: 28px !important;
-    height: 56px !important;
+/* ════ SIDEBAR EXPAND BUTTON — αδύνατο να μην φαίνεται ════ */
+/* Όλα τα πιθανά selectors για το κουμπί ανοίγματος */
+[data-testid="collapsedControl"],
+[data-testid="stSidebarCollapsedControl"],
+[data-testid="stExpandSidebarButton"],
+button[aria-label="Open sidebar"],
+button[aria-label="expand"] {
+    background: #ff4b4b !important;
+    border-radius: 0 12px 12px 0 !important;
+    width: 42px !important;
+    min-width: 42px !important;
+    height: 70px !important;
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
-    box-shadow: 2px 0 12px rgba(46,160,67,0.5) !important;
-    transition: width .2s, background .2s !important;
+    box-shadow: 3px 0 20px rgba(255,75,75,0.7) !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    z-index: 999999 !important;
+    position: fixed !important;
+    top: 80px !important;
+    left: 0 !important;
 }
-[data-testid="collapsedControl"]:hover {
-    background: #3fb950 !important;
-    width: 34px !important;
-}
-[data-testid="collapsedControl"] svg {
+[data-testid="collapsedControl"] svg,
+[data-testid="stSidebarCollapsedControl"] svg,
+[data-testid="stExpandSidebarButton"] svg,
+button[aria-label="Open sidebar"] svg {
     color: #ffffff !important;
     fill: #ffffff !important;
-    width: 18px !important;
-    height: 18px !important;
+    width: 24px !important;
+    height: 24px !important;
 }
-[data-testid="collapsedControl"] button {
+[data-testid="collapsedControl"] button,
+[data-testid="stSidebarCollapsedControl"] button {
     background: transparent !important;
     border: none !important;
-    color: white !important;
 }
-/* Sidebar expand arrow (το > όταν είναι κλειστή) */
-[data-testid="stSidebarCollapsedControl"] {
-    background: #2ea043 !important;
-    border-radius: 0 10px 10px 0 !important;
-    width: 28px !important;
-    height: 56px !important;
-    box-shadow: 2px 0 12px rgba(46,160,67,0.5) !important;
-}
-[data-testid="stSidebarCollapsedControl"] svg {
-    fill: white !important;
-    color: white !important;
-}
-/* Κουμπί κλεισίματος sidebar (το < όταν είναι ανοιχτή) */
+/* Κουμπί κλεισίματος (μέσα στη sidebar) */
 [data-testid="stSidebarCollapseButton"] button {
-    background: #21262d !important;
-    border-radius: 50% !important;
-    color: #e6edf3 !important;
-    border: 1px solid #30363d !important;
-}
-[data-testid="stSidebarCollapseButton"] button:hover {
-    background: #2ea043 !important;
-    border-color: #2ea043 !important;
+    background: #ff4b4b !important;
+    border-radius: 8px !important;
+    color: white !important;
+    border: none !important;
 }
 [data-testid="stSidebarCollapseButton"] svg {
-    fill: #e6edf3 !important;
+    fill: white !important;
+    color: white !important;
 }
 
 /* ── Sidebar nav items ── */
@@ -748,16 +743,29 @@ def prev_week_range(sw):
     return sw - timedelta(days=7), sw - timedelta(days=1)
 
 # ── PLOTLY THEME ──────────────────────────────────────────────────────────────
-PLOT_LAYOUT = dict(
-    paper_bgcolor="rgba(0,0,0,0)",
-    plot_bgcolor="rgba(0,0,0,0)",
-    font=dict(family="Inter", color="#8b949e", size=11),
-    margin=dict(l=0, r=0, t=30, b=0),
-    xaxis=dict(gridcolor="#21262d", linecolor="#30363d", tickcolor="#30363d"),
-    yaxis=dict(gridcolor="#21262d", linecolor="#30363d", tickcolor="#30363d"),
-    legend=dict(bgcolor="rgba(0,0,0,0)", bordercolor="#30363d"),
-    hoverlabel=dict(bgcolor="#161b22", bordercolor="#30363d", font_color="#e6edf3"),
-)
+def _title_color():
+    return "#e6edf3" if st.session_state.get("theme", "dark") == "dark" else "#1f2328"
+
+def _plot_layout():
+    """Επιστρέφει layout ανάλογα με το theme (dark/light)."""
+    _dark = st.session_state.get("theme", "dark") == "dark"
+    if _dark:
+        grid, line, txt, hover_bg, hover_txt = "#21262d", "#30363d", "#8b949e", "#161b22", "#e6edf3"
+    else:
+        grid, line, txt, hover_bg, hover_txt = "#d0d7de", "#d0d7de", "#656d76", "#ffffff", "#1f2328"
+    return dict(
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(family="Inter", color=txt, size=11),
+        margin=dict(l=0, r=0, t=30, b=0),
+        xaxis=dict(gridcolor=grid, linecolor=line, tickcolor=line),
+        yaxis=dict(gridcolor=grid, linecolor=line, tickcolor=line),
+        legend=dict(bgcolor="rgba(0,0,0,0)", bordercolor=line),
+        hoverlabel=dict(bgcolor=hover_bg, bordercolor=line, font_color=hover_txt),
+    )
+
+# Backward compat: PLOT_LAYOUT ως property-like (αξιολογείται κάθε φορά)
+PLOT_LAYOUT = _plot_layout()
 
 def sales_line_chart(df, title="Πωλήσεις"):
     df = df.sort_values("date")
@@ -785,7 +793,7 @@ def sales_line_chart(df, title="Πωλήσεις"):
             yaxis2=dict(overlaying="y", side="right", gridcolor="rgba(0,0,0,0)",
                         tickcolor="#30363d", tickfont=dict(color="#58a6ff", size=10)),
         )
-    fig.update_layout(**PLOT_LAYOUT, title=dict(text=title, font=dict(size=13, color="#e6edf3")), height=280)
+    fig.update_layout(**_plot_layout(), title=dict(text=title, font=dict(size=13, color=_title_color())), height=280)
     return fig
 
 def basket_bar_chart(df):
@@ -795,7 +803,7 @@ def basket_bar_chart(df):
         marker_color="#bc8cff",
         hovertemplate="<b>%{x}</b><br>%{y:,.2f}€<extra></extra>",
     ))
-    fig.update_layout(**PLOT_LAYOUT, title=dict(text="ΜΟ Καλαθιού", font=dict(size=13, color="#e6edf3")), height=220)
+    fig.update_layout(**_plot_layout(), title=dict(text="ΜΟ Καλαθιού", font=dict(size=13, color=_title_color())), height=220)
     return fig
 
 def monthly_bar_chart(df_monthly):
@@ -806,7 +814,7 @@ def monthly_bar_chart(df_monthly):
         hovertemplate="<b>%{x}</b><br>%{y:,.2f}€<extra></extra>",
         name="Πωλήσεις",
     ))
-    fig.update_layout(**PLOT_LAYOUT, title=dict(text="Μηνιαίες Πωλήσεις", font=dict(size=13, color="#e6edf3")), height=260)
+    fig.update_layout(**_plot_layout(), title=dict(text="Μηνιαίες Πωλήσεις", font=dict(size=13, color=_title_color())), height=260)
     return fig
 
 def invoices_donut(inv_total, crd_total):
@@ -819,11 +827,11 @@ def invoices_donut(inv_total, crd_total):
         hovertemplate="<b>%{label}</b><br>%{value:,.2f}€<extra></extra>",
     ))
     fig.update_layout(
-        **PLOT_LAYOUT,
+        **_plot_layout(),
         showlegend=True,
         height=220,
         annotations=[dict(text=f"{fmt(inv_total-crd_total)}", x=.5, y=.5,
-                          font=dict(size=14, color="#e6edf3", family="Inter"), showarrow=False)],
+                          font=dict(size=14, color=_title_color(), family="Inter"), showarrow=False)],
     )
     return fig
 
@@ -859,33 +867,51 @@ with st.sidebar:
         st.session_state["theme"] = "light" if _is_dark else "dark"
         st.rerun()
 
-    # Inject theme class on body
+    # Inject LIGHT theme — δυνατά selectors που πιάνουν τα πάντα
     _theme_css = "" if _is_dark else """
     <style>
-    html, body, [class*="css"], .stApp {
+    .stApp, .stApp > div, [data-testid="stAppViewContainer"],
+    [data-testid="stMain"], .main, .block-container,
+    section.main, [data-testid="stMainBlockContainer"] {
         background: #ffffff !important;
+        background-color: #ffffff !important;
         color: #1f2328 !important;
     }
-    section[data-testid="stSidebar"] { background: #f6f8fa !important; border-right: 1px solid #d0d7de !important; }
+    [data-testid="stHeader"] { background: #ffffff !important; }
+    section[data-testid="stSidebar"], section[data-testid="stSidebar"] > div {
+        background: #f6f8fa !important;
+        border-right: 1px solid #d0d7de !important;
+    }
     section[data-testid="stSidebar"] * { color: #1f2328 !important; }
     .kpi-card { background: #f6f8fa !important; border-color: #d0d7de !important; }
     .kpi-value { color: #1f2328 !important; }
+    .kpi-value.green { color: #1a7f37 !important; }
+    .kpi-value.blue  { color: #0969da !important; }
+    .kpi-value.red   { color: #cf222e !important; }
+    .kpi-value.purple{ color: #8250df !important; }
     .kpi-label, .section-label, label { color: #656d76 !important; }
-    .date-badge { background: #eaeef2 !important; border-color: #d0d7de !important; }
+    .date-badge { background: #ddf4ff !important; border-color: #54aeff !important; color: #0969da !important; }
     .page-header { border-bottom-color: #d0d7de !important; }
     .page-header h1 { color: #1f2328 !important; }
     .page-header .sub { color: #656d76 !important; }
+    .section-label::after { background: #d0d7de !important; }
     [data-baseweb="tab-list"] { border-bottom-color: #d0d7de !important; }
     [data-baseweb="tab"] { color: #656d76 !important; }
+    [aria-selected="true"][data-baseweb="tab"] { color: #0969da !important; border-bottom-color: #0969da !important; }
     hr { border-color: #d0d7de !important; }
     .prog-card { background: #f6f8fa !important; border-color: #d0d7de !important; }
     .prog-title { color: #1f2328 !important; }
+    .prog-sub { color: #656d76 !important; }
     [data-testid="stDataFrame"] th { background: #f6f8fa !important; color: #656d76 !important; }
     [data-testid="stDataFrame"] td { background: #ffffff !important; color: #1f2328 !important; border-color: #d0d7de !important; }
-    .stButton > button { background: #eaeef2 !important; color: #1f2328 !important; border-color: #d0d7de !important; }
+    [data-testid="stDataFrame"] { border-color: #d0d7de !important; }
+    .stButton > button { background: #f6f8fa !important; color: #1f2328 !important; border-color: #d0d7de !important; }
+    .stButton > button:hover { background: #eaeef2 !important; }
+    .btn-primary > button { background: #1f883d !important; color: white !important; }
     .stDateInput > div > div > input, .stSelectbox > div > div, .stTextInput > div > div > input {
         background: #f6f8fa !important; border-color: #d0d7de !important; color: #1f2328 !important;
     }
+    .stRadio label { color: #1f2328 !important; }
     </style>
     """
     if _theme_css:
@@ -1052,9 +1078,9 @@ if page == "🏢 Overview":
                 hovertemplate="<b>%{x}</b><br>Τιμολόγια: %{y:,.2f}€<extra></extra>",
             ))
         fig_ov.update_layout(
-            **PLOT_LAYOUT,
+            **_plot_layout(),
             barmode="group",
-            title=dict(text="Πωλήσεις & Τιμολόγια — Τρέχουσα Εβδομάδα", font=dict(size=13, color="#e6edf3")),
+            title=dict(text="Πωλήσεις & Τιμολόγια — Τρέχουσα Εβδομάδα", font=dict(size=13, color=_title_color())),
             height=300,
         )
         st.plotly_chart(fig_ov, use_container_width=True, key="ov_combined_chart")
