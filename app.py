@@ -613,6 +613,48 @@ def fetch_and_store_timologiseis(pw, limit=50):
     saved = merge_timologiseis(new_recs)
     return saved, errors, len(new_recs)
 
+def deep_scan_timologiseis(pw, limit=3000):
+    """Βαθιά σάρωση ΟΛΩΝ των emails τιμολογήσεων (2 χρόνια)."""
+    from imap_tools import AND
+    cutoff = date.today() - timedelta(days=365 * DEEP_SCAN_YEARS)
+    s = {"phase": "connect", "total": 0, "done": 0, "saved": 0, "cur": "", "err": None, "ok": False}
+    yield s.copy()
+    try:
+        with MailBox("imap.gmail.com").login(TIMOL_EMAIL_USER, pw) as mb:
+            s["phase"] = "listing"; yield s.copy()
+            all_hdrs = list(mb.fetch(limit=limit, reverse=True, mark_seen=False, headers_only=True))
+            hdrs = [h for h in all_hdrs
+                    if h.date and h.date.date() >= cutoff
+                    and TIMOL_EMAIL_SENDER.lower() in (h.from_ or "").lower()
+                    and TIMOL_SUBJECT_KW in (h.subject or "").upper()]
+            s["total"] = len(hdrs); s["phase"] = "fetch"; yield s.copy()
+            if not hdrs:
+                s["ok"] = True; yield s.copy(); return
+            batch = []
+            for i, h in enumerate(hdrs):
+                s["done"] = i + 1
+                s["cur"] = (h.subject or "")[:60]
+                yield s.copy()
+                try:
+                    full = list(mb.fetch(AND(uid=str(h.uid)), mark_seen=False))
+                    if not full: continue
+                    for att in full[0].attachments:
+                        fname = att.filename or ""
+                        if fname.lower().endswith((".xlsx", ".xls")):
+                            rec = parse_timologiseis_xlsx(att.payload)
+                            if rec:
+                                batch.append(rec)
+                    if len(batch) >= BATCH_SIZE:
+                        s["saved"] += merge_timologiseis(batch)
+                        batch = []
+                        yield s.copy()
+                except: continue
+            if batch:
+                s["saved"] += merge_timologiseis(batch)
+            s["ok"] = True; yield s.copy()
+    except Exception as e:
+        s["err"] = str(e); s["ok"] = True; yield s.copy()
+
 def deep_scan_invoices(pw, limit=2000):
     """Βαθιά σάρωση ΟΛΩΝ των emails παραστατικών (2 χρόνια)."""
     from imap_tools import AND
@@ -1594,11 +1636,15 @@ elif page == "🧾 Τιμολογήσεις":
     </div>
     """, unsafe_allow_html=True)
 
-    # ── Κουμπί Ενημέρωσης ──
-    _tc1, _tc2 = st.columns([1.9, 4])
+    # ── Κουμπιά Ενημέρωσης ──
+    _tc1, _tc2, _tc3 = st.columns([1.7, 2.0, 4])
     with _tc1:
         st.markdown('<div class="btn-primary">', unsafe_allow_html=True)
-        _t_inc = st.button("🔁 Ενημέρωση Τιμολογήσεων", key="timol_refresh", use_container_width=True)
+        _t_inc = st.button("🔁 Ενημέρωση", key="timol_refresh", use_container_width=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+    with _tc2:
+        st.markdown('<div class="btn-danger">', unsafe_allow_html=True)
+        _t_deep = st.button("🔍 Βαθιά Σάρωση 2 Χρόνων", key="timol_deep", use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
     _t_status = st.empty()
 
@@ -1612,6 +1658,35 @@ elif page == "🧾 Τιμολογήσεις":
             load_timologiseis.clear()
             st.rerun()
     elif _t_inc and not SALES_PW:
+        _t_status.markdown('<div class="alert alert-error">❌ Δεν βρέθηκε SALES_EMAIL_PASS στα Secrets.</div>', unsafe_allow_html=True)
+
+    if _t_deep and SALES_PW:
+        _t_status.markdown('<div class="alert alert-warn">⏳ Βαθιά Σάρωση — μην κλείσετε τη σελίδα...</div>', unsafe_allow_html=True)
+        _tpb = st.progress(0)
+        _tib = st.empty()
+        for _tst in deep_scan_timologiseis(SALES_PW, limit=3000):
+            if _tst["err"]:
+                _tib.markdown(f'<div class="alert alert-error">❌ {_tst["err"]}</div>', unsafe_allow_html=True)
+                break
+            if _tst["phase"] == "connect":
+                _tib.markdown('<div class="prog-card"><div class="prog-title">Σύνδεση...</div></div>', unsafe_allow_html=True)
+            elif _tst["phase"] == "listing":
+                _tib.markdown('<div class="prog-card"><div class="prog-title">Ανάκτηση λίστας emails...</div></div>', unsafe_allow_html=True)
+            elif _tst["phase"] == "fetch":
+                _ttt = _tst["total"]; _tdd = _tst["done"]
+                _tpct = int(_tdd / _ttt * 100) if _ttt else 0
+                _tpb.progress(_tpct)
+                _tib.markdown(f'''<div class="prog-card">
+                    <div class="prog-title">Επεξεργασία: {_tdd}/{_ttt} ({_tpct}%)</div>
+                    <div class="prog-sub">Αποθηκεύτηκαν: {_tst["saved"]} — {_tst["cur"]}</div>
+                </div>''', unsafe_allow_html=True)
+            if _tst["ok"]:
+                _tpb.progress(100)
+                _tib.empty()
+                _t_status.markdown(f'<div class="alert alert-success">✅ {_tst["total"]} emails → {_tst["saved"]} εγγραφές.</div>', unsafe_allow_html=True)
+                load_timologiseis.clear()
+                st.rerun()
+    elif _t_deep and not SALES_PW:
         _t_status.markdown('<div class="alert alert-error">❌ Δεν βρέθηκε SALES_EMAIL_PASS στα Secrets.</div>', unsafe_allow_html=True)
 
     df_t = load_timologiseis()

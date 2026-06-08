@@ -205,8 +205,10 @@ def load_timologiseis() -> pd.DataFrame:
         if "check_date" in df.columns:
             df["check_date"] = pd.to_datetime(df["check_date"], errors="coerce")
         if "amount" in df.columns:
-            df["amount"] = df["amount"].apply(_parse_number)
+            df["amount"] = df["amount"].apply(_parse_number) / 100.0
         df = df.dropna(subset=["check_date"])
+        # Αφαίρεση διπλοεγγραφών (ίδια ημερομηνία + ποσό)
+        df = df.drop_duplicates(subset=["check_date", "amount"])
         df = df.sort_values("check_date", ascending=False).reset_index(drop=True)
         return df
     except Exception:
@@ -227,7 +229,8 @@ def merge_timologiseis(records: list) -> int:
         existing = ws.get_all_records()
         existing_keys = set()
         for r in existing:
-            existing_keys.add(f"{r.get('check_date','')}|{round(float(r.get('amount',0) or 0),2)}")
+            _raw_amt = float(r.get('amount', 0) or 0)
+            existing_keys.add(f"{r.get('check_date','')}|{round(_raw_amt/100.0,2)}")
         new_rows = []
         for rec in records:
             cd = rec.get("check_date")
@@ -239,7 +242,8 @@ def merge_timologiseis(records: list) -> int:
             if key in existing_keys:
                 continue
             existing_keys.add(key)
-            new_rows.append([cd_str, str(rec.get("period", "")), amt])
+            # Αποθήκευση x100 ώστε load(/100) να επιστρέφει σωστή τιμή
+            new_rows.append([cd_str, str(rec.get("period", "")), round(amt * 100)])
         if new_rows:
             ws.append_rows(new_rows, value_input_option="RAW")
             load_timologiseis.clear()
