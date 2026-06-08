@@ -589,19 +589,30 @@ def parse_timologiseis_xlsx(file_content):
                 return {"check_date": check_date, "period": period, "amount": round(abs(amount), 2)}
     return None
 
-def fetch_and_store_timologiseis(pw, limit=50):
+def _is_timol_email(msg_or_hdr):
+    """Ελέγχει αν ένα email είναι τιμολόγηση — χαλαρό φιλτράρισμα.
+    Αρκεί το θέμα να περιέχει ΤΙΜΟΛΟΓΗΣΕΙΣ ή ο αποστολέας ab.gr."""
+    subj = (getattr(msg_or_hdr, "subject", "") or "").upper()
+    sender = (getattr(msg_or_hdr, "from_", "") or "").lower()
+    if TIMOL_SUBJECT_KW in subj:
+        return True
+    if "ab.gr" in sender and ("ΤΙΜΟΛΟΓ" in subj or "ΒΑΣΙΛΟΠΟΥΛ" in subj):
+        return True
+    return False
+
+def fetch_and_store_timologiseis(pw, limit=400):
     """Διαβάζει emails τιμολογήσεων και αποθηκεύει στο Google Sheets."""
-    from imap_tools import AND
     new_recs, errors = [], []
+    _scanned = 0
+    _matched = 0
     try:
         with MailBox("imap.gmail.com").login(TIMOL_EMAIL_USER, pw) as mb:
             msgs = list(mb.fetch(limit=limit, reverse=True, mark_seen=False))
+            _scanned = len(msgs)
             for msg in msgs:
-                sender = (msg.from_ or "").lower()
-                if TIMOL_EMAIL_SENDER.lower() not in sender:
+                if not _is_timol_email(msg):
                     continue
-                if TIMOL_SUBJECT_KW not in (msg.subject or "").upper():
-                    continue
+                _matched += 1
                 for att in msg.attachments:
                     fname = att.filename or ""
                     if fname.lower().endswith((".xlsx", ".xls")):
@@ -611,6 +622,8 @@ def fetch_and_store_timologiseis(pw, limit=50):
     except Exception as e:
         errors.append(str(e))
     saved = merge_timologiseis(new_recs)
+    if not errors and _matched == 0:
+        errors.append(f"Σαρώθηκαν {_scanned} emails αλλά κανένα δεν ταιριάζει με 'ΤΙΜΟΛΟΓΗΣΕΙΣ'. Ελέγξτε το θέμα/αποστολέα.")
     return saved, errors, len(new_recs)
 
 def deep_scan_timologiseis(pw, limit=3000):
@@ -625,8 +638,7 @@ def deep_scan_timologiseis(pw, limit=3000):
             all_hdrs = list(mb.fetch(limit=limit, reverse=True, mark_seen=False, headers_only=True))
             hdrs = [h for h in all_hdrs
                     if h.date and h.date.date() >= cutoff
-                    and TIMOL_EMAIL_SENDER.lower() in (h.from_ or "").lower()
-                    and TIMOL_SUBJECT_KW in (h.subject or "").upper()]
+                    and _is_timol_email(h)]
             s["total"] = len(hdrs); s["phase"] = "fetch"; yield s.copy()
             if not hdrs:
                 s["ok"] = True; yield s.copy(); return
