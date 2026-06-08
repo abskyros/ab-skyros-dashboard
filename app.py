@@ -865,10 +865,18 @@ if page == "🏢 Overview":
     df_s = load_sales()
     df_i = load_invoices()
 
-    sw, ew   = get_week_range(today)
+    # Χρήση τελευταίας ημέρας με δεδομένα αντί today — αν η τρέχουσα εβδομάδα είναι κενή
+    if not df_s.empty:
+        last_data_date = max(df_s["date"])
+        ref_date = today if (today - last_data_date).days <= 7 else last_data_date
+    else:
+        ref_date = today
+
+    sw, ew   = get_week_range(ref_date)
     psw, pew = prev_week_range(sw)
 
-    st.markdown(f'<div class="date-badge">📅 {sw.strftime("%d/%m/%Y")} — {ew.strftime("%d/%m/%Y")} &nbsp;|&nbsp; Τρέχουσα εβδομάδα</div>', unsafe_allow_html=True)
+    _label = "Τρέχουσα εβδομάδα" if ref_date == today else f"Εβδομάδα {sw.strftime('%d/%m/%Y')}"
+    st.markdown(f'<div class="date-badge">📅 {sw.strftime("%d/%m/%Y")} — {ew.strftime("%d/%m/%Y")} &nbsp;|&nbsp; {_label}</div>', unsafe_allow_html=True)
 
     # ── 2 KPI cards μόνο ──
     w_df  = df_s[(df_s["date"] >= sw)  & (df_s["date"] <= ew)]  if not df_s.empty else pd.DataFrame()
