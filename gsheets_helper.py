@@ -187,3 +187,63 @@ def merge_invoices(records: list) -> int:
     except Exception as e:
         st.error(f"❌ Σφάλμα αποθήκευσης παραστατικών: {e}")
         return 0
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ΤΙΜΟΛΟΓΗΣΕΙΣ (επιταγές)
+# ══════════════════════════════════════════════════════════════════════════════
+TIMOL_COLS = ["check_date", "period", "amount"]
+
+@st.cache_data(ttl=300)
+def load_timologiseis() -> pd.DataFrame:
+    try:
+        ws = _get_sheet("timologiseis")
+        records = ws.get_all_records()
+        if not records:
+            return pd.DataFrame(columns=TIMOL_COLS)
+        df = pd.DataFrame(records)
+        df.columns = [c.lower() for c in df.columns]
+        if "check_date" in df.columns:
+            df["check_date"] = pd.to_datetime(df["check_date"], errors="coerce")
+        if "amount" in df.columns:
+            df["amount"] = df["amount"].apply(_parse_number)
+        df = df.dropna(subset=["check_date"])
+        df = df.sort_values("check_date", ascending=False).reset_index(drop=True)
+        return df
+    except Exception:
+        # Αν δεν υπάρχει το φύλλο, επιστρέφει κενό
+        return pd.DataFrame(columns=TIMOL_COLS)
+
+def merge_timologiseis(records: list) -> int:
+    if not records:
+        return 0
+    try:
+        client = _get_client()
+        wb = client.open_by_key(SPREADSHEET_ID)
+        try:
+            ws = wb.worksheet("timologiseis")
+        except Exception:
+            ws = wb.add_worksheet(title="timologiseis", rows=200, cols=5)
+            ws.append_row(["check_date", "period", "amount"])
+        existing = ws.get_all_records()
+        existing_keys = set()
+        for r in existing:
+            existing_keys.add(f"{r.get('check_date','')}|{round(float(r.get('amount',0) or 0),2)}")
+        new_rows = []
+        for rec in records:
+            cd = rec.get("check_date")
+            if cd is None:
+                continue
+            cd_str = cd.strftime("%Y-%m-%d") if hasattr(cd, "strftime") else str(cd)
+            amt = round(float(rec.get("amount", 0)), 2)
+            key = f"{cd_str}|{amt}"
+            if key in existing_keys:
+                continue
+            existing_keys.add(key)
+            new_rows.append([cd_str, str(rec.get("period", "")), amt])
+        if new_rows:
+            ws.append_rows(new_rows, value_input_option="RAW")
+            load_timologiseis.clear()
+        return len(new_rows)
+    except Exception as e:
+        st.error(f"❌ Σφάλμα αποθήκευσης τιμολογήσεων: {e}")
+        return 0

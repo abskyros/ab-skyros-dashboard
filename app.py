@@ -16,6 +16,7 @@ import pytesseract
 from gsheets_helper import (
     load_sales as _raw_load_sales, merge_sales,
     load_invoices as _raw_load_invoices, merge_invoices,
+    load_timologiseis, merge_timologiseis,
 )
 
 # ── PATCH ΓΙΑ ΔΙΟΡΘΩΣΗ ΔΕΔΟΜΕΝΩΝ (Ασφαλής Μετατροπή & Αφαίρεση Διπλών) ─────────
@@ -70,6 +71,10 @@ INVOICES_EMAIL_USER   = "abf.skyros@gmail.com"
 INVOICES_EMAIL_SENDER = "Notifications@WeDoConnect.com"
 SALES_EMAIL_USER      = "ftoulisgm@gmail.com"
 SALES_EMAIL_SENDER    = "abf.skyros@gmail.com"
+# Τιμολογήσεις (επιταγές) — έρχονται στο ftoulisgm από noreply@ab.gr
+TIMOL_EMAIL_USER      = "ftoulisgm@gmail.com"
+TIMOL_EMAIL_SENDER    = "noreply@ab.gr"
+TIMOL_SUBJECT_KW      = "ΤΙΜΟΛΟΓΗΣΕΙΣ"
 SALES_SUBJECT_KW      = "ΑΒ ΣΚΥΡΟΣ"
 BATCH_SIZE            = 25
 DEEP_SCAN_YEARS       = 2
@@ -538,6 +543,76 @@ def fetch_and_store_invoices(pw, limit=30):
     saved = merge_invoices(new_recs)
     return saved, errors, len(new_recs)
 
+def parse_timologiseis_xlsx(file_content):
+    """Διαβάζει το Excel τιμολογήσεων και βρίσκει την τελευταία γραμμή
+    με 'ΠΛΗΡΩΜΗ ΜΕ ΕΠΙΤΑΓΗ {ημερομηνία}' + το συνολικό ποσό."""
+    import re as _re
+    try:
+        df_raw = pd.read_excel(io.BytesIO(file_content), header=None)
+    except Exception:
+        return None
+    # Ψάξε όλες τις γραμμές για το κείμενο πληρωμής με επιταγή
+    for i in range(len(df_raw) - 1, -1, -1):
+        row = df_raw.iloc[i]
+        row_text = " ".join([str(x) for x in row.values if pd.notna(x)])
+        m = _re.search(r"ΠΛΗΡΩΜΗ\s+ΜΕ\s+ΕΠΙΤΑΓΗ\s+(\d{1,2})[./](\d{1,2})[./](\d{4})", row_text, _re.IGNORECASE)
+        if m:
+            try:
+                check_date = date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
+            except Exception:
+                continue
+            # Το ποσό είναι στη στήλη 8 ("Ποσό Χρέωσης/Πίστωσης")
+            amount = None
+            if len(row.values) > 8:
+                v8 = row.values[8]
+                if isinstance(v8, (int, float)) and pd.notna(v8):
+                    amount = float(v8)
+                else:
+                    xs = str(v8).replace("€", "").replace(" ", "").strip()
+                    if "," in xs and "." in xs:
+                        xs = xs.replace(".", "").replace(",", ".")
+                    elif "," in xs:
+                        xs = xs.replace(",", ".")
+                    try:
+                        amount = float(xs)
+                    except Exception:
+                        amount = None
+            # Fallback: πρώτη δεκαδική τιμή (όχι ακέραιοι κωδικοί)
+            if amount is None:
+                for x in row.values:
+                    if isinstance(x, float) and pd.notna(x) and x != int(x):
+                        amount = float(x)
+                        break
+            if amount is not None:
+                period_m = _re.search(r"ΠΕΡΙΟΔΟΥ?\s*([\d.]+\s*-\s*[\d.]+)", row_text)
+                period = period_m.group(1).strip() if period_m else ""
+                return {"check_date": check_date, "period": period, "amount": round(abs(amount), 2)}
+    return None
+
+def fetch_and_store_timologiseis(pw, limit=50):
+    """Διαβάζει emails τιμολογήσεων και αποθηκεύει στο Google Sheets."""
+    from imap_tools import AND
+    new_recs, errors = [], []
+    try:
+        with MailBox("imap.gmail.com").login(TIMOL_EMAIL_USER, pw) as mb:
+            msgs = list(mb.fetch(limit=limit, reverse=True, mark_seen=False))
+            for msg in msgs:
+                sender = (msg.from_ or "").lower()
+                if TIMOL_EMAIL_SENDER.lower() not in sender:
+                    continue
+                if TIMOL_SUBJECT_KW not in (msg.subject or "").upper():
+                    continue
+                for att in msg.attachments:
+                    fname = att.filename or ""
+                    if fname.lower().endswith((".xlsx", ".xls")):
+                        rec = parse_timologiseis_xlsx(att.payload)
+                        if rec:
+                            new_recs.append(rec)
+    except Exception as e:
+        errors.append(str(e))
+    saved = merge_timologiseis(new_recs)
+    return saved, errors, len(new_recs)
+
 def deep_scan_invoices(pw, limit=2000):
     """Βαθιά σάρωση ΟΛΩΝ των emails παραστατικών (2 χρόνια)."""
     from imap_tools import AND
@@ -921,7 +996,7 @@ with st.sidebar:
 
     page = st.radio(
         "Σελίδα",
-        ["🏢 Overview", "💼 Πωλήσεις", "📋 Παραστατικά"],
+        ["🏢 Overview", "💼 Πωλήσεις", "📋 Παραστατικά", "🧾 Τιμολογήσεις"],
         label_visibility="collapsed",
     )
 
@@ -975,6 +1050,11 @@ def _background_auto_update():
             _raw_load_invoices.clear()
     except Exception:
         pass
+    try:
+        if SALES_PW:
+            fetch_and_store_timologiseis(SALES_PW, limit=50)
+    except Exception:
+        pass
 
 if "auto_updated" not in st.session_state:
     st.session_state["auto_updated"] = True
@@ -1021,14 +1101,23 @@ if page == "🏢 Overview":
     cur_sales  = w_df["net_sales"].sum()  if not w_df.empty else 0
     prev_sales = pw_df["net_sales"].sum() if not pw_df.empty else None
 
+    # Πέρσι ίδια εβδομάδα (ίδιες ημερομηνίες -1 έτος)
+    ly_sw = sw.replace(year=sw.year - 1)
+    ly_ew = ew.replace(year=ew.year - 1)
+    ly_sales_df = df_s[(df_s["date"] >= ly_sw) & (df_s["date"] <= ly_ew)] if not df_s.empty else pd.DataFrame()
+    ly_sales = ly_sales_df["net_sales"].sum() if not ly_sales_df.empty else None
+
     # Παραστατικά εβδομάδας
     inv_net_ov = 0
     prev_inv_net_ov = None
+    ly_inv_net = None
     if not df_i.empty:
         mask_ov  = (df_i["date"] >= pd.Timestamp(sw))  & (df_i["date"] <= pd.Timestamp(ew)  + pd.Timedelta(hours=23, minutes=59))
         mask_pov = (df_i["date"] >= pd.Timestamp(psw)) & (df_i["date"] <= pd.Timestamp(pew) + pd.Timedelta(hours=23, minutes=59))
+        mask_ly  = (df_i["date"] >= pd.Timestamp(ly_sw)) & (df_i["date"] <= pd.Timestamp(ly_ew) + pd.Timedelta(hours=23, minutes=59))
         wi_ov    = df_i.loc[mask_ov]
         pwi_ov   = df_i.loc[mask_pov]
+        lyi_ov   = df_i.loc[mask_ly]
         if not wi_ov.empty:
             _inv = wi_ov[~wi_ov["type"].str.upper().str.contains("ΠΙΣΤΩΤΙΚΟ", na=False)]["value"].sum()
             _crd = wi_ov[wi_ov["type"].str.upper().str.contains("ΠΙΣΤΩΤΙΚΟ", na=False)]["value"].sum()
@@ -1037,6 +1126,19 @@ if page == "🏢 Overview":
             _pinv = pwi_ov[~pwi_ov["type"].str.upper().str.contains("ΠΙΣΤΩΤΙΚΟ", na=False)]["value"].sum()
             _pcrd = pwi_ov[pwi_ov["type"].str.upper().str.contains("ΠΙΣΤΩΤΙΚΟ", na=False)]["value"].sum()
             prev_inv_net_ov = _pinv - _pcrd
+        if not lyi_ov.empty:
+            _lyinv = lyi_ov[~lyi_ov["type"].str.upper().str.contains("ΠΙΣΤΩΤΙΚΟ", na=False)]["value"].sum()
+            _lycrd = lyi_ov[lyi_ov["type"].str.upper().str.contains("ΠΙΣΤΩΤΙΚΟ", na=False)]["value"].sum()
+            ly_inv_net = _lyinv - _lycrd
+
+    def _ly_compare(cur, ly):
+        if ly is None or ly == 0:
+            return '<div style="font-size:.66rem;color:#8b949e;margin-top:.3rem">Πέρσι: — χωρίς δεδομένα</div>'
+        diff = cur - ly
+        pct = diff / ly * 100
+        col = "#3fb950" if diff >= 0 else "#f85149"
+        arrow = "↑" if diff >= 0 else "↓"
+        return f'<div style="font-size:.66rem;color:#8b949e;margin-top:.3rem">Πέρσι: {fmt(ly)} <span style="color:{col};font-weight:600">{arrow} {abs(pct):.1f}%</span></div>'
 
     st.markdown(f"""
     <div class="kpi-grid kpi-3" style="max-width:700px">
@@ -1044,11 +1146,13 @@ if page == "🏢 Overview":
             <div class="kpi-label">Καθαρές Πωλήσεις</div>
             <div class="kpi-value green">{fmt(cur_sales)}</div>
             {trend_html(cur_sales, prev_sales)}
+            {_ly_compare(cur_sales, ly_sales)}
         </div>
         <div class="kpi-card" style="--accent:#58a6ff">
             <div class="kpi-label">Τιμολόγια (καθαρό)</div>
             <div class="kpi-value blue">{fmt(inv_net_ov)}</div>
             {trend_html(inv_net_ov, prev_inv_net_ov)}
+            {_ly_compare(inv_net_ov, ly_inv_net)}
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -1086,6 +1190,39 @@ if page == "🏢 Overview":
         st.plotly_chart(fig_ov, use_container_width=True, key="ov_combined_chart")
     else:
         st.markdown('<div class="alert alert-warn">⚠️ Δεν υπάρχουν δεδομένα για αυτή την εβδομάδα.</div>', unsafe_allow_html=True)
+
+    # ── Επιταγή προς πληρωμή: εμφανίζεται την εβδομάδα ΠΡΙΝ την ημερομηνία επιταγής ──
+    df_timol_ov = load_timologiseis()
+    if not df_timol_ov.empty:
+        # Βρες επιταγές των οποίων η εβδομάδα-πριν ταυτίζεται με την εμφανιζόμενη εβδομάδα
+        for _, _row in df_timol_ov.iterrows():
+            _cd = _row["check_date"]
+            if pd.isna(_cd):
+                continue
+            _cd_date = _cd.date() if hasattr(_cd, "date") else _cd
+            # Εβδομάδα πριν την επιταγή
+            _week_before_start, _week_before_end = get_week_range(_cd_date - timedelta(days=7))
+            # Αν η εμφανιζόμενη εβδομάδα (sw-ew) ταυτίζεται με την εβδομάδα-πριν
+            if sw == _week_before_start:
+                st.markdown(f"""
+                <div style="background:linear-gradient(135deg,#1f6feb20,#388bfd10);border:1px solid #1f6feb;
+                            border-radius:14px;padding:1.2rem 1.5rem;margin-top:1.5rem">
+                    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem">
+                        <div>
+                            <div style="font-size:.62rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#58a6ff;margin-bottom:.4rem">
+                                💳 Πληρωμή με Επιταγή
+                            </div>
+                            <div style="font-size:.8rem;color:var(--text-muted)">
+                                Ημερομηνία επιταγής: <b style="color:var(--text-primary)">{_cd_date.strftime("%d/%m/%Y")}</b>
+                                {f' · Περίοδος: {_row["period"]}' if _row.get("period") else ''}
+                            </div>
+                        </div>
+                        <div style="text-align:right">
+                            <div style="font-size:1.6rem;font-weight:800;color:#58a6ff">{fmt(_row["amount"])}</div>
+                        </div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE: ΠΩΛΗΣΕΙΣ
@@ -1445,3 +1582,80 @@ elif page == "📋 Παραστατικά":
             else:
                 st.markdown('<div class="alert alert-info">ℹ️ Δεν υπάρχουν εγγραφές για αυτόν τον μήνα.</div>', unsafe_allow_html=True)
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PAGE: ΤΙΜΟΛΟΓΗΣΕΙΣ (επιταγές)
+# ══════════════════════════════════════════════════════════════════════════════
+elif page == "🧾 Τιμολογήσεις":
+    st.markdown("""
+    <div class="page-header">
+        <div class="icon">🧾</div>
+        <div><h1>Τιμολογήσεις</h1><div class="sub">Πληρωμές με επιταγή</div></div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ── Κουμπί Ενημέρωσης ──
+    _tc1, _tc2 = st.columns([1.9, 4])
+    with _tc1:
+        st.markdown('<div class="btn-primary">', unsafe_allow_html=True)
+        _t_inc = st.button("🔁 Ενημέρωση Τιμολογήσεων", key="timol_refresh", use_container_width=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+    _t_status = st.empty()
+
+    if _t_inc and SALES_PW:
+        with st.spinner("Σύνδεση & ανάγνωση..."):
+            _saved_t, _errs_t, _total_t = fetch_and_store_timologiseis(SALES_PW, limit=80)
+        if _errs_t:
+            _t_status.markdown(f'<div class="alert alert-error">❌ {_errs_t[0]}</div>', unsafe_allow_html=True)
+        else:
+            _t_status.markdown(f'<div class="alert alert-success">✅ {_total_t} βρέθηκαν — {_saved_t} νέες αποθηκεύτηκαν.</div>', unsafe_allow_html=True)
+            load_timologiseis.clear()
+            st.rerun()
+    elif _t_inc and not SALES_PW:
+        _t_status.markdown('<div class="alert alert-error">❌ Δεν βρέθηκε SALES_EMAIL_PASS στα Secrets.</div>', unsafe_allow_html=True)
+
+    df_t = load_timologiseis()
+
+    if df_t.empty:
+        st.markdown('<div class="alert alert-warn">⚠️ Δεν υπάρχουν τιμολογήσεις. Πατήστε Ενημέρωση.</div>', unsafe_allow_html=True)
+    else:
+        # KPI: σύνολο, πλήθος, επόμενη επιταγή
+        total_amt = df_t["amount"].sum()
+        count_checks = len(df_t)
+        # Επόμενη επιταγή (πρώτη μελλοντική)
+        future = df_t[df_t["check_date"] >= pd.Timestamp(today)].sort_values("check_date")
+        next_check = future.iloc[0] if not future.empty else None
+
+        st.markdown(f"""
+        <div class="kpi-grid kpi-3">
+            <div class="kpi-card" style="--accent:#3fb950">
+                <div class="kpi-label">Συνολικό Ποσό</div>
+                <div class="kpi-value green">{fmt(total_amt)}</div>
+            </div>
+            <div class="kpi-card" style="--accent:#58a6ff">
+                <div class="kpi-label">Πλήθος Επιταγών</div>
+                <div class="kpi-value blue">{count_checks}</div>
+            </div>
+            <div class="kpi-card" style="--accent:#e3b341">
+                <div class="kpi-label">Επόμενη Επιταγή</div>
+                <div class="kpi-value" style="color:#e3b341;font-size:1.1rem">{next_check["check_date"].strftime("%d/%m/%Y") if next_check is not None else "—"}</div>
+                <span class="kpi-trend flat">{fmt(next_check["amount"]) if next_check is not None else ""}</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Πίνακας
+        st.markdown('<div class="section-label">Όλες οι Τιμολογήσεις</div>', unsafe_allow_html=True)
+        disp_t = df_t.copy()
+        disp_t["check_date"] = disp_t["check_date"].dt.strftime("%d/%m/%Y")
+        disp_t = disp_t.rename(columns={
+            "check_date": "ΗΜΕΡ. ΕΠΙΤΑΓΗΣ",
+            "period": "ΠΕΡΙΟΔΟΣ",
+            "amount": "ΠΟΣΟ",
+        })
+        st.dataframe(
+            disp_t.style.format({"ΠΟΣΟ": lambda v: fmt(v)}),
+            use_container_width=True, hide_index=True,
+        )
+        csv_t = df_t.to_csv(index=False).encode("utf-8-sig")
+        st.download_button("📥 Λήψη CSV", csv_t, "timologiseis.csv", "text/csv", key="timol_dl")
