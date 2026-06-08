@@ -197,22 +197,31 @@ TIMOL_COLS = ["check_date", "period", "amount"]
 def load_timologiseis() -> pd.DataFrame:
     try:
         ws = _get_sheet("timologiseis")
-        records = ws.get_all_records()
-        if not records:
+        all_vals = ws.get_all_values()
+        if not all_vals:
             return pd.DataFrame(columns=TIMOL_COLS)
-        df = pd.DataFrame(records)
-        df.columns = [c.lower() for c in df.columns]
-        if "check_date" in df.columns:
-            df["check_date"] = pd.to_datetime(df["check_date"], errors="coerce")
-        if "amount" in df.columns:
-            df["amount"] = df["amount"].apply(_parse_number) / 100.0
+        # Έλεγχος αν η 1η γραμμή είναι header
+        first = [str(c).strip().lower() for c in all_vals[0][:3]]
+        if first == ["check_date", "period", "amount"]:
+            data_rows = all_vals[1:]
+        else:
+            # Δεν υπάρχει header — όλες οι γραμμές είναι δεδομένα
+            data_rows = all_vals
+        rows = []
+        for r in data_rows:
+            if len(r) < 3:
+                continue
+            rows.append({"check_date": r[0], "period": r[1], "amount": r[2]})
+        if not rows:
+            return pd.DataFrame(columns=TIMOL_COLS)
+        df = pd.DataFrame(rows)
+        df["check_date"] = pd.to_datetime(df["check_date"], errors="coerce")
+        df["amount"] = df["amount"].apply(_parse_number) / 100.0
         df = df.dropna(subset=["check_date"])
-        # Αφαίρεση διπλοεγγραφών (ίδια ημερομηνία + ποσό)
         df = df.drop_duplicates(subset=["check_date", "amount"])
         df = df.sort_values("check_date", ascending=False).reset_index(drop=True)
         return df
     except Exception:
-        # Αν δεν υπάρχει το φύλλο, επιστρέφει κενό
         return pd.DataFrame(columns=TIMOL_COLS)
 
 def merge_timologiseis(records: list) -> int:
@@ -225,12 +234,23 @@ def merge_timologiseis(records: list) -> int:
             ws = wb.worksheet("timologiseis")
         except Exception:
             ws = wb.add_worksheet(title="timologiseis", rows=200, cols=5)
+        # Διασφάλιση ότι υπάρχει header στη γραμμή 1
+        all_vals = ws.get_all_values()
+        if not all_vals or [str(c).strip().lower() for c in all_vals[0][:3]] != ["check_date", "period", "amount"]:
+            # Αν η 1η γραμμή δεν είναι header → καθάρισε & ξαναγράψε σωστά
+            ws.clear()
             ws.append_row(["check_date", "period", "amount"])
-        existing = ws.get_all_records()
+            all_vals = [["check_date", "period", "amount"]]
+        # Συλλογή υπαρχόντων κλειδιών (από όλες τις γραμμές δεδομένων)
         existing_keys = set()
-        for r in existing:
-            _raw_amt = float(r.get('amount', 0) or 0)
-            existing_keys.add(f"{r.get('check_date','')}|{round(_raw_amt/100.0,2)}")
+        for row in all_vals[1:]:
+            if len(row) >= 3:
+                cd_e = str(row[0]).strip()
+                try:
+                    amt_e = round(float(str(row[2]).replace(",", ".")) / 100.0, 2)
+                except Exception:
+                    amt_e = 0
+                existing_keys.add(f"{cd_e}|{amt_e}")
         new_rows = []
         for rec in records:
             cd = rec.get("check_date")
@@ -241,8 +261,7 @@ def merge_timologiseis(records: list) -> int:
             key = f"{cd_str}|{amt}"
             if key in existing_keys:
                 continue
-            existing_keys.add(key)
-            # Αποθήκευση x100 ώστε load(/100) να επιστρέφει σωστή τιμή
+            existing_keys.add(key)  # αποτρέπει διπλά μέσα στο ίδιο batch
             new_rows.append([cd_str, str(rec.get("period", "")), round(amt * 100)])
         if new_rows:
             ws.append_rows(new_rows, value_input_option="RAW")
