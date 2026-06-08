@@ -352,24 +352,58 @@ label { color: #8b949e !important; font-size: .72rem !important; font-weight: 60
 /* ── Divider ── */
 hr { border-color: #21262d !important; margin: 1.5rem 0 !important; }
 
-/* ── Sidebar collapse/expand button — native Streamlit ── */
-button[kind="header"] {
-    background: #238636 !important;
-    color: white !important;
-    border-radius: 0 8px 8px 0 !important;
-    opacity: 1 !important;
-}
+/* ── Sidebar collapse/expand button — visible on dark bg ── */
 [data-testid="collapsedControl"] {
-    background: #238636 !important;
-    border-radius: 0 8px 8px 0 !important;
-    width: 24px !important;
+    background: #2ea043 !important;
+    border-radius: 0 10px 10px 0 !important;
+    width: 28px !important;
+    height: 56px !important;
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
+    box-shadow: 2px 0 12px rgba(46,160,67,0.5) !important;
+    transition: width .2s, background .2s !important;
+}
+[data-testid="collapsedControl"]:hover {
+    background: #3fb950 !important;
+    width: 34px !important;
 }
 [data-testid="collapsedControl"] svg {
+    color: #ffffff !important;
+    fill: #ffffff !important;
+    width: 18px !important;
+    height: 18px !important;
+}
+[data-testid="collapsedControl"] button {
+    background: transparent !important;
+    border: none !important;
     color: white !important;
+}
+/* Sidebar expand arrow (το > όταν είναι κλειστή) */
+[data-testid="stSidebarCollapsedControl"] {
+    background: #2ea043 !important;
+    border-radius: 0 10px 10px 0 !important;
+    width: 28px !important;
+    height: 56px !important;
+    box-shadow: 2px 0 12px rgba(46,160,67,0.5) !important;
+}
+[data-testid="stSidebarCollapsedControl"] svg {
     fill: white !important;
+    color: white !important;
+}
+/* Κουμπί κλεισίματος sidebar (το < όταν είναι ανοιχτή) */
+[data-testid="stSidebarCollapseButton"] button {
+    background: #21262d !important;
+    border-radius: 50% !important;
+    color: #e6edf3 !important;
+    border: 1px solid #30363d !important;
+}
+[data-testid="stSidebarCollapseButton"] button:hover {
+    background: #2ea043 !important;
+    border-color: #2ea043 !important;
+}
+[data-testid="stSidebarCollapseButton"] svg {
+    fill: #e6edf3 !important;
 }
 
 /* ── Sidebar nav items ── */
@@ -865,17 +899,23 @@ if page == "🏢 Overview":
     df_s = load_sales()
     df_i = load_invoices()
 
-    # Χρήση τελευταίας ημέρας με δεδομένα αντί today — αν η τρέχουσα εβδομάδα είναι κενή
+    # Αν η τρέχουσα εβδομάδα δεν έχει δεδομένα → δείξε την προηγούμενη
+    sw_cur, ew_cur   = get_week_range(today)
+    psw_cur, pew_cur = prev_week_range(sw_cur)
+
     if not df_s.empty:
-        last_data_date = max(df_s["date"])
-        ref_date = today if (today - last_data_date).days <= 7 else last_data_date
+        _has_cur = not df_s[(df_s["date"] >= sw_cur) & (df_s["date"] <= ew_cur)].empty
+        if _has_cur:
+            sw, ew, psw, pew = sw_cur, ew_cur, psw_cur, pew_cur
+            _label = "Τρέχουσα εβδομάδα"
+        else:
+            sw, ew = psw_cur, pew_cur
+            psw, pew = prev_week_range(sw)
+            _label = "Τελευταία εβδομάδα με δεδομένα"
     else:
-        ref_date = today
+        sw, ew, psw, pew = sw_cur, ew_cur, psw_cur, pew_cur
+        _label = "Τρέχουσα εβδομάδα"
 
-    sw, ew   = get_week_range(ref_date)
-    psw, pew = prev_week_range(sw)
-
-    _label = "Τρέχουσα εβδομάδα" if ref_date == today else f"Εβδομάδα {sw.strftime('%d/%m/%Y')}"
     st.markdown(f'<div class="date-badge">📅 {sw.strftime("%d/%m/%Y")} — {ew.strftime("%d/%m/%Y")} &nbsp;|&nbsp; {_label}</div>', unsafe_allow_html=True)
 
     # ── 2 KPI cards μόνο ──
