@@ -97,102 +97,87 @@ st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap');
 
-/* ═══════════════ THEME TOKENS ═══════════════ */
+/* ═══════════════ AB ΒΑΣΙΛΟΠΟΥΛΟΣ BRAND THEME ═══════════════ */
 :root {
---bg:          #0b1220;
---bg-elev:     #111a2e;
---bg-card:     #131d33;
---bg-hover:    #1a2742;
---border:      #1f2d4a;
---border-soft: #18233c;
---text:        #e8eef7;
---text-mut:    #8696b5;
---text-dim:    #5a6b8c;
---brand:       #10b981;
---brand-2:     #059669;
---brand-glow:  rgba(16,185,129,.35);
---blue:        #3b82f6;
---amber:       #f59e0b;
---red:         #ef4444;
---violet:      #8b5cf6;
---shadow:      0 8px 32px rgba(0,0,0,.4);
+    --bg:          #f4f8fc;
+    --bg-elev:     #ffffff;
+    --bg-card:     #ffffff;
+    --bg-hover:    #eaf2fb;
+    --border:      #d8e6f4;
+    --border-soft: #e6eff7;
+    --text:        #0a2540;
+    --text-mut:    #5a7290;
+    --text-dim:    #93a7c0;
+    --brand:       #0072CE;
+    --brand-2:     #005BA6;
+    --brand-3:     #2b96e8;
+    --brand-glow:  rgba(0,114,206,.28);
+    --sky:         #2b96e8;
+    --red:         #E2231A;
+    --red-soft:    rgba(226,35,26,.1);
+    --green:       #1aa260;
+    --amber:       #e8920c;
+    --violet:      #6d5bd0;
+    --shadow:      0 10px 30px rgba(10,37,64,.08);
 }
 
-/* ═══════════════ BASE ═══════════════ */
 *, *::before, *::after { box-sizing: border-box; }
 html, body, [class*="css"] {
-font-family: 'Inter', system-ui, sans-serif !important;
-background: var(--bg) !important;
-color: var(--text) !important;
+    font-family: 'Inter', system-ui, sans-serif !important;
+    background: var(--bg) !important;
+    color: var(--text) !important;
 }
-.stApp { background: radial-gradient(ellipse 120% 80% at 50% -10%, #0f1b33 0%, var(--bg) 55%) !important; }
+.stApp { background: radial-gradient(ellipse 130% 90% at 50% -15%, #e3f0fb 0%, var(--bg) 55%) !important; }
 #MainMenu, footer, header[data-testid="stHeader"] { display: none !important; }
-.block-container {
-padding: 1.75rem 2.25rem 6rem !important;
-max-width: 1240px !important;
-}
+.block-container { padding: 1.75rem 2.25rem 6rem !important; max-width: 1240px !important; }
 .stApp [data-testid="stDecoration"] { display: none !important; }
-
-/* tabular numerals everywhere numbers matter */
 .kpi-value, .stat-num, [data-testid="stDataFrame"] td { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
 
 /* ═══════════════ SIDEBAR ═══════════════ */
 section[data-testid="stSidebar"] {
-background: linear-gradient(180deg, var(--bg-elev) 0%, #0d1526 100%) !important;
-border-right: 1px solid var(--border-soft) !important;
+    background: linear-gradient(180deg, #ffffff 0%, #f0f7fd 100%) !important;
+    border-right: 1px solid var(--border-soft) !important;
 }
 section[data-testid="stSidebar"] * { color: var(--text) !important; }
-section[data-testid="stSidebar"] .stRadio label { color: var(--text-mut) !important; }
-
-/* nav radio → looks like nav items */
 section[data-testid="stSidebar"] .stRadio > div { gap: .15rem !important; }
 section[data-testid="stSidebar"] .stRadio label {
-padding: .6rem .85rem !important;
-border-radius: 10px !important;
-transition: background .15s, color .15s !important;
-font-size: .9rem !important;
-font-weight: 500 !important;
-cursor: pointer !important;
-width: 100% !important;
+    padding: .65rem .9rem !important; border-radius: 11px !important;
+    transition: background .15s, color .15s !important;
+    font-size: .9rem !important; font-weight: 600 !important; cursor: pointer !important; width: 100% !important;
+    color: var(--text-mut) !important;
 }
-section[data-testid="stSidebar"] .stRadio label:hover { background: var(--bg-hover) !important; color: var(--text) !important; }
+section[data-testid="stSidebar"] .stRadio label:hover { background: var(--bg-hover) !important; color: var(--brand) !important; }
 
-/* ═══════════════ COLLAPSE BUTTON (visible) ═══════════════ */
+/* collapse button */
 [data-testid="collapsedControl"], [data-testid="stSidebarCollapsedControl"] {
-background: var(--brand) !important;
-border-radius: 0 12px 12px 0 !important;
-width: 30px !important; height: 60px !important;
-box-shadow: 3px 0 16px var(--brand-glow) !important;
+    background: var(--brand) !important; border-radius: 0 12px 12px 0 !important;
+    width: 30px !important; height: 60px !important; box-shadow: 3px 0 16px var(--brand-glow) !important;
 }
 [data-testid="collapsedControl"] svg, [data-testid="stSidebarCollapsedControl"] svg { fill: #fff !important; color: #fff !important; }
 [data-testid="stSidebarCollapseButton"] button { background: var(--bg-hover) !important; border-radius: 8px !important; }
-[data-testid="stSidebarCollapseButton"] svg { fill: var(--text) !important; }
+[data-testid="stSidebarCollapseButton"] svg { fill: var(--brand) !important; }
 
 /* ═══════════════ PAGE HEADER ═══════════════ */
 .page-header {
-display: flex; align-items: center; gap: 1rem;
-margin-bottom: 1.75rem; padding-bottom: 1.25rem;
-border-bottom: 1px solid var(--border-soft);
+    display: flex; align-items: center; gap: 1rem;
+    margin-bottom: 1.75rem; padding-bottom: 1.25rem; border-bottom: 1px solid var(--border-soft);
 }
 .page-header .icon {
-width: 50px; height: 50px; border-radius: 14px;
-display: flex; align-items: center; justify-content: center;
-font-size: 1.5rem;
-background: linear-gradient(135deg, var(--brand), var(--brand-2));
-box-shadow: 0 6px 20px var(--brand-glow);
+    width: 50px; height: 50px; border-radius: 14px; display: flex; align-items: center; justify-content: center;
+    font-size: 1.5rem; color: #fff;
+    background: linear-gradient(135deg, var(--brand), var(--brand-2));
+    box-shadow: 0 6px 20px var(--brand-glow);
 }
 .page-header h1 {
-font-family: 'Plus Jakarta Sans', sans-serif;
-font-size: 1.55rem; font-weight: 800; letter-spacing: -.02em;
-color: var(--text); margin: 0; line-height: 1.1;
+    font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.55rem; font-weight: 800;
+    letter-spacing: -.02em; color: var(--text); margin: 0; line-height: 1.1;
 }
 .page-header .sub { font-size: .8rem; color: var(--text-mut); margin-top: .2rem; }
 
 /* ═══════════════ SECTION LABEL ═══════════════ */
 .section-label {
-font-size: .68rem; font-weight: 700; letter-spacing: .12em;
-text-transform: uppercase; color: var(--text-dim);
-margin: 1.75rem 0 .85rem; display: flex; align-items: center; gap: .65rem;
+    font-size: .68rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--text-dim); margin: 1.75rem 0 .85rem; display: flex; align-items: center; gap: .65rem;
 }
 .section-label::after { content: ''; flex: 1; height: 1px; background: var(--border-soft); }
 
@@ -202,86 +187,79 @@ margin: 1.75rem 0 .85rem; display: flex; align-items: center; gap: .65rem;
 .kpi-3 { grid-template-columns: repeat(3, 1fr); }
 .kpi-4 { grid-template-columns: repeat(4, 1fr); }
 
+.kpi-grid a { text-decoration: none !important; }
 .kpi-card {
-position: relative; overflow: hidden;
-background: linear-gradient(160deg, var(--bg-card) 0%, var(--bg-elev) 100%);
-border: 1px solid var(--border);
-border-radius: 18px; padding: 1.4rem 1.5rem;
-transition: transform .18s cubic-bezier(.2,.8,.2,1), border-color .18s, box-shadow .18s;
+    position: relative; overflow: hidden;
+    background: linear-gradient(160deg, #ffffff 0%, #f7fbff 100%);
+    border: 1px solid var(--border); border-radius: 18px; padding: 1.4rem 1.5rem;
+    transition: transform .18s cubic-bezier(.2,.8,.2,1), border-color .18s, box-shadow .18s;
+    box-shadow: 0 4px 16px rgba(10,37,64,.05);
 }
 .kpi-card:hover {
-transform: translateY(-3px);
-border-color: color-mix(in srgb, var(--accent, var(--brand)) 50%, var(--border));
-box-shadow: 0 12px 30px rgba(0,0,0,.35);
+    transform: translateY(-3px);
+    border-color: color-mix(in srgb, var(--accent, var(--brand)) 55%, var(--border));
+    box-shadow: 0 14px 32px rgba(10,37,64,.12);
 }
 .kpi-card::after {
-content: ''; position: absolute; inset: 0 0 auto 0; height: 3px;
-background: linear-gradient(90deg, var(--accent, var(--brand)), transparent 80%);
-opacity: .9;
+    content: ''; position: absolute; inset: 0 0 auto 0; height: 4px;
+    background: linear-gradient(90deg, var(--accent, var(--brand)), transparent 85%);
 }
 .kpi-card .glow {
-position: absolute; top: -40%; right: -20%;
-width: 160px; height: 160px; border-radius: 50%;
-background: var(--accent, var(--brand)); filter: blur(60px); opacity: .12;
-pointer-events: none;
+    position: absolute; top: -40%; right: -20%; width: 160px; height: 160px; border-radius: 50%;
+    background: var(--accent, var(--brand)); filter: blur(60px); opacity: .1; pointer-events: none;
 }
 .kpi-label {
-font-size: .64rem; font-weight: 700; letter-spacing: .1em;
-text-transform: uppercase; color: var(--text-mut); margin-bottom: .65rem;
-display: flex; align-items: center; gap: .4rem;
+    font-size: .64rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--text-mut); margin-bottom: .65rem; display: flex; align-items: center; gap: .4rem;
 }
 .kpi-value {
-font-family: 'Plus Jakarta Sans', sans-serif;
-font-size: 1.7rem; font-weight: 800; letter-spacing: -.02em;
-color: var(--text); line-height: 1;
+    font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.7rem; font-weight: 800;
+    letter-spacing: -.02em; color: var(--text); line-height: 1;
 }
 .kpi-value.green  { color: var(--brand); }
-.kpi-value.blue   { color: var(--blue); }
+.kpi-value.blue   { color: var(--sky); }
 .kpi-value.red    { color: var(--red); }
 .kpi-value.amber  { color: var(--amber); }
 .kpi-value.violet { color: var(--violet); }
 .kpi-sub { font-size: .72rem; color: var(--text-mut); margin-top: .5rem; }
 .kpi-trend { font-size: .72rem; font-weight: 600; margin-top: .5rem; display: flex; align-items: center; gap: .3rem; }
-.kpi-trend.up   { color: var(--brand); }
+.kpi-trend.up   { color: var(--green); }
 .kpi-trend.down { color: var(--red); }
 .kpi-trend.flat { color: var(--text-dim); }
 
 /* ═══════════════ CHECK PAYMENT CARD ═══════════════ */
 .check-card {
-position: relative; overflow: hidden;
-background: linear-gradient(135deg, rgba(59,130,246,.12), rgba(139,92,246,.06));
-border: 1px solid rgba(59,130,246,.4);
-border-radius: 18px; padding: 1.5rem 1.7rem; margin-top: 1.5rem;
-display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;
+    position: relative; overflow: hidden;
+    background: linear-gradient(135deg, rgba(0,114,206,.08), rgba(43,150,232,.04));
+    border: 1px solid rgba(0,114,206,.3); border-radius: 18px; padding: 1.5rem 1.7rem; margin-top: 1.5rem;
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;
 }
-.check-card .glow { position: absolute; top: -50%; left: 20%; width: 200px; height: 200px; border-radius: 50%; background: var(--blue); filter: blur(70px); opacity: .15; }
+.check-card .glow { position: absolute; top: -50%; left: 20%; width: 200px; height: 200px; border-radius: 50%; background: var(--brand); filter: blur(70px); opacity: .12; }
 
 /* ═══════════════ DATE BADGE ═══════════════ */
 .date-badge {
-display: inline-flex; align-items: center; gap: .5rem;
-background: rgba(59,130,246,.1); border: 1px solid rgba(59,130,246,.3);
-border-radius: 10px; padding: .5rem .9rem;
-font-size: .76rem; font-weight: 600; color: #60a5fa; margin-bottom: 1.25rem;
+    display: inline-flex; align-items: center; gap: .5rem;
+    background: rgba(0,114,206,.08); border: 1px solid rgba(0,114,206,.25);
+    border-radius: 10px; padding: .5rem .9rem; font-size: .76rem; font-weight: 600; color: var(--brand); margin-bottom: 1.25rem;
 }
 
 /* ═══════════════ ALERTS ═══════════════ */
 .alert { border-radius: 12px; padding: .9rem 1.15rem; font-size: .78rem; font-weight: 500; margin: .75rem 0; display: flex; gap: .55rem; align-items: flex-start; }
-.alert-success { background: rgba(16,185,129,.1); border: 1px solid rgba(16,185,129,.4); color: var(--brand); }
-.alert-warn    { background: rgba(245,158,11,.1); border: 1px solid rgba(245,158,11,.4); color: var(--amber); }
-.alert-error   { background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.4); color: var(--red); }
-.alert-info    { background: rgba(59,130,246,.1); border: 1px solid rgba(59,130,246,.4); color: #60a5fa; }
+.alert-success { background: rgba(26,162,96,.1); border: 1px solid rgba(26,162,96,.4); color: var(--green); }
+.alert-warn    { background: rgba(232,146,12,.1); border: 1px solid rgba(232,146,12,.4); color: var(--amber); }
+.alert-error   { background: var(--red-soft); border: 1px solid rgba(226,35,26,.4); color: var(--red); }
+.alert-info    { background: rgba(0,114,206,.08); border: 1px solid rgba(0,114,206,.3); color: var(--brand); }
 
 /* ═══════════════ TABLE ═══════════════ */
-[data-testid="stDataFrame"] { border: 1px solid var(--border) !important; border-radius: 14px !important; overflow: hidden !important; }
-[data-testid="stDataFrame"] th { background: var(--bg-elev) !important; color: var(--text-mut) !important; font-size: .64rem !important; letter-spacing: .08em !important; text-transform: uppercase !important; font-weight: 700 !important; }
-[data-testid="stDataFrame"] td { background: var(--bg) !important; color: var(--text) !important; font-size: .82rem !important; border-color: var(--border-soft) !important; }
+[data-testid="stDataFrame"] { border: 1px solid var(--border) !important; border-radius: 14px !important; overflow: hidden !important; box-shadow: 0 4px 14px rgba(10,37,64,.05) !important; }
+[data-testid="stDataFrame"] th { background: #eef6fd !important; color: var(--text-mut) !important; font-size: .64rem !important; letter-spacing: .08em !important; text-transform: uppercase !important; font-weight: 700 !important; }
+[data-testid="stDataFrame"] td { background: #ffffff !important; color: var(--text) !important; font-size: .82rem !important; border-color: var(--border-soft) !important; }
 
 /* ═══════════════ BUTTONS ═══════════════ */
 .stButton > button {
-border-radius: 10px !important; font-family: 'Inter', sans-serif !important;
-font-size: .8rem !important; font-weight: 600 !important; padding: .6rem 1.1rem !important;
-border: 1px solid var(--border) !important; background: var(--bg-card) !important;
-color: var(--text) !important; transition: all .15s !important;
+    border-radius: 10px !important; font-family: 'Inter', sans-serif !important; font-size: .8rem !important;
+    font-weight: 600 !important; padding: .6rem 1.1rem !important; border: 1px solid var(--border) !important;
+    background: #ffffff !important; color: var(--text) !important; transition: all .15s !important;
 }
 .stButton > button:hover { background: var(--bg-hover) !important; border-color: var(--brand) !important; transform: translateY(-1px); }
 .btn-primary > button { background: linear-gradient(135deg, var(--brand), var(--brand-2)) !important; border: none !important; color: #fff !important; box-shadow: 0 4px 14px var(--brand-glow) !important; }
@@ -294,14 +272,17 @@ color: var(--text) !important; transition: all .15s !important;
 
 /* ═══════════════ INPUTS ═══════════════ */
 .stDateInput > div > div > input, .stSelectbox > div > div, .stTextInput > div > div > input {
-background: var(--bg-card) !important; border: 1px solid var(--border) !important;
-border-radius: 10px !important; color: var(--text) !important;
-font-family: 'Inter', sans-serif !important; font-size: .85rem !important;
+    background: #ffffff !important; border: 1px solid var(--border) !important; border-radius: 10px !important;
+    color: var(--text) !important; font-family: 'Inter', sans-serif !important; font-size: .85rem !important;
 }
 label { color: var(--text-mut) !important; font-size: .76rem !important; font-weight: 600 !important; }
 
+/* ═══════════════ EXPANDER (manual update) ═══════════════ */
+[data-testid="stExpander"] { border: 1px solid var(--border) !important; border-radius: 12px !important; background: #ffffff !important; }
+[data-testid="stExpander"] summary { color: var(--text-mut) !important; font-size: .82rem !important; font-weight: 600 !important; }
+
 /* ═══════════════ PROGRESS CARD ═══════════════ */
-.prog-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: 1.2rem 1.4rem; margin: .75rem 0; }
+.prog-card { background: #ffffff; border: 1px solid var(--border); border-radius: 14px; padding: 1.2rem 1.4rem; margin: .75rem 0; }
 .prog-title { font-size: .88rem; font-weight: 700; color: var(--text); margin-bottom: .4rem; }
 .prog-sub { font-size: .72rem; color: var(--text-mut); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
@@ -309,10 +290,9 @@ hr { border-color: var(--border-soft) !important; margin: 1.5rem 0 !important; }
 
 /* ═══════════════ YEAR ROW (timologiseis) ═══════════════ */
 .year-row {
-display: flex; align-items: center; justify-content: space-between;
-background: var(--bg-card); border: 1px solid var(--border);
-border-radius: 14px; padding: 1rem 1.4rem; margin-bottom: .7rem;
-transition: border-color .15s, transform .15s;
+    display: flex; align-items: center; justify-content: space-between;
+    background: #ffffff; border: 1px solid var(--border); border-radius: 14px; padding: 1rem 1.4rem; margin-bottom: .7rem;
+    transition: border-color .15s, transform .15s; box-shadow: 0 3px 12px rgba(10,37,64,.04);
 }
 .year-row:hover { border-color: var(--brand); transform: translateX(3px); }
 .year-row .yr { font-family: 'Plus Jakarta Sans'; font-size: 1.1rem; font-weight: 800; color: var(--text); }
@@ -322,29 +302,19 @@ transition: border-color .15s, transform .15s;
 /* ═══════════════ MOBILE BOTTOM NAV ═══════════════ */
 .mobile-only { display: none; }
 @media (max-width: 820px) {
-/* Κρύβουμε οπτικά τη sidebar αλλά την κρατάμε λειτουργική (off-screen)
-ώστε το bottom-nav να μπορεί να πατάει τα radio της */
-section[data-testid="stSidebar"] {
-position: fixed !important;
-left: -9999px !important;
-width: 1px !important;
-min-width: 1px !important;
-opacity: 0 !important;
-pointer-events: none !important;
+    section[data-testid="stSidebar"] {
+        position: fixed !important; left: -9999px !important; width: 1px !important;
+        min-width: 1px !important; opacity: 0 !important; pointer-events: none !important;
+    }
+    [data-testid="collapsedControl"], [data-testid="stSidebarCollapsedControl"] { display: none !important; }
+    .block-container { padding: 1rem 1rem 6.5rem !important; }
+    .page-header h1 { font-size: 1.3rem; }
+    .page-header .icon { width: 42px; height: 42px; font-size: 1.25rem; }
+    .kpi-3, .kpi-4 { grid-template-columns: 1fr !important; }
+    .kpi-2 { grid-template-columns: 1fr !important; }
+    .kpi-value { font-size: 1.55rem; }
+    .mobile-only { display: block; }
 }
-section[data-testid="stSidebar"] [role="radiogroup"] { pointer-events: auto !important; }
-[data-testid="collapsedControl"], [data-testid="stSidebarCollapsedControl"] { display: none !important; }
-.block-container { padding: 1rem 1rem 6.5rem !important; }
-.page-header h1 { font-size: 1.3rem; }
-.page-header .icon { width: 42px; height: 42px; font-size: 1.25rem; }
-.kpi-3, .kpi-4 { grid-template-columns: 1fr !important; }
-.kpi-2 { grid-template-columns: 1fr !important; }
-.kpi-value { font-size: 1.55rem; }
-.mobile-only { display: block; }
-}
-
-/* bottom nav rendered as fixed bar; the radio inside it is restyled */
-.botnav-spacer { height: 0; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -756,27 +726,21 @@ def prev_week_range(sw):
 
 # ── PLOTLY THEME ──────────────────────────────────────────────────────────────
 def _title_color():
-    return "#e6edf3" if st.session_state.get("theme", "dark") == "dark" else "#1f2328"
+    return "#0a2540"
 
 def _plot_layout():
-    """Επιστρέφει layout ανάλογα με το theme (dark/light)."""
-    _dark = st.session_state.get("theme", "dark") == "dark"
-    if _dark:
-        grid, line, txt, hover_bg, hover_txt = "#21262d", "#30363d", "#8b949e", "#161b22", "#e6edf3"
-    else:
-        grid, line, txt, hover_bg, hover_txt = "#d0d7de", "#d0d7de", "#656d76", "#ffffff", "#1f2328"
+    grid, line, txt = "#d8e6f4", "#d8e6f4", "#5a7290"
     return dict(
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
         font=dict(family="Inter", color=txt, size=11),
         margin=dict(l=0, r=0, t=30, b=0),
         xaxis=dict(gridcolor=grid, linecolor=line, tickcolor=line),
         yaxis=dict(gridcolor=grid, linecolor=line, tickcolor=line),
         legend=dict(bgcolor="rgba(0,0,0,0)", bordercolor=line),
-        hoverlabel=dict(bgcolor=hover_bg, bordercolor=line, font_color=hover_txt),
+        hoverlabel=dict(bgcolor="#ffffff", bordercolor=line, font_color="#0a2540"),
     )
 
-# Backward compat: PLOT_LAYOUT ως property-like (αξιολογείται κάθε φορά)
+# Backward compat
 PLOT_LAYOUT = _plot_layout()
 
 def sales_line_chart(df, title="Πωλήσεις"):
@@ -854,22 +818,20 @@ def invoices_donut(inv_total, crd_total):
 PAGES = ["Επισκόπηση", "Πωλήσεις", "Παραστατικά", "Τιμολογήσεις"]
 PAGE_ICONS = {"Επισκόπηση": "◆", "Πωλήσεις": "▲", "Παραστατικά": "▤", "Τιμολογήσεις": "✦"}
 
-if "theme" not in st.session_state:
-    st.session_state["theme"] = "dark"
+# Διάβασε τρέχουσα σελίδα από το URL (?page=...) — δουλεύει σε desktop & mobile
+_qp_page = st.query_params.get("page", "Επισκόπηση")
+if _qp_page not in PAGES:
+    _qp_page = "Επισκόπηση"
 if "active_page" not in st.session_state:
-    st.session_state["active_page"] = "Επισκόπηση"
+    st.session_state["active_page"] = _qp_page
+if _qp_page != st.session_state["active_page"]:
+    st.session_state["active_page"] = _qp_page
 
 with st.sidebar:
-    _is_dark = st.session_state["theme"] == "dark"
-    _theme_icon  = "☀" if _is_dark else "☾"
-    _theme_label = "Φωτεινό θέμα" if _is_dark else "Σκούρο θέμα"
-
     st.markdown("""
 <div style="padding:.5rem 0 1.25rem">
 <div style="display:flex;align-items:center;gap:.8rem">
-<div style="background:linear-gradient(135deg,#10b981,#059669);border-radius:13px;
-width:46px;height:46px;display:flex;align-items:center;
-justify-content:center;font-size:1.35rem;box-shadow:0 6px 18px rgba(16,185,129,.4)">🏪</div>
+<div style="background:linear-gradient(135deg,#0072CE,#005BA6);border-radius:13px;width:46px;height:46px;display:flex;align-items:center;justify-content:center;font-size:1.35rem;box-shadow:0 6px 18px rgba(0,114,206,.4)">🏪</div>
 <div>
 <div style="font-family:'Plus Jakarta Sans',sans-serif;font-size:1.05rem;font-weight:800;color:var(--text);letter-spacing:-.01em">ΑΒ Σκύρος</div>
 <div style="font-size:.66rem;color:var(--text-mut);letter-spacing:.04em">ΑΝΑΛΥΤΙΚΑ ΠΩΛΗΣΕΩΝ</div>
@@ -883,32 +845,12 @@ justify-content:center;font-size:1.35rem;box-shadow:0 6px 18px rgba(16,185,129,.
     _page_labels = [f"{PAGE_ICONS[p]}  {p}" for p in PAGES]
     _sel = st.radio("Σελίδα", _page_labels, label_visibility="collapsed",
                     index=PAGES.index(st.session_state["active_page"]))
-    page = PAGES[_page_labels.index(_sel)]
-    st.session_state["active_page"] = page
-
-    st.markdown("<div style='flex:1'></div>", unsafe_allow_html=True)
-    st.markdown("<hr>", unsafe_allow_html=True)
-
-    if st.button(f"{_theme_icon}  {_theme_label}", key="theme_toggle", use_container_width=True):
-        st.session_state["theme"] = "light" if _is_dark else "dark"
+    _sel_page = PAGES[_page_labels.index(_sel)]
+    if _sel_page != st.session_state["active_page"]:
+        st.session_state["active_page"] = _sel_page
+        st.query_params["page"] = _sel_page
         st.rerun()
-
-# ── LIGHT THEME OVERRIDE ──
-if st.session_state["theme"] == "light":
-    st.markdown("""
-<style>
-:root {
---bg:#f7f9fc; --bg-elev:#ffffff; --bg-card:#ffffff; --bg-hover:#eef2f8;
---border:#dde4ee; --border-soft:#e8edf4; --text:#0f1b2d; --text-mut:#5a6b85;
---text-dim:#8a99b3; --shadow:0 8px 28px rgba(15,27,45,.08);
-}
-.stApp { background: radial-gradient(ellipse 120% 80% at 50% -10%, #eef3fb 0%, var(--bg) 55%) !important; }
-section[data-testid="stSidebar"] { background: linear-gradient(180deg,#ffffff,#f3f6fb) !important; border-right:1px solid var(--border-soft) !important; }
-[data-testid="stDataFrame"] td { background:#ffffff !important; }
-[data-testid="stDataFrame"] th { background:#f3f6fb !important; }
-.kpi-card { box-shadow: 0 4px 18px rgba(15,27,45,.06); }
-</style>
-""", unsafe_allow_html=True)
+    page = st.session_state["active_page"]
 
 today = date.today()
 
@@ -999,19 +941,21 @@ if page == "Επισκόπηση":
             _wb_start, _ = get_week_range(_cd_date - timedelta(days=7))
             if sw == _wb_start:
                 check_html = (
+                    '<a href="?page=%CE%A4%CE%B9%CE%BC%CE%BF%CE%BB%CE%BF%CE%B3%CE%AE%CF%83%CE%B5%CE%B9%CF%82" target="_self" style="text-decoration:none">'
                     '<div class="kpi-card" style="--accent:#3b82f6"><div class="glow"></div>'
-                    '<div class="kpi-label">💳 Πληρωμή με Επιταγή</div>'
+                    '<div class="kpi-label">💳 Πληρωμή με Επιταγή →</div>'
                     f'<div class="kpi-value blue">{fmt(_row["amount"])}</div>'
                     f'<div class="kpi-sub">Ημ. επιταγής: <b style="color:var(--text)">{_cd_date.strftime("%d/%m/%Y")}</b></div>'
-                    '</div>'
+                    '</div></a>'
                 )
                 break
     if not check_html:
         check_html = (
+            '<a href="?page=%CE%A4%CE%B9%CE%BC%CE%BF%CE%BB%CE%BF%CE%B3%CE%AE%CF%83%CE%B5%CE%B9%CF%82" target="_self" style="text-decoration:none">'
             '<div class="kpi-card" style="--accent:#5a6b8c">'
-            '<div class="kpi-label">💳 Πληρωμή με Επιταγή</div>'
+            '<div class="kpi-label">💳 Πληρωμή με Επιταγή →</div>'
             '<div class="kpi-value" style="color:var(--text-dim);font-size:1.25rem">—</div>'
-            '<div class="kpi-sub">Καμία επιταγή αυτή την εβδομάδα</div></div>'
+            '<div class="kpi-sub">Καμία επιταγή αυτή την εβδομάδα</div></div></a>'
         )
 
     def _ly(cur, ly):
@@ -1021,16 +965,22 @@ if page == "Επισκόπηση":
         col = "#10b981" if diff >= 0 else "#ef4444"; arr = "↑" if diff >= 0 else "↓"
         return f'<div class="kpi-sub">Πέρσι: {fmt(ly)} <span style="color:{col};font-weight:700">{arr} {abs(pct):.1f}%</span></div>'
 
+    import urllib.parse as _u
+    _lnk_sales = "?page=" + _u.quote("Πωλήσεις")
+    _lnk_inv   = "?page=" + _u.quote("Παραστατικά")
+
     _ov_cards = (
         '<div class="kpi-grid kpi-3">'
+        f'<a href="{_lnk_sales}" target="_self" style="text-decoration:none">'
         '<div class="kpi-card" style="--accent:#10b981"><div class="glow"></div>'
-        '<div class="kpi-label">Καθαρές Πωλήσεις</div>'
+        '<div class="kpi-label">Καθαρές Πωλήσεις →</div>'
         f'<div class="kpi-value green">{fmt(cur_sales)}</div>'
-        f'{trend_html(cur_sales, prev_sales)}{_ly(cur_sales, ly_sales)}</div>'
+        f'{trend_html(cur_sales, prev_sales)}{_ly(cur_sales, ly_sales)}</div></a>'
+        f'<a href="{_lnk_inv}" target="_self" style="text-decoration:none">'
         '<div class="kpi-card" style="--accent:#10b981"><div class="glow"></div>'
-        '<div class="kpi-label">Τιμολόγια (καθαρό)</div>'
+        '<div class="kpi-label">Τιμολόγια (καθαρό) →</div>'
         f'<div class="kpi-value green">{fmt(inv_net_ov)}</div>'
-        '<div class="kpi-sub">Σύνολο εβδομάδας</div></div>'
+        '<div class="kpi-sub">Σύνολο εβδομάδας</div></div></a>'
         f'{check_html}'
         '</div>'
     )
@@ -1295,23 +1245,35 @@ with st.expander("⟳ Χειροκίνητη ενημέρωση δεδομένω
                 st.markdown('<div class="alert alert-error">❌ Λείπει το SALES_EMAIL_PASS.</div>', unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# MOBILE BOTTOM NAVIGATION (εμφανίζεται μόνο < 820px μέσω CSS)
+# MOBILE BOTTOM NAVIGATION — πραγματικά links (?page=) που δουλεύουν σε iframe
 # ══════════════════════════════════════════════════════════════════════════════
 _botnav_items = ""
 for p in PAGES:
     _active = "#10b981" if p == page else "#8696b5"
-    _js = ("var rs=window.parent.document.querySelectorAll('section[data-testid=stSidebar] [role=radiogroup] label');"
-           "for(var i=0;i&lt;rs.length;i++){if(rs[i].innerText.indexOf('" + p + "')&gt;-1){rs[i].click();break;}}")
+    import urllib.parse as _u
+    _href = "?page=" + _u.quote(p)
     _botnav_items += (
-        f'<button onclick="{_js}" style="flex:1;background:none;border:none;display:flex;'
-        f'flex-direction:column;align-items:center;gap:3px;padding:6px 0;cursor:pointer;color:{_active}">'
-        f'<span style="font-size:1.15rem;line-height:1">{PAGE_ICONS[p]}</span>'
-        f'<span style="font-size:.62rem;font-weight:600">{p}</span></button>'
+        f'<a href="{_href}" target="_self" style="flex:1;text-decoration:none;display:flex;'
+        f'flex-direction:column;align-items:center;gap:3px;padding:7px 0;color:{_active}">'
+        f'<span style="font-size:1.2rem;line-height:1">{PAGE_ICONS[p]}</span>'
+        f'<span style="font-size:.62rem;font-weight:600">{p}</span></a>'
     )
 
 _botnav = (
     '<div class="mobile-only" style="position:fixed;bottom:0;left:0;right:0;z-index:99999;'
-    'background:rgba(17,26,46,.96);backdrop-filter:blur(14px);border-top:1px solid var(--border);'
+    'background:rgba(11,18,32,.97);backdrop-filter:blur(16px);border-top:1px solid var(--border);'
     'display:flex;padding:2px 4px">' + _botnav_items + '</div>'
 )
 st.markdown(_botnav, unsafe_allow_html=True)
+
+# Κρύψε το Streamlit status widget (κόκκινη μπαλίτσα + στρογγυλό κάτω δεξιά) σε κινητό
+st.markdown("""
+<style>
+@media (max-width: 820px) {
+    [data-testid="stStatusWidget"], [data-testid="stToolbar"],
+    [data-testid="manage-app-button"], .stDeployButton,
+    iframe[title="streamlit_status"] { display: none !important; visibility: hidden !important; }
+    div[data-testid="stStatusWidget"] { display:none !important; }
+}
+</style>
+""", unsafe_allow_html=True)
