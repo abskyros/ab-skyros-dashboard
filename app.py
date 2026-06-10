@@ -84,6 +84,8 @@ MONTHS_GR = [
     "Μάιος","Ιούνιος","Ιούλιος","Αύγουστος",
     "Σεπτέμβριος","Οκτώβριος","Νοέμβριος","Δεκέμβριος"
 ]
+# Συντομογραφίες ημερών (Δευτέρα=0 ... Κυριακή=6) — 3 πρώτα γράμματα
+DAYS_GR = ["Δευ", "Τρι", "Τετ", "Πεμ", "Παρ", "Σαβ", "Κυρ"]
 
 # ── PAGE CONFIG ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -897,7 +899,7 @@ if page == "Επισκόπηση":
     sw_cur, ew_cur   = get_week_range(today)
     psw_cur, pew_cur = prev_week_range(sw_cur)
     if not df_s.empty:
-        _has_cur = not df_s[(df_s["date"] >= sw_cur) & (df_s["date"] <= ew_cur)].empty
+        _has_cur = not df_s[(df_s["date"] >= pd.Timestamp(sw_cur)) & (df_s["date"] <= pd.Timestamp(ew_cur))].empty
         if _has_cur:
             sw, ew, psw, pew = sw_cur, ew_cur, psw_cur, pew_cur
             _wlabel = "Τρέχουσα εβδομάδα"
@@ -909,16 +911,51 @@ if page == "Επισκόπηση":
         sw, ew, psw, pew = sw_cur, ew_cur, psw_cur, pew_cur
         _wlabel = "Τρέχουσα εβδομάδα"
 
-    st.markdown(f'<div class="date-badge">🗓 {sw.strftime("%d/%m/%Y")} — {ew.strftime("%d/%m/%Y")} · {_wlabel}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="date-badge">🗓 {DAYS_GR[today.weekday()]} {today.strftime("%d/%m/%Y")} · Τρέχουσα εβδομάδα</div>', unsafe_allow_html=True)
 
-    # Πωλήσεις εβδομάδας + πέρσι
-    w_df  = df_s[(df_s["date"] >= sw)  & (df_s["date"] <= ew)]  if not df_s.empty else pd.DataFrame()
-    pw_df = df_s[(df_s["date"] >= psw) & (df_s["date"] <= pew)] if not df_s.empty else pd.DataFrame()
-    cur_sales  = w_df["net_sales"].sum()  if not w_df.empty else 0
-    prev_sales = pw_df["net_sales"].sum() if not pw_df.empty else None
-    ly_sw = sw.replace(year=sw.year - 1); ly_ew = ew.replace(year=ew.year - 1)
-    ly_sales_df = df_s[(df_s["date"] >= ly_sw) & (df_s["date"] <= ly_ew)] if not df_s.empty else pd.DataFrame()
-    ly_sales = ly_sales_df["net_sales"].sum() if not ly_sales_df.empty else None
+    # ── Πωλήσεις: ΣΗΜΕΡΑ vs ΠΕΡΣΙ ίδια ημερομηνία ──
+    # Φτιάχνουμε βοηθητική στήλη με καθαρές ημερομηνίες (date) για ασφαλείς συγκρίσεις
+    if not df_s.empty:
+        _sdates = df_s["date"].apply(lambda x: x.date() if hasattr(x, "date") else x)
+    else:
+        _sdates = pd.Series([], dtype=object)
+
+    def _day_sales(d):
+        if df_s.empty:
+            return None
+        m = df_s[_sdates == d]
+        return m["net_sales"].sum() if not m.empty else None
+
+    today_sales = _day_sales(today)
+    ly_same_date = today.replace(year=today.year - 1)
+    ly_day_sales = _day_sales(ly_same_date)
+    today_dow = DAYS_GR[today.weekday()]
+    ly_dow    = DAYS_GR[ly_same_date.weekday()]
+
+    # ── Εβδομάδα ΩΣ ΤΩΡΑ (Δευτ→σήμερα) vs ΠΕΡΣΙ ίδιες ημέρες ──
+    wk_start, _wk_end_full = get_week_range(today)
+    days_elapsed = (today - wk_start).days  # 0=Δευτ ... 6=Κυρ
+    wtd_end = today
+    if not df_s.empty:
+        wtd_mask = (_sdates >= wk_start) & (_sdates <= wtd_end)
+        wtd_sum = df_s[wtd_mask]["net_sales"].sum()
+    else:
+        wtd_sum = 0
+
+    # Περσινές ανάλογες μέρες: ίδια ημερομηνία έναρξης εβδομάδας πέρσι, ίδιο πλήθος ημερών
+    ly_wk_start = wk_start.replace(year=wk_start.year - 1)
+    ly_wtd_end  = ly_wk_start + timedelta(days=days_elapsed)
+    if not df_s.empty:
+        ly_wtd_mask = (_sdates >= ly_wk_start) & (_sdates <= ly_wtd_end)
+        _ly_wtd_df = df_s[ly_wtd_mask]
+        ly_wtd_sum = _ly_wtd_df["net_sales"].sum() if not _ly_wtd_df.empty else None
+    else:
+        ly_wtd_sum = None
+
+    # Εύρος ημερών για ετικέτα (π.χ. "Δευ–Τρι")
+    _wd_first = DAYS_GR[wk_start.weekday()]
+    _wd_last  = DAYS_GR[wtd_end.weekday()]
+    _wtd_label = _wd_first if days_elapsed == 0 else f"{_wd_first}–{_wd_last}"
 
     # Τιμολόγια (καθαρό) εβδομάδας
     inv_net_ov = 0
@@ -958,26 +995,46 @@ if page == "Επισκόπηση":
             '<div class="kpi-sub">Καμία επιταγή αυτή την εβδομάδα</div></div></a>'
         )
 
-    def _ly(cur, ly):
-        if ly is None or ly == 0:
-            return '<div class="kpi-sub">Πέρσι: — χωρίς δεδομένα</div>'
-        diff = cur - ly; pct = diff / ly * 100
-        col = "#10b981" if diff >= 0 else "#ef4444"; arr = "↑" if diff >= 0 else "↓"
-        return f'<div class="kpi-sub">Πέρσι: {fmt(ly)} <span style="color:{col};font-weight:700">{arr} {abs(pct):.1f}%</span></div>'
+    def _pct_html(cur, ref):
+        if ref is None or ref == 0:
+            return '<span style="color:var(--text-dim)">— χωρίς περσινά</span>'
+        diff = cur - ref; pct = diff / ref * 100
+        col = "#1aa260" if diff >= 0 else "#E2231A"; arr = "↑" if diff >= 0 else "↓"
+        return f'<span style="color:{col};font-weight:700">{arr} {abs(pct):.1f}%</span>'
 
     import urllib.parse as _u
     _lnk_sales = "?page=" + _u.quote("Πωλήσεις")
     _lnk_inv   = "?page=" + _u.quote("Παραστατικά")
 
+    # Περιεχόμενο κάρτας Πωλήσεων (Α: σήμερα vs πέρσι ίδια μέρα, Β: εβδομάδα ως τώρα vs ανάλογες περσινές)
+    _today_val = fmt(today_sales) if today_sales is not None else "—"
+    _today_block = (
+        f'<div class="kpi-value green">{_today_val}</div>'
+        f'<div class="kpi-sub" style="margin-top:.55rem">'
+        f'<b style="color:var(--text)">{today_dow} {today.strftime("%d/%m")}</b> σήμερα'
+        f'</div>'
+        f'<div class="kpi-sub" style="margin-top:.2rem">'
+        f'Πέρσι {ly_dow} {ly_same_date.strftime("%d/%m")}: '
+        f'{fmt(ly_day_sales) if ly_day_sales is not None else "—"} {_pct_html(today_sales or 0, ly_day_sales)}'
+        f'</div>'
+    )
+    _week_block = (
+        f'<div style="margin-top:.85rem;padding-top:.7rem;border-top:1px solid var(--border-soft)">'
+        f'<div class="kpi-sub" style="font-weight:700;color:var(--text)">Εβδομάδα ως τώρα ({_wtd_label})</div>'
+        f'<div class="kpi-value green" style="font-size:1.15rem;margin-top:.25rem">{fmt(wtd_sum)}</div>'
+        f'<div class="kpi-sub" style="margin-top:.2rem">'
+        f'Πέρσι ίδιες μέρες: {fmt(ly_wtd_sum) if ly_wtd_sum is not None else "—"} {_pct_html(wtd_sum, ly_wtd_sum)}'
+        f'</div></div>'
+    )
+
     _ov_cards = (
         '<div class="kpi-grid kpi-3">'
         f'<a href="{_lnk_sales}" target="_self" style="text-decoration:none">'
-        '<div class="kpi-card" style="--accent:#10b981"><div class="glow"></div>'
+        '<div class="kpi-card" style="--accent:#0072CE"><div class="glow"></div>'
         '<div class="kpi-label">Καθαρές Πωλήσεις →</div>'
-        f'<div class="kpi-value green">{fmt(cur_sales)}</div>'
-        f'{trend_html(cur_sales, prev_sales)}{_ly(cur_sales, ly_sales)}</div></a>'
+        f'{_today_block}{_week_block}</div></a>'
         f'<a href="{_lnk_inv}" target="_self" style="text-decoration:none">'
-        '<div class="kpi-card" style="--accent:#10b981"><div class="glow"></div>'
+        '<div class="kpi-card" style="--accent:#0072CE"><div class="glow"></div>'
         '<div class="kpi-label">Τιμολόγια (καθαρό) →</div>'
         f'<div class="kpi-value green">{fmt(inv_net_ov)}</div>'
         '<div class="kpi-sub">Σύνολο εβδομάδας</div></div></a>'
@@ -1008,8 +1065,8 @@ elif page == "Πωλήσεις":
         sel_s = st.date_input("Επίλεξε ημέρα", today, key="sales_wk_date")
         sw, ew = get_week_range(sel_s); psw, pew = prev_week_range(sw)
         st.markdown(f'<div class="date-badge">🗓 Δευτ. {sw.strftime("%d/%m/%Y")} — Κυρ. {ew.strftime("%d/%m/%Y")}</div>', unsafe_allow_html=True)
-        w_df  = df_s[(df_s["date"] >= sw)  & (df_s["date"] <= ew)]
-        pw_df = df_s[(df_s["date"] >= psw) & (df_s["date"] <= pew)]
+        w_df  = df_s[(df_s["date"] >= pd.Timestamp(sw))  & (df_s["date"] <= pd.Timestamp(ew))]
+        pw_df = df_s[(df_s["date"] >= pd.Timestamp(psw)) & (df_s["date"] <= pd.Timestamp(pew))]
         if not w_df.empty:
             tot = w_df["net_sales"].sum(); cst = w_df["customers"].sum(); avg = w_df["avg_basket"].mean()
             p_tot = pw_df["net_sales"].sum() if not pw_df.empty else None
@@ -1218,8 +1275,27 @@ with st.expander("⟳ Χειροκίνητη ενημέρωση δεδομένω
     st.caption("Τα Παραστατικά & οι Τιμολογήσεις ενημερώνονται αυτόματα σε κάθε είσοδο. "
                "Οι Πωλήσεις ενημερώνονται αυτόματα κάθε βράδυ στις 23:00. "
                "Πατήστε εδώ μόνο αν θέλετε άμεση ενημέρωση τώρα.")
-    _ec1, _ec2 = st.columns(2)
+    _ec1, _ec2, _ec3 = st.columns(3)
     with _ec1:
+        if st.button("Ενημέρωση Πωλήσεων", key="manual_sales", use_container_width=True):
+            if SALES_PW:
+                with st.spinner("Σύνδεση & ανάγνωση (OCR)..."):
+                    _ex = _raw_load_sales()
+                    _since = (max(_ex["date"]) - timedelta(days=4)) if (_ex is not None and not _ex.empty) else None
+                    _recs, _errs_s, _n = fetch_sales_emails(SALES_PW, since=_since, want_records=60, email_scan_limit=120)
+                if _errs_s:
+                    st.markdown(f'<div class="alert alert-error">❌ {_errs_s[0]}</div>', unsafe_allow_html=True)
+                else:
+                    _saved_s = merge_sales(_recs) if _recs else 0
+                    _raw_load_sales.clear()
+                    if _saved_s:
+                        st.markdown(f'<div class="alert alert-success">✅ {_saved_s} νέες ημέρες από {_n} email.</div>', unsafe_allow_html=True)
+                        st.rerun()
+                    else:
+                        st.markdown('<div class="alert alert-info">ℹ️ Καμία νέα εγγραφή. (Το OCR τρέχει πλήρως κάθε βράδυ 23:00.)</div>', unsafe_allow_html=True)
+            else:
+                st.markdown('<div class="alert alert-error">❌ Λείπει το SALES_EMAIL_PASS.</div>', unsafe_allow_html=True)
+    with _ec2:
         if st.button("Ενημέρωση Παραστατικών", key="manual_inv", use_container_width=True):
             if INV_PW:
                 with st.spinner("Σύνδεση & αποθήκευση..."):
@@ -1231,7 +1307,7 @@ with st.expander("⟳ Χειροκίνητη ενημέρωση δεδομένω
                     _raw_load_invoices.clear(); st.rerun()
             else:
                 st.markdown('<div class="alert alert-error">❌ Λείπει το EMAIL_PASS.</div>', unsafe_allow_html=True)
-    with _ec2:
+    with _ec3:
         if st.button("Ενημέρωση Τιμολογήσεων", key="manual_timol", use_container_width=True):
             if SALES_PW:
                 with st.spinner("Σύνδεση & ανάγνωση..."):
