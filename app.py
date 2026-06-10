@@ -1303,20 +1303,19 @@ with st.expander("⟳ Χειροκίνητη ενημέρωση δεδομένω
 # ══════════════════════════════════════════════════════════════════════════════
 _botnav_items = ""
 for p in PAGES:
-    _active = "color:#10b981" if p == page else "color:#8696b5"
-    _botnav_items += f"""
-    <button onclick="
-        var rs = window.parent.document.querySelectorAll('section[data-testid=stSidebar] [role=radiogroup] label');
-        for (var i=0;i<rs.length;i++){{ if(rs[i].innerText.indexOf('{p}')>-1){{ rs[i].click(); break; }} }}
-    " style="flex:1;background:none;border:none;display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 0;cursor:pointer;{_active}">
-        <span style="font-size:1.15rem;line-height:1">{PAGE_ICONS[p]}</span>
-        <span style="font-size:.62rem;font-weight:600">{p}</span>
-    </button>"""
+    _active = "#10b981" if p == page else "#8696b5"
+    _js = ("var rs=window.parent.document.querySelectorAll('section[data-testid=stSidebar] [role=radiogroup] label');"
+           "for(var i=0;i&lt;rs.length;i++){if(rs[i].innerText.indexOf('" + p + "')&gt;-1){rs[i].click();break;}}")
+    _botnav_items += (
+        f'<button onclick="{_js}" style="flex:1;background:none;border:none;display:flex;'
+        f'flex-direction:column;align-items:center;gap:3px;padding:6px 0;cursor:pointer;color:{_active}">'
+        f'<span style="font-size:1.15rem;line-height:1">{PAGE_ICONS[p]}</span>'
+        f'<span style="font-size:.62rem;font-weight:600">{p}</span></button>'
+    )
 
-st.markdown(f"""
-<div class="mobile-only" style="position:fixed;bottom:0;left:0;right:0;z-index:99999;
-     background:rgba(17,26,46,.96);backdrop-filter:blur(14px);
-     border-top:1px solid var(--border);display:flex;padding:2px 4px env(safe-area-inset-bottom,4px)">
-    {_botnav_items}
-</div>
-""", unsafe_allow_html=True)
+_botnav = (
+    '<div class="mobile-only" style="position:fixed;bottom:0;left:0;right:0;z-index:99999;'
+    'background:rgba(17,26,46,.96);backdrop-filter:blur(14px);border-top:1px solid var(--border);'
+    'display:flex;padding:2px 4px">' + _botnav_items + '</div>'
+)
+st.markdown(_botnav, unsafe_allow_html=True)
