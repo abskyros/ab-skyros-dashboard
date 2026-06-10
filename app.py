@@ -99,37 +99,37 @@ st.markdown("""
 
 /* ═══════════════ THEME TOKENS ═══════════════ */
 :root {
-    --bg:          #0b1220;
-    --bg-elev:     #111a2e;
-    --bg-card:     #131d33;
-    --bg-hover:    #1a2742;
-    --border:      #1f2d4a;
-    --border-soft: #18233c;
-    --text:        #e8eef7;
-    --text-mut:    #8696b5;
-    --text-dim:    #5a6b8c;
-    --brand:       #10b981;
-    --brand-2:     #059669;
-    --brand-glow:  rgba(16,185,129,.35);
-    --blue:        #3b82f6;
-    --amber:       #f59e0b;
-    --red:         #ef4444;
-    --violet:      #8b5cf6;
-    --shadow:      0 8px 32px rgba(0,0,0,.4);
+--bg:          #0b1220;
+--bg-elev:     #111a2e;
+--bg-card:     #131d33;
+--bg-hover:    #1a2742;
+--border:      #1f2d4a;
+--border-soft: #18233c;
+--text:        #e8eef7;
+--text-mut:    #8696b5;
+--text-dim:    #5a6b8c;
+--brand:       #10b981;
+--brand-2:     #059669;
+--brand-glow:  rgba(16,185,129,.35);
+--blue:        #3b82f6;
+--amber:       #f59e0b;
+--red:         #ef4444;
+--violet:      #8b5cf6;
+--shadow:      0 8px 32px rgba(0,0,0,.4);
 }
 
 /* ═══════════════ BASE ═══════════════ */
 *, *::before, *::after { box-sizing: border-box; }
 html, body, [class*="css"] {
-    font-family: 'Inter', system-ui, sans-serif !important;
-    background: var(--bg) !important;
-    color: var(--text) !important;
+font-family: 'Inter', system-ui, sans-serif !important;
+background: var(--bg) !important;
+color: var(--text) !important;
 }
 .stApp { background: radial-gradient(ellipse 120% 80% at 50% -10%, #0f1b33 0%, var(--bg) 55%) !important; }
 #MainMenu, footer, header[data-testid="stHeader"] { display: none !important; }
 .block-container {
-    padding: 1.75rem 2.25rem 6rem !important;
-    max-width: 1240px !important;
+padding: 1.75rem 2.25rem 6rem !important;
+max-width: 1240px !important;
 }
 .stApp [data-testid="stDecoration"] { display: none !important; }
 
@@ -138,8 +138,8 @@ html, body, [class*="css"] {
 
 /* ═══════════════ SIDEBAR ═══════════════ */
 section[data-testid="stSidebar"] {
-    background: linear-gradient(180deg, var(--bg-elev) 0%, #0d1526 100%) !important;
-    border-right: 1px solid var(--border-soft) !important;
+background: linear-gradient(180deg, var(--bg-elev) 0%, #0d1526 100%) !important;
+border-right: 1px solid var(--border-soft) !important;
 }
 section[data-testid="stSidebar"] * { color: var(--text) !important; }
 section[data-testid="stSidebar"] .stRadio label { color: var(--text-mut) !important; }
@@ -147,22 +147,22 @@ section[data-testid="stSidebar"] .stRadio label { color: var(--text-mut) !import
 /* nav radio → looks like nav items */
 section[data-testid="stSidebar"] .stRadio > div { gap: .15rem !important; }
 section[data-testid="stSidebar"] .stRadio label {
-    padding: .6rem .85rem !important;
-    border-radius: 10px !important;
-    transition: background .15s, color .15s !important;
-    font-size: .9rem !important;
-    font-weight: 500 !important;
-    cursor: pointer !important;
-    width: 100% !important;
+padding: .6rem .85rem !important;
+border-radius: 10px !important;
+transition: background .15s, color .15s !important;
+font-size: .9rem !important;
+font-weight: 500 !important;
+cursor: pointer !important;
+width: 100% !important;
 }
 section[data-testid="stSidebar"] .stRadio label:hover { background: var(--bg-hover) !important; color: var(--text) !important; }
 
 /* ═══════════════ COLLAPSE BUTTON (visible) ═══════════════ */
 [data-testid="collapsedControl"], [data-testid="stSidebarCollapsedControl"] {
-    background: var(--brand) !important;
-    border-radius: 0 12px 12px 0 !important;
-    width: 30px !important; height: 60px !important;
-    box-shadow: 3px 0 16px var(--brand-glow) !important;
+background: var(--brand) !important;
+border-radius: 0 12px 12px 0 !important;
+width: 30px !important; height: 60px !important;
+box-shadow: 3px 0 16px var(--brand-glow) !important;
 }
 [data-testid="collapsedControl"] svg, [data-testid="stSidebarCollapsedControl"] svg { fill: #fff !important; color: #fff !important; }
 [data-testid="stSidebarCollapseButton"] button { background: var(--bg-hover) !important; border-radius: 8px !important; }
@@ -170,29 +170,29 @@ section[data-testid="stSidebar"] .stRadio label:hover { background: var(--bg-hov
 
 /* ═══════════════ PAGE HEADER ═══════════════ */
 .page-header {
-    display: flex; align-items: center; gap: 1rem;
-    margin-bottom: 1.75rem; padding-bottom: 1.25rem;
-    border-bottom: 1px solid var(--border-soft);
+display: flex; align-items: center; gap: 1rem;
+margin-bottom: 1.75rem; padding-bottom: 1.25rem;
+border-bottom: 1px solid var(--border-soft);
 }
 .page-header .icon {
-    width: 50px; height: 50px; border-radius: 14px;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 1.5rem;
-    background: linear-gradient(135deg, var(--brand), var(--brand-2));
-    box-shadow: 0 6px 20px var(--brand-glow);
+width: 50px; height: 50px; border-radius: 14px;
+display: flex; align-items: center; justify-content: center;
+font-size: 1.5rem;
+background: linear-gradient(135deg, var(--brand), var(--brand-2));
+box-shadow: 0 6px 20px var(--brand-glow);
 }
 .page-header h1 {
-    font-family: 'Plus Jakarta Sans', sans-serif;
-    font-size: 1.55rem; font-weight: 800; letter-spacing: -.02em;
-    color: var(--text); margin: 0; line-height: 1.1;
+font-family: 'Plus Jakarta Sans', sans-serif;
+font-size: 1.55rem; font-weight: 800; letter-spacing: -.02em;
+color: var(--text); margin: 0; line-height: 1.1;
 }
 .page-header .sub { font-size: .8rem; color: var(--text-mut); margin-top: .2rem; }
 
 /* ═══════════════ SECTION LABEL ═══════════════ */
 .section-label {
-    font-size: .68rem; font-weight: 700; letter-spacing: .12em;
-    text-transform: uppercase; color: var(--text-dim);
-    margin: 1.75rem 0 .85rem; display: flex; align-items: center; gap: .65rem;
+font-size: .68rem; font-weight: 700; letter-spacing: .12em;
+text-transform: uppercase; color: var(--text-dim);
+margin: 1.75rem 0 .85rem; display: flex; align-items: center; gap: .65rem;
 }
 .section-label::after { content: ''; flex: 1; height: 1px; background: var(--border-soft); }
 
@@ -203,37 +203,37 @@ section[data-testid="stSidebar"] .stRadio label:hover { background: var(--bg-hov
 .kpi-4 { grid-template-columns: repeat(4, 1fr); }
 
 .kpi-card {
-    position: relative; overflow: hidden;
-    background: linear-gradient(160deg, var(--bg-card) 0%, var(--bg-elev) 100%);
-    border: 1px solid var(--border);
-    border-radius: 18px; padding: 1.4rem 1.5rem;
-    transition: transform .18s cubic-bezier(.2,.8,.2,1), border-color .18s, box-shadow .18s;
+position: relative; overflow: hidden;
+background: linear-gradient(160deg, var(--bg-card) 0%, var(--bg-elev) 100%);
+border: 1px solid var(--border);
+border-radius: 18px; padding: 1.4rem 1.5rem;
+transition: transform .18s cubic-bezier(.2,.8,.2,1), border-color .18s, box-shadow .18s;
 }
 .kpi-card:hover {
-    transform: translateY(-3px);
-    border-color: color-mix(in srgb, var(--accent, var(--brand)) 50%, var(--border));
-    box-shadow: 0 12px 30px rgba(0,0,0,.35);
+transform: translateY(-3px);
+border-color: color-mix(in srgb, var(--accent, var(--brand)) 50%, var(--border));
+box-shadow: 0 12px 30px rgba(0,0,0,.35);
 }
 .kpi-card::after {
-    content: ''; position: absolute; inset: 0 0 auto 0; height: 3px;
-    background: linear-gradient(90deg, var(--accent, var(--brand)), transparent 80%);
-    opacity: .9;
+content: ''; position: absolute; inset: 0 0 auto 0; height: 3px;
+background: linear-gradient(90deg, var(--accent, var(--brand)), transparent 80%);
+opacity: .9;
 }
 .kpi-card .glow {
-    position: absolute; top: -40%; right: -20%;
-    width: 160px; height: 160px; border-radius: 50%;
-    background: var(--accent, var(--brand)); filter: blur(60px); opacity: .12;
-    pointer-events: none;
+position: absolute; top: -40%; right: -20%;
+width: 160px; height: 160px; border-radius: 50%;
+background: var(--accent, var(--brand)); filter: blur(60px); opacity: .12;
+pointer-events: none;
 }
 .kpi-label {
-    font-size: .64rem; font-weight: 700; letter-spacing: .1em;
-    text-transform: uppercase; color: var(--text-mut); margin-bottom: .65rem;
-    display: flex; align-items: center; gap: .4rem;
+font-size: .64rem; font-weight: 700; letter-spacing: .1em;
+text-transform: uppercase; color: var(--text-mut); margin-bottom: .65rem;
+display: flex; align-items: center; gap: .4rem;
 }
 .kpi-value {
-    font-family: 'Plus Jakarta Sans', sans-serif;
-    font-size: 1.7rem; font-weight: 800; letter-spacing: -.02em;
-    color: var(--text); line-height: 1;
+font-family: 'Plus Jakarta Sans', sans-serif;
+font-size: 1.7rem; font-weight: 800; letter-spacing: -.02em;
+color: var(--text); line-height: 1;
 }
 .kpi-value.green  { color: var(--brand); }
 .kpi-value.blue   { color: var(--blue); }
@@ -248,20 +248,20 @@ section[data-testid="stSidebar"] .stRadio label:hover { background: var(--bg-hov
 
 /* ═══════════════ CHECK PAYMENT CARD ═══════════════ */
 .check-card {
-    position: relative; overflow: hidden;
-    background: linear-gradient(135deg, rgba(59,130,246,.12), rgba(139,92,246,.06));
-    border: 1px solid rgba(59,130,246,.4);
-    border-radius: 18px; padding: 1.5rem 1.7rem; margin-top: 1.5rem;
-    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;
+position: relative; overflow: hidden;
+background: linear-gradient(135deg, rgba(59,130,246,.12), rgba(139,92,246,.06));
+border: 1px solid rgba(59,130,246,.4);
+border-radius: 18px; padding: 1.5rem 1.7rem; margin-top: 1.5rem;
+display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;
 }
 .check-card .glow { position: absolute; top: -50%; left: 20%; width: 200px; height: 200px; border-radius: 50%; background: var(--blue); filter: blur(70px); opacity: .15; }
 
 /* ═══════════════ DATE BADGE ═══════════════ */
 .date-badge {
-    display: inline-flex; align-items: center; gap: .5rem;
-    background: rgba(59,130,246,.1); border: 1px solid rgba(59,130,246,.3);
-    border-radius: 10px; padding: .5rem .9rem;
-    font-size: .76rem; font-weight: 600; color: #60a5fa; margin-bottom: 1.25rem;
+display: inline-flex; align-items: center; gap: .5rem;
+background: rgba(59,130,246,.1); border: 1px solid rgba(59,130,246,.3);
+border-radius: 10px; padding: .5rem .9rem;
+font-size: .76rem; font-weight: 600; color: #60a5fa; margin-bottom: 1.25rem;
 }
 
 /* ═══════════════ ALERTS ═══════════════ */
@@ -278,10 +278,10 @@ section[data-testid="stSidebar"] .stRadio label:hover { background: var(--bg-hov
 
 /* ═══════════════ BUTTONS ═══════════════ */
 .stButton > button {
-    border-radius: 10px !important; font-family: 'Inter', sans-serif !important;
-    font-size: .8rem !important; font-weight: 600 !important; padding: .6rem 1.1rem !important;
-    border: 1px solid var(--border) !important; background: var(--bg-card) !important;
-    color: var(--text) !important; transition: all .15s !important;
+border-radius: 10px !important; font-family: 'Inter', sans-serif !important;
+font-size: .8rem !important; font-weight: 600 !important; padding: .6rem 1.1rem !important;
+border: 1px solid var(--border) !important; background: var(--bg-card) !important;
+color: var(--text) !important; transition: all .15s !important;
 }
 .stButton > button:hover { background: var(--bg-hover) !important; border-color: var(--brand) !important; transform: translateY(-1px); }
 .btn-primary > button { background: linear-gradient(135deg, var(--brand), var(--brand-2)) !important; border: none !important; color: #fff !important; box-shadow: 0 4px 14px var(--brand-glow) !important; }
@@ -294,9 +294,9 @@ section[data-testid="stSidebar"] .stRadio label:hover { background: var(--bg-hov
 
 /* ═══════════════ INPUTS ═══════════════ */
 .stDateInput > div > div > input, .stSelectbox > div > div, .stTextInput > div > div > input {
-    background: var(--bg-card) !important; border: 1px solid var(--border) !important;
-    border-radius: 10px !important; color: var(--text) !important;
-    font-family: 'Inter', sans-serif !important; font-size: .85rem !important;
+background: var(--bg-card) !important; border: 1px solid var(--border) !important;
+border-radius: 10px !important; color: var(--text) !important;
+font-family: 'Inter', sans-serif !important; font-size: .85rem !important;
 }
 label { color: var(--text-mut) !important; font-size: .76rem !important; font-weight: 600 !important; }
 
@@ -309,10 +309,10 @@ hr { border-color: var(--border-soft) !important; margin: 1.5rem 0 !important; }
 
 /* ═══════════════ YEAR ROW (timologiseis) ═══════════════ */
 .year-row {
-    display: flex; align-items: center; justify-content: space-between;
-    background: var(--bg-card); border: 1px solid var(--border);
-    border-radius: 14px; padding: 1rem 1.4rem; margin-bottom: .7rem;
-    transition: border-color .15s, transform .15s;
+display: flex; align-items: center; justify-content: space-between;
+background: var(--bg-card); border: 1px solid var(--border);
+border-radius: 14px; padding: 1rem 1.4rem; margin-bottom: .7rem;
+transition: border-color .15s, transform .15s;
 }
 .year-row:hover { border-color: var(--brand); transform: translateX(3px); }
 .year-row .yr { font-family: 'Plus Jakarta Sans'; font-size: 1.1rem; font-weight: 800; color: var(--text); }
@@ -322,25 +322,25 @@ hr { border-color: var(--border-soft) !important; margin: 1.5rem 0 !important; }
 /* ═══════════════ MOBILE BOTTOM NAV ═══════════════ */
 .mobile-only { display: none; }
 @media (max-width: 820px) {
-    /* Κρύβουμε οπτικά τη sidebar αλλά την κρατάμε λειτουργική (off-screen)
-       ώστε το bottom-nav να μπορεί να πατάει τα radio της */
-    section[data-testid="stSidebar"] {
-        position: fixed !important;
-        left: -9999px !important;
-        width: 1px !important;
-        min-width: 1px !important;
-        opacity: 0 !important;
-        pointer-events: none !important;
-    }
-    section[data-testid="stSidebar"] [role="radiogroup"] { pointer-events: auto !important; }
-    [data-testid="collapsedControl"], [data-testid="stSidebarCollapsedControl"] { display: none !important; }
-    .block-container { padding: 1rem 1rem 6.5rem !important; }
-    .page-header h1 { font-size: 1.3rem; }
-    .page-header .icon { width: 42px; height: 42px; font-size: 1.25rem; }
-    .kpi-3, .kpi-4 { grid-template-columns: 1fr !important; }
-    .kpi-2 { grid-template-columns: 1fr !important; }
-    .kpi-value { font-size: 1.55rem; }
-    .mobile-only { display: block; }
+/* Κρύβουμε οπτικά τη sidebar αλλά την κρατάμε λειτουργική (off-screen)
+ώστε το bottom-nav να μπορεί να πατάει τα radio της */
+section[data-testid="stSidebar"] {
+position: fixed !important;
+left: -9999px !important;
+width: 1px !important;
+min-width: 1px !important;
+opacity: 0 !important;
+pointer-events: none !important;
+}
+section[data-testid="stSidebar"] [role="radiogroup"] { pointer-events: auto !important; }
+[data-testid="collapsedControl"], [data-testid="stSidebarCollapsedControl"] { display: none !important; }
+.block-container { padding: 1rem 1rem 6.5rem !important; }
+.page-header h1 { font-size: 1.3rem; }
+.page-header .icon { width: 42px; height: 42px; font-size: 1.25rem; }
+.kpi-3, .kpi-4 { grid-template-columns: 1fr !important; }
+.kpi-2 { grid-template-columns: 1fr !important; }
+.kpi-value { font-size: 1.55rem; }
+.mobile-only { display: block; }
 }
 
 /* bottom nav rendered as fixed bar; the radio inside it is restyled */
@@ -865,18 +865,18 @@ with st.sidebar:
     _theme_label = "Φωτεινό θέμα" if _is_dark else "Σκούρο θέμα"
 
     st.markdown("""
-    <div style="padding:.5rem 0 1.25rem">
-        <div style="display:flex;align-items:center;gap:.8rem">
-            <div style="background:linear-gradient(135deg,#10b981,#059669);border-radius:13px;
-                        width:46px;height:46px;display:flex;align-items:center;
-                        justify-content:center;font-size:1.35rem;box-shadow:0 6px 18px rgba(16,185,129,.4)">🏪</div>
-            <div>
-                <div style="font-family:'Plus Jakarta Sans',sans-serif;font-size:1.05rem;font-weight:800;color:var(--text);letter-spacing:-.01em">ΑΒ Σκύρος</div>
-                <div style="font-size:.66rem;color:var(--text-mut);letter-spacing:.04em">ΑΝΑΛΥΤΙΚΑ ΠΩΛΗΣΕΩΝ</div>
-            </div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+<div style="padding:.5rem 0 1.25rem">
+<div style="display:flex;align-items:center;gap:.8rem">
+<div style="background:linear-gradient(135deg,#10b981,#059669);border-radius:13px;
+width:46px;height:46px;display:flex;align-items:center;
+justify-content:center;font-size:1.35rem;box-shadow:0 6px 18px rgba(16,185,129,.4)">🏪</div>
+<div>
+<div style="font-family:'Plus Jakarta Sans',sans-serif;font-size:1.05rem;font-weight:800;color:var(--text);letter-spacing:-.01em">ΑΒ Σκύρος</div>
+<div style="font-size:.66rem;color:var(--text-mut);letter-spacing:.04em">ΑΝΑΛΥΤΙΚΑ ΠΩΛΗΣΕΩΝ</div>
+</div>
+</div>
+</div>
+""", unsafe_allow_html=True)
 
     st.markdown('<div style="font-size:.62rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--text-dim);margin:.4rem 0 .5rem">Μενού</div>', unsafe_allow_html=True)
 
@@ -896,19 +896,19 @@ with st.sidebar:
 # ── LIGHT THEME OVERRIDE ──
 if st.session_state["theme"] == "light":
     st.markdown("""
-    <style>
-    :root {
-        --bg:#f7f9fc; --bg-elev:#ffffff; --bg-card:#ffffff; --bg-hover:#eef2f8;
-        --border:#dde4ee; --border-soft:#e8edf4; --text:#0f1b2d; --text-mut:#5a6b85;
-        --text-dim:#8a99b3; --shadow:0 8px 28px rgba(15,27,45,.08);
-    }
-    .stApp { background: radial-gradient(ellipse 120% 80% at 50% -10%, #eef3fb 0%, var(--bg) 55%) !important; }
-    section[data-testid="stSidebar"] { background: linear-gradient(180deg,#ffffff,#f3f6fb) !important; border-right:1px solid var(--border-soft) !important; }
-    [data-testid="stDataFrame"] td { background:#ffffff !important; }
-    [data-testid="stDataFrame"] th { background:#f3f6fb !important; }
-    .kpi-card { box-shadow: 0 4px 18px rgba(15,27,45,.06); }
-    </style>
-    """, unsafe_allow_html=True)
+<style>
+:root {
+--bg:#f7f9fc; --bg-elev:#ffffff; --bg-card:#ffffff; --bg-hover:#eef2f8;
+--border:#dde4ee; --border-soft:#e8edf4; --text:#0f1b2d; --text-mut:#5a6b85;
+--text-dim:#8a99b3; --shadow:0 8px 28px rgba(15,27,45,.08);
+}
+.stApp { background: radial-gradient(ellipse 120% 80% at 50% -10%, #eef3fb 0%, var(--bg) 55%) !important; }
+section[data-testid="stSidebar"] { background: linear-gradient(180deg,#ffffff,#f3f6fb) !important; border-right:1px solid var(--border-soft) !important; }
+[data-testid="stDataFrame"] td { background:#ffffff !important; }
+[data-testid="stDataFrame"] th { background:#f3f6fb !important; }
+.kpi-card { box-shadow: 0 4px 18px rgba(15,27,45,.06); }
+</style>
+""", unsafe_allow_html=True)
 
 today = date.today()
 
@@ -941,11 +941,11 @@ if "auto_updated" not in st.session_state:
 # ══════════════════════════════════════════════════════════════════════════════
 if page == "Επισκόπηση":
     st.markdown("""
-    <div class="page-header">
-        <div class="icon">◆</div>
-        <div><h1>Επισκόπηση</h1><div class="sub">Συνοπτική εικόνα τρέχουσας εβδομάδας</div></div>
-    </div>
-    """, unsafe_allow_html=True)
+<div class="page-header">
+<div class="icon">◆</div>
+<div><h1>Επισκόπηση</h1><div class="sub">Συνοπτική εικόνα τρέχουσας εβδομάδας</div></div>
+</div>
+""", unsafe_allow_html=True)
 
     df_s = load_sales()
     df_i = load_invoices()
@@ -998,21 +998,21 @@ if page == "Επισκόπηση":
             _cd_date = _cd.date() if hasattr(_cd, "date") else _cd
             _wb_start, _ = get_week_range(_cd_date - timedelta(days=7))
             if sw == _wb_start:
-                check_html = f"""
-                <div class="kpi-card" style="--accent:#3b82f6">
-                    <div class="glow"></div>
-                    <div class="kpi-label">💳 Πληρωμή με Επιταγή</div>
-                    <div class="kpi-value blue">{fmt(_row["amount"])}</div>
-                    <div class="kpi-sub">Ημ. επιταγής: <b style="color:var(--text)">{_cd_date.strftime("%d/%m/%Y")}</b></div>
-                </div>"""
+                check_html = (
+                    '<div class="kpi-card" style="--accent:#3b82f6"><div class="glow"></div>'
+                    '<div class="kpi-label">💳 Πληρωμή με Επιταγή</div>'
+                    f'<div class="kpi-value blue">{fmt(_row["amount"])}</div>'
+                    f'<div class="kpi-sub">Ημ. επιταγής: <b style="color:var(--text)">{_cd_date.strftime("%d/%m/%Y")}</b></div>'
+                    '</div>'
+                )
                 break
     if not check_html:
-        check_html = """
-        <div class="kpi-card" style="--accent:#5a6b8c">
-            <div class="kpi-label">💳 Πληρωμή με Επιταγή</div>
-            <div class="kpi-value" style="color:var(--text-dim);font-size:1.25rem">—</div>
-            <div class="kpi-sub">Καμία επιταγή αυτή την εβδομάδα</div>
-        </div>"""
+        check_html = (
+            '<div class="kpi-card" style="--accent:#5a6b8c">'
+            '<div class="kpi-label">💳 Πληρωμή με Επιταγή</div>'
+            '<div class="kpi-value" style="color:var(--text-dim);font-size:1.25rem">—</div>'
+            '<div class="kpi-sub">Καμία επιταγή αυτή την εβδομάδα</div></div>'
+        )
 
     def _ly(cur, ly):
         if ly is None or ly == 0:
@@ -1021,35 +1021,31 @@ if page == "Επισκόπηση":
         col = "#10b981" if diff >= 0 else "#ef4444"; arr = "↑" if diff >= 0 else "↓"
         return f'<div class="kpi-sub">Πέρσι: {fmt(ly)} <span style="color:{col};font-weight:700">{arr} {abs(pct):.1f}%</span></div>'
 
-    st.markdown(f"""
-    <div class="kpi-grid kpi-3">
-        <div class="kpi-card" style="--accent:#10b981">
-            <div class="glow"></div>
-            <div class="kpi-label">Καθαρές Πωλήσεις</div>
-            <div class="kpi-value green">{fmt(cur_sales)}</div>
-            {trend_html(cur_sales, prev_sales)}
-            {_ly(cur_sales, ly_sales)}
-        </div>
-        <div class="kpi-card" style="--accent:#10b981">
-            <div class="glow"></div>
-            <div class="kpi-label">Τιμολόγια (καθαρό)</div>
-            <div class="kpi-value green">{fmt(inv_net_ov)}</div>
-            <div class="kpi-sub">Σύνολο εβδομάδας</div>
-        </div>
-        {check_html}
-    </div>
-    """, unsafe_allow_html=True)
+    _ov_cards = (
+        '<div class="kpi-grid kpi-3">'
+        '<div class="kpi-card" style="--accent:#10b981"><div class="glow"></div>'
+        '<div class="kpi-label">Καθαρές Πωλήσεις</div>'
+        f'<div class="kpi-value green">{fmt(cur_sales)}</div>'
+        f'{trend_html(cur_sales, prev_sales)}{_ly(cur_sales, ly_sales)}</div>'
+        '<div class="kpi-card" style="--accent:#10b981"><div class="glow"></div>'
+        '<div class="kpi-label">Τιμολόγια (καθαρό)</div>'
+        f'<div class="kpi-value green">{fmt(inv_net_ov)}</div>'
+        '<div class="kpi-sub">Σύνολο εβδομάδας</div></div>'
+        f'{check_html}'
+        '</div>'
+    )
+    st.markdown(_ov_cards, unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE: ΠΩΛΗΣΕΙΣ — χωρίς γραφήματα, χωρίς βαθιά σάρωση
 # ══════════════════════════════════════════════════════════════════════════════
 elif page == "Πωλήσεις":
     st.markdown("""
-    <div class="page-header">
-        <div class="icon">▲</div>
-        <div><h1>Πωλήσεις</h1><div class="sub">Εβδομαδιαία & μηνιαία ανάλυση</div></div>
-    </div>
-    """, unsafe_allow_html=True)
+<div class="page-header">
+<div class="icon">▲</div>
+<div><h1>Πωλήσεις</h1><div class="sub">Εβδομαδιαία & μηνιαία ανάλυση</div></div>
+</div>
+""", unsafe_allow_html=True)
 
     df_s = load_sales()
     if df_s.empty:
@@ -1070,18 +1066,18 @@ elif page == "Πωλήσεις":
             p_cst = pw_df["customers"].sum() if not pw_df.empty else None
             p_avg = pw_df["avg_basket"].mean() if not pw_df.empty else None
             st.markdown(f"""
-            <div class="kpi-grid kpi-3">
-                <div class="kpi-card" style="--accent:#10b981"><div class="glow"></div>
-                    <div class="kpi-label">Καθαρές Πωλήσεις</div>
-                    <div class="kpi-value green">{fmt(tot)}</div>{trend_html(tot, p_tot)}</div>
-                <div class="kpi-card" style="--accent:#3b82f6"><div class="glow"></div>
-                    <div class="kpi-label">Πελάτες</div>
-                    <div class="kpi-value blue">{fmt_int(cst)}</div>{trend_html(cst, p_cst, unit="")}</div>
-                <div class="kpi-card" style="--accent:#8b5cf6"><div class="glow"></div>
-                    <div class="kpi-label">ΜΟ Καλαθιού</div>
-                    <div class="kpi-value violet">{fmt(avg)}</div>{trend_html(avg, p_avg)}</div>
-            </div>
-            """, unsafe_allow_html=True)
+<div class="kpi-grid kpi-3">
+<div class="kpi-card" style="--accent:#10b981"><div class="glow"></div>
+<div class="kpi-label">Καθαρές Πωλήσεις</div>
+<div class="kpi-value green">{fmt(tot)}</div>{trend_html(tot, p_tot)}</div>
+<div class="kpi-card" style="--accent:#3b82f6"><div class="glow"></div>
+<div class="kpi-label">Πελάτες</div>
+<div class="kpi-value blue">{fmt_int(cst)}</div>{trend_html(cst, p_cst, unit="")}</div>
+<div class="kpi-card" style="--accent:#8b5cf6"><div class="glow"></div>
+<div class="kpi-label">ΜΟ Καλαθιού</div>
+<div class="kpi-value violet">{fmt(avg)}</div>{trend_html(avg, p_avg)}</div>
+</div>
+""", unsafe_allow_html=True)
             st.markdown('<div class="section-label">Αναλυτικά ανά ημέρα</div>', unsafe_allow_html=True)
             disp = w_df.copy(); disp["date"] = disp["date"].apply(lambda d: d.strftime("%d/%m/%Y"))
             disp = disp.sort_values("date", ascending=False)
@@ -1108,17 +1104,17 @@ elif page == "Πωλήσεις":
             cst = m_df["customers"].sum() if "customers" in m_df.columns else None
             p_tot = pm_df["net_sales"].sum() if not pm_df.empty else None
             st.markdown(f"""
-            <div class="kpi-grid kpi-4">
-                <div class="kpi-card" style="--accent:#10b981"><div class="glow"></div>
-                    <div class="kpi-label">Σύνολο Μήνα</div><div class="kpi-value green">{fmt(tot)}</div>{trend_html(tot, p_tot)}</div>
-                <div class="kpi-card" style="--accent:#3b82f6"><div class="glow"></div>
-                    <div class="kpi-label">Ημερήσιος ΜΟ</div><div class="kpi-value blue">{fmt(avg)}</div></div>
-                <div class="kpi-card" style="--accent:#f59e0b"><div class="glow"></div>
-                    <div class="kpi-label">Καλύτερη Ημέρα</div><div class="kpi-value amber">{fmt(best)}</div></div>
-                <div class="kpi-card" style="--accent:#8b5cf6"><div class="glow"></div>
-                    <div class="kpi-label">Πελάτες (σύνολο)</div><div class="kpi-value violet">{fmt_int(cst) if cst else '—'}</div></div>
-            </div>
-            """, unsafe_allow_html=True)
+<div class="kpi-grid kpi-4">
+<div class="kpi-card" style="--accent:#10b981"><div class="glow"></div>
+<div class="kpi-label">Σύνολο Μήνα</div><div class="kpi-value green">{fmt(tot)}</div>{trend_html(tot, p_tot)}</div>
+<div class="kpi-card" style="--accent:#3b82f6"><div class="glow"></div>
+<div class="kpi-label">Ημερήσιος ΜΟ</div><div class="kpi-value blue">{fmt(avg)}</div></div>
+<div class="kpi-card" style="--accent:#f59e0b"><div class="glow"></div>
+<div class="kpi-label">Καλύτερη Ημέρα</div><div class="kpi-value amber">{fmt(best)}</div></div>
+<div class="kpi-card" style="--accent:#8b5cf6"><div class="glow"></div>
+<div class="kpi-label">Πελάτες (σύνολο)</div><div class="kpi-value violet">{fmt_int(cst) if cst else '—'}</div></div>
+</div>
+""", unsafe_allow_html=True)
             st.markdown('<div class="section-label">Αναλυτικά ανά ημέρα</div>', unsafe_allow_html=True)
             disp = m_df.copy(); disp["date"] = disp["date"].apply(lambda d: d.strftime("%d/%m/%Y"))
             disp = disp.sort_values("date", ascending=False)
@@ -1136,11 +1132,11 @@ elif page == "Πωλήσεις":
 # ══════════════════════════════════════════════════════════════════════════════
 elif page == "Παραστατικά":
     st.markdown("""
-    <div class="page-header">
-        <div class="icon">▤</div>
-        <div><h1>Παραστατικά</h1><div class="sub">Τιμολόγια & πιστωτικά</div></div>
-    </div>
-    """, unsafe_allow_html=True)
+<div class="page-header">
+<div class="icon">▤</div>
+<div><h1>Παραστατικά</h1><div class="sub">Τιμολόγια & πιστωτικά</div></div>
+</div>
+""", unsafe_allow_html=True)
 
     df_inv = load_invoices()
     t_wk, t_mo = st.tabs(["Εβδομαδιαία", "Μηνιαία"])
@@ -1158,15 +1154,15 @@ elif page == "Παραστατικά":
                 inv_v = w_df[~w_df["type"].str.upper().str.contains("ΠΙΣΤΩΤΙΚΟ", na=False)]["value"].sum()
                 crd_v = w_df[w_df["type"].str.upper().str.contains("ΠΙΣΤΩΤΙΚΟ", na=False)]["value"].sum()
                 st.markdown(f"""
-                <div class="kpi-grid kpi-3">
-                    <div class="kpi-card" style="--accent:#10b981"><div class="glow"></div>
-                        <div class="kpi-label">Τιμολόγια</div><div class="kpi-value green">{fmt(inv_v)}</div></div>
-                    <div class="kpi-card" style="--accent:#ef4444"><div class="glow"></div>
-                        <div class="kpi-label">Πιστωτικά</div><div class="kpi-value red">-{fmt(crd_v)}</div></div>
-                    <div class="kpi-card" style="--accent:#3b82f6"><div class="glow"></div>
-                        <div class="kpi-label">Καθαρό</div><div class="kpi-value blue">{fmt(inv_v - crd_v)}</div></div>
-                </div>
-                """, unsafe_allow_html=True)
+<div class="kpi-grid kpi-3">
+<div class="kpi-card" style="--accent:#10b981"><div class="glow"></div>
+<div class="kpi-label">Τιμολόγια</div><div class="kpi-value green">{fmt(inv_v)}</div></div>
+<div class="kpi-card" style="--accent:#ef4444"><div class="glow"></div>
+<div class="kpi-label">Πιστωτικά</div><div class="kpi-value red">-{fmt(crd_v)}</div></div>
+<div class="kpi-card" style="--accent:#3b82f6"><div class="glow"></div>
+<div class="kpi-label">Καθαρό</div><div class="kpi-value blue">{fmt(inv_v - crd_v)}</div></div>
+</div>
+""", unsafe_allow_html=True)
                 st.markdown('<div class="section-label">Αναλυτικά</div>', unsafe_allow_html=True)
                 disp = w_df.copy(); disp["date"] = disp["date"].dt.strftime("%d/%m/%Y")
                 disp = disp.sort_values("date", ascending=False)
@@ -1191,15 +1187,15 @@ elif page == "Παραστατικά":
                 inv_m = m_df[~m_df["type"].str.upper().str.contains("ΠΙΣΤΩΤΙΚΟ", na=False)]["value"].sum()
                 crd_m = m_df[m_df["type"].str.upper().str.contains("ΠΙΣΤΩΤΙΚΟ", na=False)]["value"].sum()
                 st.markdown(f"""
-                <div class="kpi-grid kpi-3">
-                    <div class="kpi-card" style="--accent:#10b981"><div class="glow"></div>
-                        <div class="kpi-label">Τιμολόγια</div><div class="kpi-value green">{fmt(inv_m)}</div></div>
-                    <div class="kpi-card" style="--accent:#ef4444"><div class="glow"></div>
-                        <div class="kpi-label">Πιστωτικά</div><div class="kpi-value red">-{fmt(crd_m)}</div></div>
-                    <div class="kpi-card" style="--accent:#3b82f6"><div class="glow"></div>
-                        <div class="kpi-label">Σύνολο Μήνα</div><div class="kpi-value blue">{fmt(inv_m - crd_m)}</div></div>
-                </div>
-                """, unsafe_allow_html=True)
+<div class="kpi-grid kpi-3">
+<div class="kpi-card" style="--accent:#10b981"><div class="glow"></div>
+<div class="kpi-label">Τιμολόγια</div><div class="kpi-value green">{fmt(inv_m)}</div></div>
+<div class="kpi-card" style="--accent:#ef4444"><div class="glow"></div>
+<div class="kpi-label">Πιστωτικά</div><div class="kpi-value red">-{fmt(crd_m)}</div></div>
+<div class="kpi-card" style="--accent:#3b82f6"><div class="glow"></div>
+<div class="kpi-label">Σύνολο Μήνα</div><div class="kpi-value blue">{fmt(inv_m - crd_m)}</div></div>
+</div>
+""", unsafe_allow_html=True)
                 st.markdown('<div class="section-label">Αναλυτικά</div>', unsafe_allow_html=True)
                 disp = m_df.copy(); disp["date"] = disp["date"].dt.strftime("%d/%m/%Y")
                 disp = disp.sort_values("date", ascending=False)
@@ -1215,11 +1211,11 @@ elif page == "Παραστατικά":
 # ══════════════════════════════════════════════════════════════════════════════
 elif page == "Τιμολογήσεις":
     st.markdown("""
-    <div class="page-header">
-        <div class="icon">✦</div>
-        <div><h1>Τιμολογήσεις</h1><div class="sub">Πληρωμές με επιταγή ανά έτος</div></div>
-    </div>
-    """, unsafe_allow_html=True)
+<div class="page-header">
+<div class="icon">✦</div>
+<div><h1>Τιμολογήσεις</h1><div class="sub">Πληρωμές με επιταγή ανά έτος</div></div>
+</div>
+""", unsafe_allow_html=True)
 
     df_t = load_timologiseis()
     if df_t.empty:
