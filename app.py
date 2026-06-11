@@ -1,6 +1,7 @@
 """
-app.py — ΑΒ Σκύρος Dashboard v2
-Dark mode · Professional UI · Plotly Charts · KPI Trends
+app.py — ΑΒ Σκύρος Dashboard
+ΕΚΔΟΣΗ: v3.1 — AB Vasilopoulos branding · date-fix · today/week comparison
+(Αν βλέπεις αυτή τη γραμμή στο GitHub, ανέβηκε η ΣΩΣΤΗ έκδοση)
 """
 
 import streamlit as st
