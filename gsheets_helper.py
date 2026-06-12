@@ -128,6 +128,40 @@ def merge_sales(records: list) -> int:
         st.error(f"❌ Σφάλμα αποθήκευσης πωλήσεων: {e}")
         return 0
 
+
+def update_sales_value(target_date, net_sales=None, customers=None, avg_basket=None):
+    """Διορθώνει χειροκίνητα μια υπάρχουσα εγγραφή πώλησης βάσει ημερομηνίας.
+    Επιστρέφει (success: bool, message: str). Οι τιμές αποθηκεύονται x100."""
+    try:
+        ws = _get_sheet("sales")
+        d_str = target_date.isoformat() if isinstance(target_date, (date, datetime)) else str(target_date)
+        all_vals = ws.get_all_values()
+        if not all_vals:
+            return False, "Το φύλλο πωλήσεων είναι κενό."
+        header = all_vals[0]
+        # Βρες τη γραμμή με αυτή την ημερομηνία (στήλη 0)
+        row_idx = None
+        for i, row in enumerate(all_vals[1:], start=2):  # 1-indexed, +1 για header
+            if row and str(row[0]).strip() == d_str:
+                row_idx = i
+                break
+        if row_idx is None:
+            return False, f"Δεν βρέθηκε εγγραφή για {d_str}."
+        # Ενημέρωσε μόνο τα πεδία που δόθηκαν (x100 για χρηματικά)
+        updates = []
+        if net_sales is not None:
+            updates.append((2, round(float(net_sales) * 100)))   # στήλη B
+        if customers is not None:
+            updates.append((3, int(customers)))                   # στήλη C
+        if avg_basket is not None:
+            updates.append((4, round(float(avg_basket) * 100)))   # στήλη D
+        for col, val in updates:
+            ws.update_cell(row_idx, col, val)
+        load_sales.clear()
+        return True, f"Ενημερώθηκε η εγγραφή {d_str}."
+    except Exception as e:
+        return False, f"Σφάλμα: {e}"
+
 # ══════════════════════════════════════════════════════════════════════════════
 # INVOICES
 # ══════════════════════════════════════════════════════════════════════════════

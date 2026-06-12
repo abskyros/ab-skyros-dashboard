@@ -18,6 +18,7 @@ from gsheets_helper import (
     load_sales as _raw_load_sales, merge_sales,
     load_invoices as _raw_load_invoices, merge_invoices,
     load_timologiseis, merge_timologiseis,
+    update_sales_value,
 )
 
 # ── PATCH ΓΙΑ ΔΙΟΡΘΩΣΗ ΔΕΔΟΜΕΝΩΝ (Ασφαλής Μετατροπή & Αφαίρεση Διπλών) ─────────
@@ -1148,6 +1149,57 @@ elif page == "Πωλήσεις":
         else:
             st.markdown('<div class="alert alert-info">ℹ️ Δεν υπάρχουν εγγραφές για αυτόν τον μήνα.</div>', unsafe_allow_html=True)
 
+    # ── Χειροκίνητη διόρθωση τιμής πώλησης ──
+    st.markdown("<div style='height:1rem'></div>", unsafe_allow_html=True)
+    with st.expander("✏️ Διόρθωση τιμής πώλησης"):
+        st.caption("Αν εντοπίσεις λάθος τιμή (π.χ. από εσφαλμένη ανάγνωση OCR), επίλεξε την ημερομηνία "
+                   "και διόρθωσε τα πεδία. Άφησε κενό όποιο πεδίο δεν θέλεις να αλλάξεις.")
+        if df_s.empty:
+            st.markdown('<div class="alert alert-warn">⚠️ Δεν υπάρχουν εγγραφές προς διόρθωση.</div>', unsafe_allow_html=True)
+        else:
+            _dates_list = sorted(
+                [d.date() if hasattr(d, "date") else d for d in df_s["date"]],
+                reverse=True
+            )
+            _cc1, _cc2 = st.columns([1, 2])
+            with _cc1:
+                _fix_date = st.selectbox(
+                    "Ημερομηνία", _dates_list,
+                    format_func=lambda d: f"{DAYS_GR[d.weekday()]} {d.strftime('%d/%m/%Y')}",
+                    key="fix_sales_date"
+                )
+            # Τρέχουσες τιμές για την επιλεγμένη ημερομηνία
+            _cur_row = df_s[df_s["date"].apply(lambda x: (x.date() if hasattr(x, "date") else x)) == _fix_date]
+            _cur_net = float(_cur_row["net_sales"].iloc[0]) if not _cur_row.empty else 0.0
+            _cur_cus = int(_cur_row["customers"].iloc[0]) if (not _cur_row.empty and pd.notna(_cur_row["customers"].iloc[0])) else 0
+            _cur_bsk = float(_cur_row["avg_basket"].iloc[0]) if (not _cur_row.empty and pd.notna(_cur_row["avg_basket"].iloc[0])) else 0.0
+            with _cc2:
+                st.markdown(f'<div class="alert alert-info">Τρέχουσες τιμές → Πωλήσεις: <b>{fmt(_cur_net)}</b> · Πελάτες: <b>{_cur_cus}</b> · Καλάθι: <b>{fmt(_cur_bsk)}</b></div>', unsafe_allow_html=True)
+            _f1, _f2, _f3 = st.columns(3)
+            with _f1:
+                _new_net = st.number_input("Νέες Καθαρές Πωλήσεις (€)", min_value=0.0, value=_cur_net, step=0.01, format="%.2f", key="fix_net")
+            with _f2:
+                _new_cus = st.number_input("Νέοι Πελάτες", min_value=0, value=_cur_cus, step=1, key="fix_cus")
+            with _f3:
+                _new_bsk = st.number_input("Νέο ΜΟ Καλαθιού (€)", min_value=0.0, value=_cur_bsk, step=0.01, format="%.2f", key="fix_bsk")
+            st.markdown('<div class="btn-primary">', unsafe_allow_html=True)
+            if st.button("💾 Αποθήκευση διόρθωσης", key="save_fix", use_container_width=True):
+                _ns = _new_net if _new_net != _cur_net else None
+                _nc = _new_cus if _new_cus != _cur_cus else None
+                _nb = _new_bsk if _new_bsk != _cur_bsk else None
+                if _ns is None and _nc is None and _nb is None:
+                    st.markdown('<div class="alert alert-warn">⚠️ Δεν άλλαξες καμία τιμή.</div>', unsafe_allow_html=True)
+                else:
+                    with st.spinner("Αποθήκευση..."):
+                        _ok, _msg = update_sales_value(_fix_date, net_sales=_ns, customers=_nc, avg_basket=_nb)
+                    if _ok:
+                        _raw_load_sales.clear()
+                        st.markdown(f'<div class="alert alert-success">✅ {_msg}</div>', unsafe_allow_html=True)
+                        st.rerun()
+                    else:
+                        st.markdown(f'<div class="alert alert-error">❌ {_msg}</div>', unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE: ΠΑΡΑΣΤΑΤΙΚΑ — χωρίς πίτα
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1295,7 +1347,12 @@ with st.expander("⟳ Χειροκίνητη ενημέρωση δεδομένω
             if SALES_PW:
                 with st.spinner("Σύνδεση & ανάγνωση (OCR)..."):
                     _ex = _raw_load_sales()
-                    _since = (max(_ex["date"]) - timedelta(days=4)) if (_ex is not None and not _ex.empty) else None
+                    if _ex is not None and not _ex.empty:
+                        _maxd = max(_ex["date"])
+                        _maxd = _maxd.date() if hasattr(_maxd, "date") else _maxd
+                        _since = _maxd - timedelta(days=4)
+                    else:
+                        _since = None
                     _recs, _errs_s, _n = fetch_sales_emails(SALES_PW, since=_since, want_records=60, email_scan_limit=120)
                 if _errs_s:
                     st.markdown(f'<div class="alert alert-error">❌ {_errs_s[0]}</div>', unsafe_allow_html=True)
