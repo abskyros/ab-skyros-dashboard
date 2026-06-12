@@ -83,7 +83,7 @@ def load_sales() -> pd.DataFrame:
         if not records:
             return pd.DataFrame(columns=SALES_COLS)
         df = pd.DataFrame(records)
-        df["date"]       = pd.to_datetime(df["date"], errors="coerce").dt.date
+        df["date"]       = pd.to_datetime(df["date"], errors="coerce")
         df["net_sales"]  = df["net_sales"].apply(_parse_number) / 100.0
         df["customers"]  = pd.to_numeric(df["customers"], errors="coerce")
         df["avg_basket"] = df["avg_basket"].apply(_parse_number) / 100.0
