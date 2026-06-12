@@ -1007,33 +1007,46 @@ if page == "Επισκόπηση":
     _lnk_sales = "?page=" + _u.quote("Πωλήσεις")
     _lnk_inv   = "?page=" + _u.quote("Παραστατικά")
 
-    # Περιεχόμενο κάρτας Πωλήσεων (Α: σήμερα vs πέρσι ίδια μέρα, Β: εβδομάδα ως τώρα vs ανάλογες περσινές)
+    # ── Κάρτες σε ξεχωριστά κουτάκια ──
+    # Κουτί 1: ΣΗΜΕΡΑ (ταμείο σήμερα) + σύγκριση με ίδια μέρα πέρσι
     _today_val = fmt(today_sales) if today_sales is not None else "—"
-    _today_block = (
-        f'<div class="kpi-value green">{_today_val}</div>'
-        f'<div class="kpi-sub" style="margin-top:.55rem">'
-        f'<b style="color:var(--text)">{today_dow} {today.strftime("%d/%m")}</b> σήμερα'
-        f'</div>'
-        f'<div class="kpi-sub" style="margin-top:.2rem">'
-        f'Πέρσι {ly_dow} {ly_same_date.strftime("%d/%m")}: '
-        f'{fmt(ly_day_sales) if ly_day_sales is not None else "—"} {_pct_html(today_sales or 0, ly_day_sales)}'
-        f'</div>'
-    )
-    _week_block = (
-        f'<div style="margin-top:.85rem;padding-top:.7rem;border-top:1px solid var(--border-soft)">'
-        f'<div class="kpi-sub" style="font-weight:700;color:var(--text)">Εβδομάδα ως τώρα ({_wtd_label})</div>'
-        f'<div class="kpi-value green" style="font-size:1.15rem;margin-top:.25rem">{fmt(wtd_sum)}</div>'
-        f'<div class="kpi-sub" style="margin-top:.2rem">'
-        f'Πέρσι ίδιες μέρες: {fmt(ly_wtd_sum) if ly_wtd_sum is not None else "—"} {_pct_html(wtd_sum, ly_wtd_sum)}'
-        f'</div></div>'
-    )
-
-    _ov_cards = (
-        '<div class="kpi-grid kpi-3">'
+    _card_today = (
         f'<a href="{_lnk_sales}" target="_self" style="text-decoration:none">'
         '<div class="kpi-card" style="--accent:#0072CE"><div class="glow"></div>'
-        '<div class="kpi-label">Καθαρές Πωλήσεις →</div>'
-        f'{_today_block}{_week_block}</div></a>'
+        f'<div class="kpi-label">📅 Σήμερα · {today_dow} {today.strftime("%d/%m")}</div>'
+        f'<div class="kpi-value green">{_today_val}</div>'
+        f'<div class="kpi-sub" style="margin-top:.5rem">vs πέρσι {ly_dow} {ly_same_date.strftime("%d/%m")}: {_pct_html(today_sales or 0, ly_day_sales)}</div>'
+        '</div></a>'
+    )
+    # Κουτί 2: ΕΒΔΟΜΑΔΑ ΩΣ ΤΩΡΑ (αθροιστικά) + σύγκριση με ανάλογες περσινές μέρες
+    _card_week = (
+        f'<a href="{_lnk_sales}" target="_self" style="text-decoration:none">'
+        '<div class="kpi-card" style="--accent:#2b96e8"><div class="glow"></div>'
+        f'<div class="kpi-label">📊 Εβδομάδα ως τώρα · {_wtd_label}</div>'
+        f'<div class="kpi-value blue">{fmt(wtd_sum)}</div>'
+        f'<div class="kpi-sub" style="margin-top:.5rem">vs πέρσι ίδιες μέρες: {_pct_html(wtd_sum, ly_wtd_sum)}</div>'
+        '</div></a>'
+    )
+    # Κουτί 3: ΣΑΝ ΣΗΜΕΡΑ ΠΕΡΣΙ (τι έκανε πέρσι την αντίστοιχη ημερομηνία)
+    _ly_val = fmt(ly_day_sales) if ly_day_sales is not None else "—"
+    _card_lytoday = (
+        '<div class="kpi-card" style="--accent:#8b5cf6"><div class="glow"></div>'
+        f'<div class="kpi-label">🕐 Σαν σήμερα πέρσι · {ly_dow} {ly_same_date.strftime("%d/%m/%y")}</div>'
+        f'<div class="kpi-value violet">{_ly_val}</div>'
+        '<div class="kpi-sub" style="margin-top:.5rem">Τι έκανε πέρσι την ίδια ημερομηνία</div>'
+        '</div>'
+    )
+
+    _ov_row1 = (
+        '<div class="kpi-grid kpi-3">'
+        f'{_card_today}{_card_week}{_card_lytoday}'
+        '</div>'
+    )
+    st.markdown(_ov_row1, unsafe_allow_html=True)
+
+    # Δεύτερη σειρά: Τιμολόγια (καθαρό) + Πληρωμή με Επιταγή
+    _ov_row2 = (
+        '<div class="kpi-grid kpi-2">'
         f'<a href="{_lnk_inv}" target="_self" style="text-decoration:none">'
         '<div class="kpi-card" style="--accent:#0072CE"><div class="glow"></div>'
         '<div class="kpi-label">Τιμολόγια (καθαρό) →</div>'
@@ -1042,7 +1055,7 @@ if page == "Επισκόπηση":
         f'{check_html}'
         '</div>'
     )
-    st.markdown(_ov_cards, unsafe_allow_html=True)
+    st.markdown(_ov_row2, unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE: ΠΩΛΗΣΕΙΣ — χωρίς γραφήματα, χωρίς βαθιά σάρωση
