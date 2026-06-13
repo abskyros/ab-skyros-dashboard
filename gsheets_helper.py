@@ -6,7 +6,7 @@ gsheets_helper.py
 
 import json
 import pandas as pd
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import streamlit as st
 
 try:
@@ -304,3 +304,140 @@ def merge_timologiseis(records: list) -> int:
     except Exception as e:
         st.error(f"❌ Σφάλμα αποθήκευσης τιμολογήσεων: {e}")
         return 0
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ΕΛΕΓΧΟΣ ΠΟΙΟΤΗΤΑΣ ΔΕΔΟΜΕΝΩΝ (διπλά + κενά)
+# ══════════════════════════════════════════════════════════════════════════════
+def check_sales_quality(lookback_days=None):
+    """Ελέγχει το φύλλο sales για διπλές ημερομηνίες & κενά (χαμένες μέρες).
+    Αν lookback_days δοθεί, ελέγχει μόνο τις τελευταίες Ν ημέρες.
+    Επιστρέφει dict: {duplicates: [...], gaps: [...]}."""
+    result = {"duplicates": [], "gaps": []}
+    try:
+        ws = _get_sheet("sales")
+        vals = ws.get_all_values()
+        if len(vals) < 2:
+            return result
+        rows = vals[1:]  # χωρίς header
+        # Συγκέντρωσε ημερομηνίες με τις γραμμές & τιμές τους
+        from collections import defaultdict
+        date_rows = defaultdict(list)  # date_str -> list of (row_index, net_sales_raw)
+        for i, r in enumerate(rows, start=2):  # 1-indexed + header
+            if r and r[0]:
+                d_str = str(r[0]).strip()
+                net_raw = r[1] if len(r) > 1 else ""
+                date_rows[d_str].append((i, net_raw))
+
+        all_dates = sorted(date_rows.keys())
+        if lookback_days:
+            cutoff = (date.today() - timedelta(days=lookback_days)).isoformat()
+            check_dates = [d for d in all_dates if d >= cutoff]
+        else:
+            check_dates = all_dates
+
+        # 1) Διπλές ημερομηνίες
+        for d_str in check_dates:
+            entries = date_rows[d_str]
+            if len(entries) > 1:
+                vals_list = []
+                for (ridx, net_raw) in entries:
+                    try:
+                        v = _parse_number(net_raw) / 100.0
+                    except Exception:
+                        v = 0
+                    vals_list.append({"row": ridx, "net_sales": round(v, 2)})
+                result["duplicates"].append({"date": d_str, "entries": vals_list})
+
+        # 2) Κενά (χαμένες μέρες) — μόνο σε συνεχόμενο εύρος
+        try:
+            parsed = sorted({datetime.strptime(d, "%Y-%m-%d").date() for d in check_dates})
+            if len(parsed) >= 2:
+                start, end = parsed[0], parsed[-1]
+                existing = set(parsed)
+                cur = start
+                while cur <= end:
+                    if cur not in existing:
+                        result["gaps"].append(cur.isoformat())
+                    cur += timedelta(days=1)
+        except Exception:
+            pass
+    except Exception as e:
+        result["error"] = str(e)
+    return result
+
+
+def check_timologiseis_quality(lookback_days=None):
+    """Ελέγχει το φύλλο timologiseis για διπλές ημερομηνίες επιταγής & κενές εβδομάδες.
+    Επιστρέφει dict: {duplicates: [...], gaps: [...]}."""
+    result = {"duplicates": [], "gaps": []}
+    try:
+        ws = _get_sheet("timologiseis")
+        vals = ws.get_all_values()
+        if len(vals) < 2:
+            return result
+        rows = vals[1:]
+        from collections import defaultdict
+        date_rows = defaultdict(list)
+        for i, r in enumerate(rows, start=2):
+            if r and r[0]:
+                d_str = str(r[0]).strip()
+                amt_raw = r[2] if len(r) > 2 else ""
+                date_rows[d_str].append((i, amt_raw))
+
+        all_dates = sorted(date_rows.keys())
+        if lookback_days:
+            cutoff = (date.today() - timedelta(days=lookback_days)).isoformat()
+            check_dates = [d for d in all_dates if d >= cutoff]
+        else:
+            check_dates = all_dates
+
+        # 1) Διπλές ημερομηνίες επιταγής
+        for d_str in check_dates:
+            entries = date_rows[d_str]
+            if len(entries) > 1:
+                vals_list = []
+                for (ridx, amt_raw) in entries:
+                    try:
+                        v = _parse_number(amt_raw) / 100.0
+                    except Exception:
+                        v = 0
+                    vals_list.append({"row": ridx, "amount": round(v, 2)})
+                result["duplicates"].append({"date": d_str, "entries": vals_list})
+
+        # 2) Κενές εβδομάδες (οι επιταγές είναι ~εβδομαδιαίες, διαφορά ~7 μέρες)
+        try:
+            parsed = sorted({datetime.strptime(d, "%Y-%m-%d").date() for d in check_dates})
+            for a, b in zip(parsed, parsed[1:]):
+                gap_days = (b - a).days
+                if gap_days > 10:  # >10 μέρες = πιθανή χαμένη εβδομάδα
+                    missing_weeks = gap_days // 7 - 1
+                    result["gaps"].append({
+                        "after": a.isoformat(),
+                        "before": b.isoformat(),
+                        "gap_days": gap_days,
+                        "approx_missing": max(1, missing_weeks)
+                    })
+        except Exception:
+            pass
+    except Exception as e:
+        result["error"] = str(e)
+    return result
+
+
+def delete_sheet_row(sheet_name, row_index):
+    """Σβήνει μια συγκεκριμένη γραμμή (1-indexed) από το φύλλο.
+    Επιστρέφει (success, message)."""
+    try:
+        ws = _get_sheet(sheet_name)
+        ws.delete_rows(int(row_index))
+        # Καθάρισε caches
+        if sheet_name == "sales":
+            load_sales.clear()
+        elif sheet_name == "invoices":
+            load_invoices.clear()
+        elif sheet_name == "timologiseis":
+            load_timologiseis.clear()
+        return True, f"Διαγράφηκε η γραμμή {row_index}."
+    except Exception as e:
+        return False, f"Σφάλμα διαγραφής: {e}"

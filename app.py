@@ -19,6 +19,7 @@ from gsheets_helper import (
     load_invoices as _raw_load_invoices, merge_invoices,
     load_timologiseis, merge_timologiseis,
     update_sales_value,
+    check_sales_quality, check_timologiseis_quality, delete_sheet_row,
 )
 
 # ── PATCH ΓΙΑ ΔΙΟΡΘΩΣΗ ΔΕΔΟΜΕΝΩΝ (Ασφαλής Μετατροπή & Αφαίρεση Διπλών) ─────────
@@ -1202,6 +1203,42 @@ elif page == "Πωλήσεις":
                         st.markdown(f'<div class="alert alert-error">❌ {_msg}</div>', unsafe_allow_html=True)
             st.markdown('</div>', unsafe_allow_html=True)
 
+    # ── Έλεγχος ποιότητας δεδομένων (διπλά + κενά) ──
+    st.markdown("<div style='height:1rem'></div>", unsafe_allow_html=True)
+    with st.expander("🔍 Έλεγχος δεδομένων (διπλά & κενά)"):
+        st.caption("Ελέγχει για διπλές ημερομηνίες ή χαμένες μέρες στις πωλήσεις.")
+        if st.button("Εκτέλεση ελέγχου", key="run_sales_check", use_container_width=True):
+            st.session_state["sales_check_done"] = True
+        if st.session_state.get("sales_check_done"):
+            with st.spinner("Έλεγχος..."):
+                _q = check_sales_quality()
+            _dups = _q.get("duplicates", [])
+            _gaps = _q.get("gaps", [])
+            if not _dups and not _gaps:
+                st.markdown('<div class="alert alert-success">✅ Όλα εντάξει! Καμία διπλοεγγραφή ή κενό.</div>', unsafe_allow_html=True)
+            # Διπλές εγγραφές
+            if _dups:
+                st.markdown(f'<div class="alert alert-warn">⚠️ Βρέθηκαν {len(_dups)} διπλές ημερομηνίες. Επίλεξε ποια να κρατήσεις:</div>', unsafe_allow_html=True)
+                for _d in _dups:
+                    _dd = _d["date"]
+                    st.markdown(f'**📅 {_dd}** — {len(_d["entries"])} εγγραφές:')
+                    for _e in _d["entries"]:
+                        _bc1, _bc2 = st.columns([3, 1])
+                        with _bc1:
+                            st.markdown(f'<div style="padding:.4rem 0">Γραμμή {_e["row"]}: <b>{fmt(_e["net_sales"])}</b></div>', unsafe_allow_html=True)
+                        with _bc2:
+                            if st.button("🗑 Διαγραφή", key=f"del_sales_{_e['row']}", use_container_width=True):
+                                _ok, _msg = delete_sheet_row("sales", _e["row"])
+                                if _ok:
+                                    _raw_load_sales.clear()
+                                    st.success(_msg); st.rerun()
+                                else:
+                                    st.error(_msg)
+            # Κενά
+            if _gaps:
+                _gaps_str = ", ".join(_gaps[:20]) + (" …" if len(_gaps) > 20 else "")
+                st.markdown(f'<div class="alert alert-error">📭 Λείπουν {len(_gaps)} ημέρες: {_gaps_str}<br><br>Συμπλήρωσέ τες χειροκίνητα από τη «Διόρθωση τιμής πώλησης» ή πάτησε «Ενημέρωση Πωλήσεων».</div>', unsafe_allow_html=True)
+
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE: ΠΑΡΑΣΤΑΤΙΚΑ — χωρίς πίτα
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1368,6 +1405,41 @@ elif page == "Τιμολογήσεις":
         st.dataframe(disp_t.style.format({"ΠΟΣΟ": lambda v: fmt(v)}), use_container_width=True, hide_index=True)
         _csv = df_t.to_csv(index=False).encode("utf-8-sig")
         st.download_button("↓ Λήψη CSV", _csv, "timologiseis.csv", "text/csv", key="timol_dl")
+
+        # ── Έλεγχος ποιότητας δεδομένων (διπλά + κενές εβδομάδες) ──
+        st.markdown("<div style='height:1rem'></div>", unsafe_allow_html=True)
+        with st.expander("🔍 Έλεγχος δεδομένων (διπλά & κενά)"):
+            st.caption("Ελέγχει για διπλές ημερομηνίες επιταγής ή χαμένες εβδομάδες.")
+            if st.button("Εκτέλεση ελέγχου", key="run_timol_check", use_container_width=True):
+                st.session_state["timol_check_done"] = True
+            if st.session_state.get("timol_check_done"):
+                with st.spinner("Έλεγχος..."):
+                    _qt = check_timologiseis_quality()
+                _tdups = _qt.get("duplicates", [])
+                _tgaps = _qt.get("gaps", [])
+                if not _tdups and not _tgaps:
+                    st.markdown('<div class="alert alert-success">✅ Όλα εντάξει! Καμία διπλοεγγραφή ή κενό.</div>', unsafe_allow_html=True)
+                if _tdups:
+                    st.markdown(f'<div class="alert alert-warn">⚠️ Βρέθηκαν {len(_tdups)} διπλές ημερομηνίες επιταγής. Επίλεξε ποια να κρατήσεις:</div>', unsafe_allow_html=True)
+                    for _d in _tdups:
+                        st.markdown(f'**📅 {_d["date"]}** — {len(_d["entries"])} εγγραφές:')
+                        for _e in _d["entries"]:
+                            _tbc1, _tbc2 = st.columns([3, 1])
+                            with _tbc1:
+                                st.markdown(f'<div style="padding:.4rem 0">Γραμμή {_e["row"]}: <b>{fmt(_e["amount"])}</b></div>', unsafe_allow_html=True)
+                            with _tbc2:
+                                if st.button("🗑 Διαγραφή", key=f"del_timol_{_e['row']}", use_container_width=True):
+                                    _ok, _msg = delete_sheet_row("timologiseis", _e["row"])
+                                    if _ok:
+                                        load_timologiseis.clear()
+                                        st.success(_msg); st.rerun()
+                                    else:
+                                        st.error(_msg)
+                if _tgaps:
+                    _gtxt = ""
+                    for _g in _tgaps[:15]:
+                        _gtxt += f'• Μεταξύ <b>{_g["after"]}</b> και <b>{_g["before"]}</b> ({_g["gap_days"]} μέρες, ~{_g["approx_missing"]} εβδομάδες) <br>'
+                    st.markdown(f'<div class="alert alert-error">📭 Πιθανές χαμένες εβδομάδες:<br><br>{_gtxt}</div>', unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # ΔΙΑΚΡΙΤΙΚΗ ΕΝΗΜΕΡΩΣΗ (όχι στην κεφαλίδα) — κάτω από το περιεχόμενο
