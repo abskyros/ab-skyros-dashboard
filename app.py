@@ -831,7 +831,7 @@ def invoices_donut(inv_total, crd_total):
 # SIDEBAR NAVIGATION (desktop) + light theme
 # ══════════════════════════════════════════════════════════════════════════════
 PAGES = ["Επισκόπηση", "Πωλήσεις", "Παραστατικά", "Τιμολογήσεις"]
-PAGE_ICONS = {"Επισκόπηση": "◆", "Πωλήσεις": "▲", "Παραστατικά": "▤", "Τιμολογήσεις": "✦"}
+PAGE_ICONS = {"Επισκόπηση": "🏠", "Πωλήσεις": "📈", "Παραστατικά": "🧾", "Τιμολογήσεις": "💳"}
 
 # Διάβασε τρέχουσα σελίδα από το URL (?page=...) — δουλεύει σε desktop & mobile
 _qp_page = st.query_params.get("page", "Επισκόπηση")
@@ -841,31 +841,83 @@ if "active_page" not in st.session_state:
     st.session_state["active_page"] = _qp_page
 if _qp_page != st.session_state["active_page"]:
     st.session_state["active_page"] = _qp_page
+page = st.session_state["active_page"]
 
-with st.sidebar:
-    st.markdown("""
-<div style="padding:.5rem 0 1.25rem">
-<div style="display:flex;align-items:center;gap:.8rem">
-<div style="background:linear-gradient(135deg,#0072CE,#005BA6);border-radius:13px;width:46px;height:46px;display:flex;align-items:center;justify-content:center;font-size:1.35rem;box-shadow:0 6px 18px rgba(0,114,206,.4)">🏪</div>
-<div>
-<div style="font-family:'Plus Jakarta Sans',sans-serif;font-size:1.05rem;font-weight:800;color:var(--text);letter-spacing:-.01em">ΑΒ Σκύρος</div>
-<div style="font-size:.66rem;color:var(--text-mut);letter-spacing:.04em">ΑΝΑΛΥΤΙΚΑ ΠΩΛΗΣΕΩΝ</div>
-</div>
-</div>
-</div>
+# Κρύβουμε εντελώς την προεπιλεγμένη sidebar του Streamlit — φτιάχνουμε δικό μας icon rail
+st.markdown("""
+<style>
+section[data-testid="stSidebar"] { display: none !important; }
+[data-testid="collapsedControl"], [data-testid="stSidebarCollapsedControl"] { display: none !important; }
+.block-container { padding-left: 5.5rem !important; }
+@media (max-width: 820px) { .block-container { padding-left: 1rem !important; } }
+</style>
 """, unsafe_allow_html=True)
 
-    st.markdown('<div style="font-size:.62rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--text-dim);margin:.4rem 0 .5rem">Μενού</div>', unsafe_allow_html=True)
+# ── CUSTOM ICON RAIL (στενή κάθετη μπάρα μόνο με εικονίδια — στυλ Folks) ──
+import urllib.parse as _u_rail
+_rail_items = ""
+for p in PAGES:
+    _active = p == page
+    _href = "?page=" + _u_rail.quote(p)
+    _bg = "background:linear-gradient(135deg,#0072CE,#005BA6);box-shadow:0 4px 12px rgba(0,114,206,.4);" if _active else "background:transparent;"
+    _color = "#ffffff" if _active else "#5a7290"
+    _rail_items += (
+        f'<a href="{_href}" target="_self" class="rail-item" '
+        f'style="{_bg}color:{_color}" data-tip="{p}">'
+        f'<span class="rail-ico">{PAGE_ICONS[p]}</span>'
+        f'<span class="rail-tip">{p}</span>'
+        f'</a>'
+    )
 
-    _page_labels = [f"{PAGE_ICONS[p]}  {p}" for p in PAGES]
-    _sel = st.radio("Σελίδα", _page_labels, label_visibility="collapsed",
-                    index=PAGES.index(st.session_state["active_page"]))
-    _sel_page = PAGES[_page_labels.index(_sel)]
-    if _sel_page != st.session_state["active_page"]:
-        st.session_state["active_page"] = _sel_page
-        st.query_params["page"] = _sel_page
-        st.rerun()
-    page = st.session_state["active_page"]
+_rail_html = (
+    '<div class="icon-rail">'
+    '<div class="rail-logo">🏪</div>'
+    '<div class="rail-nav">' + _rail_items + '</div>'
+    '</div>'
+)
+st.markdown(_rail_html, unsafe_allow_html=True)
+
+st.markdown("""
+<style>
+.icon-rail {
+    position: fixed; top: 0; left: 0; bottom: 0; width: 4.25rem; z-index: 999990;
+    background: linear-gradient(180deg, #ffffff 0%, #f0f7fd 100%);
+    border-right: 1px solid var(--border-soft);
+    display: flex; flex-direction: column; align-items: center;
+    padding: 1rem 0; gap: .35rem;
+    box-shadow: 2px 0 16px rgba(10,37,64,.04);
+}
+.rail-logo {
+    width: 44px; height: 44px; border-radius: 13px; margin-bottom: 1.25rem;
+    display: flex; align-items: center; justify-content: center; font-size: 1.4rem;
+    background: linear-gradient(135deg, #0072CE, #005BA6);
+    box-shadow: 0 6px 18px rgba(0,114,206,.4); flex-shrink: 0;
+}
+.rail-nav { display: flex; flex-direction: column; gap: .4rem; width: 100%; align-items: center; }
+.rail-item {
+    position: relative; width: 46px; height: 46px; border-radius: 14px;
+    display: flex; align-items: center; justify-content: center;
+    text-decoration: none !important; transition: all .18s cubic-bezier(.2,.8,.2,1);
+}
+.rail-item:hover { background: var(--bg-hover) !important; transform: translateY(-2px); }
+.rail-ico { font-size: 1.3rem; line-height: 1; filter: grayscale(.2); }
+.rail-item[style*="ffffff"] .rail-ico { filter: none; }
+/* Tooltip */
+.rail-tip {
+    position: absolute; left: 56px; top: 50%; transform: translateY(-50%) scale(.9);
+    background: #0a2540; color: #fff; font-size: .76rem; font-weight: 600;
+    padding: .4rem .7rem; border-radius: 8px; white-space: nowrap;
+    opacity: 0; pointer-events: none; transition: all .15s; z-index: 999999;
+    box-shadow: 0 4px 14px rgba(10,37,64,.25);
+}
+.rail-tip::before {
+    content: ''; position: absolute; left: -4px; top: 50%; transform: translateY(-50%) rotate(45deg);
+    width: 8px; height: 8px; background: #0a2540;
+}
+.rail-item:hover .rail-tip { opacity: 1; transform: translateY(-50%) scale(1); left: 60px; }
+@media (max-width: 820px) { .icon-rail { display: none !important; } }
+</style>
+""", unsafe_allow_html=True)
 
 today = date.today()
 
@@ -899,7 +951,7 @@ if "auto_updated" not in st.session_state:
 if page == "Επισκόπηση":
     st.markdown("""
 <div class="page-header">
-<div class="icon">◆</div>
+<div class="icon">🏠</div>
 <div><h1>Επισκόπηση</h1><div class="sub">Συνοπτική εικόνα τρέχουσας εβδομάδας</div></div>
 </div>
 """, unsafe_allow_html=True)
@@ -1071,7 +1123,7 @@ if page == "Επισκόπηση":
 elif page == "Πωλήσεις":
     st.markdown("""
 <div class="page-header">
-<div class="icon">▲</div>
+<div class="icon">📈</div>
 <div><h1>Πωλήσεις</h1><div class="sub">Εβδομαδιαία & μηνιαία ανάλυση</div></div>
 </div>
 """, unsafe_allow_html=True)
@@ -1298,7 +1350,7 @@ elif page == "Πωλήσεις":
 elif page == "Παραστατικά":
     st.markdown("""
 <div class="page-header">
-<div class="icon">▤</div>
+<div class="icon">🧾</div>
 <div><h1>Παραστατικά</h1><div class="sub">Τιμολόγια & πιστωτικά</div></div>
 </div>
 """, unsafe_allow_html=True)
@@ -1387,7 +1439,7 @@ elif page == "Παραστατικά":
 elif page == "Τιμολογήσεις":
     st.markdown("""
 <div class="page-header">
-<div class="icon">✦</div>
+<div class="icon">💳</div>
 <div><h1>Τιμολογήσεις</h1><div class="sub">Πληρωμές με επιταγή ανά έτος</div></div>
 </div>
 """, unsafe_allow_html=True)
