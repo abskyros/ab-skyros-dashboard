@@ -153,12 +153,22 @@ section[data-testid="stSidebar"] .stRadio label {
 }
 section[data-testid="stSidebar"] .stRadio label:hover { background: var(--bg-hover) !important; color: var(--brand) !important; }
 
-/* collapse button */
+/* collapse button — εμφανές πλωτό κουμπί επαναφοράς */
 [data-testid="collapsedControl"], [data-testid="stSidebarCollapsedControl"] {
     background: var(--brand) !important; border-radius: 0 12px 12px 0 !important;
-    width: 30px !important; height: 60px !important; box-shadow: 3px 0 16px var(--brand-glow) !important;
+    width: 36px !important; height: 64px !important;
+    box-shadow: 3px 0 18px var(--brand-glow) !important;
+    position: fixed !important; top: 1rem !important; left: 0 !important;
+    z-index: 999990 !important; display: flex !important;
+    align-items: center !important; justify-content: center !important;
+    opacity: 1 !important; visibility: visible !important;
 }
-[data-testid="collapsedControl"] svg, [data-testid="stSidebarCollapsedControl"] svg { fill: #fff !important; color: #fff !important; }
+[data-testid="collapsedControl"] svg, [data-testid="stSidebarCollapsedControl"] svg {
+    fill: #fff !important; color: #fff !important; width: 22px !important; height: 22px !important;
+}
+[data-testid="collapsedControl"]:hover, [data-testid="stSidebarCollapsedControl"]:hover {
+    width: 44px !important; background: var(--brand-2) !important;
+}
 [data-testid="stSidebarCollapseButton"] button { background: var(--bg-hover) !important; border-radius: 8px !important; }
 [data-testid="stSidebarCollapseButton"] svg { fill: var(--brand) !important; }
 
@@ -1202,6 +1212,49 @@ elif page == "Πωλήσεις":
                     else:
                         st.markdown(f'<div class="alert alert-error">❌ {_msg}</div>', unsafe_allow_html=True)
             st.markdown('</div>', unsafe_allow_html=True)
+
+    # ── Προσθήκη ημέρας που λείπει ──
+    with st.expander("➕ Προσθήκη ημέρας που λείπει"):
+        st.caption("Αν ο έλεγχος βρήκε κενό (χαμένη μέρα), πρόσθεσέ την εδώ χειροκίνητα.")
+        _ac1, _ac2 = st.columns([1, 2])
+        with _ac1:
+            _add_date = st.date_input("Ημερομηνία", today, key="add_sales_date")
+        # Έλεγχος αν υπάρχει ήδη
+        _exists = False
+        if not df_s.empty:
+            _exists = not df_s[df_s["date"].apply(lambda x: (x.date() if hasattr(x, "date") else x)) == _add_date].empty
+        with _ac2:
+            if _exists:
+                st.markdown(f'<div class="alert alert-warn">⚠️ Η {_add_date.strftime("%d/%m/%Y")} υπάρχει ήδη. Χρησιμοποίησε τη «Διόρθωση τιμής».</div>', unsafe_allow_html=True)
+            else:
+                st.markdown(f'<div class="alert alert-info">Νέα εγγραφή για <b>{DAYS_GR[_add_date.weekday()]} {_add_date.strftime("%d/%m/%Y")}</b></div>', unsafe_allow_html=True)
+        _af1, _af2, _af3 = st.columns(3)
+        with _af1:
+            _add_net = st.number_input("Καθαρές Πωλήσεις (€)", min_value=0.0, value=0.0, step=0.01, format="%.2f", key="add_net")
+        with _af2:
+            _add_cus = st.number_input("Πελάτες", min_value=0, value=0, step=1, key="add_cus")
+        with _af3:
+            _add_bsk = st.number_input("ΜΟ Καλαθιού (€)", min_value=0.0, value=0.0, step=0.01, format="%.2f", key="add_bsk")
+        st.markdown('<div class="btn-primary">', unsafe_allow_html=True)
+        if st.button("➕ Προσθήκη ημέρας", key="save_add", use_container_width=True, disabled=_exists):
+            if _add_net <= 0:
+                st.markdown('<div class="alert alert-warn">⚠️ Βάλε έγκυρη τιμή στις Καθαρές Πωλήσεις.</div>', unsafe_allow_html=True)
+            else:
+                _rec = {
+                    "date": _add_date.isoformat(),
+                    "net_sales": _add_net,
+                    "customers": int(_add_cus) if _add_cus > 0 else None,
+                    "avg_basket": _add_bsk if _add_bsk > 0 else (round(_add_net / _add_cus, 2) if _add_cus > 0 else None),
+                }
+                with st.spinner("Προσθήκη..."):
+                    _added = merge_sales([_rec])
+                if _added:
+                    _raw_load_sales.clear()
+                    st.markdown(f'<div class="alert alert-success">✅ Προστέθηκε η {_add_date.strftime("%d/%m/%Y")}.</div>', unsafe_allow_html=True)
+                    st.rerun()
+                else:
+                    st.markdown('<div class="alert alert-warn">ℹ️ Δεν προστέθηκε (ίσως υπάρχει ήδη).</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
     # ── Έλεγχος ποιότητας δεδομένων (διπλά + κενά) ──
     st.markdown("<div style='height:1rem'></div>", unsafe_allow_html=True)
