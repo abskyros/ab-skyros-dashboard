@@ -134,7 +134,12 @@ html, body, [class*="css"] {
 }
 .stApp { background: radial-gradient(ellipse 130% 90% at 50% -15%, #e3f0fb 0%, var(--bg) 55%) !important; }
 #MainMenu, footer, header[data-testid="stHeader"] { display: none !important; }
-.block-container { padding: 2.25rem 2.5rem 6rem !important; max-width: 1280px !important; }
+/* Φέρε το περιεχόμενο ψηλά (αφαίρεσε το προεπιλεγμένο κενό του Streamlit) */
+[data-testid="stAppViewContainer"] > .main { padding-top: 0 !important; }
+[data-testid="stMain"] { padding-top: 0 !important; }
+[data-testid="stMainBlockContainer"] { padding-top: 1rem !important; }
+.stApp [data-testid="stVerticalBlock"] { gap: .75rem !important; }
+.block-container { padding: 0.5rem 2.5rem 6rem !important; max-width: 1280px !important; }
 .stApp [data-testid="stDecoration"] { display: none !important; }
 .kpi-value, .stat-num, [data-testid="stDataFrame"] td { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
 
@@ -175,7 +180,7 @@ section[data-testid="stSidebar"] .stRadio label:hover { background: var(--bg-hov
 /* ═══════════════ PAGE HEADER (στυλ Folks) ═══════════════ */
 .page-header {
     display: flex; align-items: center; gap: 1.1rem;
-    margin-bottom: 1.5rem; padding-bottom: 0;
+    margin: 0 0 1.25rem 0; padding-bottom: 0;
 }
 .page-header .icon {
     width: 54px; height: 54px; border-radius: 16px; display: flex; align-items: center; justify-content: center;
