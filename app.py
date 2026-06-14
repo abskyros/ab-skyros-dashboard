@@ -1,6 +1,6 @@
 """
 app.py — ΑΒ Σκύρος Dashboard
-ΕΚΔΟΣΗ: v3.1 — AB Vasilopoulos branding · date-fix · today/week comparison
+ΕΚΔΟΣΗ: v4.0 FLOWLU — σκούρα μπάρα + gradient hero cards
 (Αν βλέπεις αυτή τη γραμμή στο GitHub, ανέβηκε η ΣΩΣΤΗ έκδοση)
 """
 
@@ -241,6 +241,41 @@ section[data-testid="stSidebar"] .stRadio label:hover { background: var(--bg-hov
 .kpi-trend.up   { color: var(--green); }
 .kpi-trend.down { color: var(--red); }
 .kpi-trend.flat { color: var(--text-dim); }
+
+/* ═══════════════ GRADIENT HERO CARDS (στυλ Flowlu) ═══════════════ */
+.hero-card {
+    position: relative; overflow: hidden; border-radius: 20px; padding: 1.6rem 1.75rem;
+    color: #fff; min-height: 140px; display: flex; flex-direction: column; justify-content: space-between;
+    box-shadow: 0 12px 30px rgba(10,37,64,.18); transition: transform .2s, box-shadow .2s;
+}
+.hero-card:hover { transform: translateY(-4px); box-shadow: 0 20px 44px rgba(10,37,64,.26); }
+.hero-card.grad-blue   { background: linear-gradient(135deg, #2b96e8 0%, #0072CE 100%); }
+.hero-card.grad-violet { background: linear-gradient(135deg, #8b5cf6 0%, #6d5bd0 100%); }
+.hero-card.grad-navy   { background: linear-gradient(135deg, #0a2540 0%, #1a4a7a 100%); }
+.hero-card.grad-teal   { background: linear-gradient(135deg, #14b8a6 0%, #0d9488 100%); }
+.hero-card::after {
+    content: ''; position: absolute; top: -30%; right: -10%; width: 180px; height: 180px;
+    border-radius: 50%; background: rgba(255,255,255,.12); pointer-events: none;
+}
+.hero-card::before {
+    content: ''; position: absolute; bottom: -40%; left: 10%; width: 140px; height: 140px;
+    border-radius: 50%; background: rgba(255,255,255,.07); pointer-events: none;
+}
+.hero-label {
+    font-size: .72rem; font-weight: 600; letter-spacing: .04em; opacity: .9;
+    display: flex; align-items: center; gap: .5rem; position: relative; z-index: 1;
+}
+.hero-icon {
+    position: absolute; top: 1.4rem; right: 1.5rem; width: 38px; height: 38px; border-radius: 11px;
+    background: rgba(255,255,255,.18); display: flex; align-items: center; justify-content: center;
+    font-size: 1.15rem; z-index: 1;
+}
+.hero-value {
+    font-family: 'Plus Jakarta Sans', sans-serif; font-size: 2.1rem; font-weight: 800;
+    letter-spacing: -.03em; line-height: 1; position: relative; z-index: 1; font-variant-numeric: tabular-nums;
+}
+.hero-sub { font-size: .76rem; opacity: .88; position: relative; z-index: 1; font-weight: 500; }
+.hero-sub b { font-weight: 700; }
 
 /* ═══════════════ CHECK PAYMENT CARD ═══════════════ */
 .check-card {
@@ -849,24 +884,22 @@ st.markdown("""
 <style>
 section[data-testid="stSidebar"] { display: none !important; }
 [data-testid="collapsedControl"], [data-testid="stSidebarCollapsedControl"] { display: none !important; }
-.block-container { padding-left: 6rem !important; }
+.block-container { padding-left: 6.5rem !important; }
 @media (max-width: 820px) { .block-container { padding-left: 1rem !important; } }
 </style>
 """, unsafe_allow_html=True)
 
-# ── CUSTOM ICON RAIL (στενή κάθετη μπάρα μόνο με εικονίδια — στυλ Folks) ──
+# ── CUSTOM SIDEBAR (σκούρα μπάρα με εικονίδιο + κείμενο — στυλ Flowlu) ──
 import urllib.parse as _u_rail
 _rail_items = ""
 for p in PAGES:
     _active = p == page
     _href = "?page=" + _u_rail.quote(p)
-    _bg = "background:linear-gradient(135deg,#0072CE,#005BA6);box-shadow:0 4px 12px rgba(0,114,206,.4);" if _active else "background:transparent;"
-    _color = "#ffffff" if _active else "#5a7290"
+    _cls = "rail-item active" if _active else "rail-item"
     _rail_items += (
-        f'<a href="{_href}" target="_self" class="rail-item" '
-        f'style="{_bg}color:{_color}" data-tip="{p}">'
+        f'<a href="{_href}" target="_self" class="{_cls}">'
         f'<span class="rail-ico">{PAGE_ICONS[p]}</span>'
-        f'<span class="rail-tip">{p}</span>'
+        f'<span class="rail-lbl">{p}</span>'
         f'</a>'
     )
 
@@ -881,41 +914,38 @@ st.markdown(_rail_html, unsafe_allow_html=True)
 st.markdown("""
 <style>
 .icon-rail {
-    position: fixed; top: 0; left: 0; bottom: 0; width: 4.25rem; z-index: 999990;
-    background: linear-gradient(180deg, #ffffff 0%, #f0f7fd 100%);
-    border-right: 1px solid var(--border-soft);
+    position: fixed; top: 0; left: 0; bottom: 0; width: 5rem; z-index: 999990;
+    background: linear-gradient(180deg, #0a2540 0%, #071b30 100%);
+    border-right: 1px solid rgba(255,255,255,.06);
     display: flex; flex-direction: column; align-items: center;
-    padding: 1rem 0; gap: .35rem;
-    box-shadow: 2px 0 16px rgba(10,37,64,.04);
+    padding: 1.1rem 0; gap: .15rem;
+    box-shadow: 2px 0 24px rgba(7,27,48,.18);
 }
 .rail-logo {
-    width: 44px; height: 44px; border-radius: 13px; margin-bottom: 1.25rem;
-    display: flex; align-items: center; justify-content: center; font-size: 1.4rem;
-    background: linear-gradient(135deg, #0072CE, #005BA6);
-    box-shadow: 0 6px 18px rgba(0,114,206,.4); flex-shrink: 0;
+    width: 46px; height: 46px; border-radius: 14px; margin-bottom: 1.4rem;
+    display: flex; align-items: center; justify-content: center; font-size: 1.45rem;
+    background: linear-gradient(135deg, #2b96e8, #0072CE);
+    box-shadow: 0 6px 18px rgba(43,150,232,.5); flex-shrink: 0;
 }
-.rail-nav { display: flex; flex-direction: column; gap: .4rem; width: 100%; align-items: center; }
+.rail-nav { display: flex; flex-direction: column; gap: .2rem; width: 100%; align-items: center; }
 .rail-item {
-    position: relative; width: 46px; height: 46px; border-radius: 14px;
-    display: flex; align-items: center; justify-content: center;
+    position: relative; width: 4rem; padding: .65rem 0; border-radius: 12px;
+    display: flex; flex-direction: column; align-items: center; gap: .25rem;
     text-decoration: none !important; transition: all .18s cubic-bezier(.2,.8,.2,1);
 }
-.rail-item:hover { background: var(--bg-hover) !important; transform: translateY(-2px); }
-.rail-ico { font-size: 1.3rem; line-height: 1; filter: grayscale(.2); }
-.rail-item[style*="ffffff"] .rail-ico { filter: none; }
-/* Tooltip */
-.rail-tip {
-    position: absolute; left: 56px; top: 50%; transform: translateY(-50%) scale(.9);
-    background: #0a2540; color: #fff; font-size: .76rem; font-weight: 600;
-    padding: .4rem .7rem; border-radius: 8px; white-space: nowrap;
-    opacity: 0; pointer-events: none; transition: all .15s; z-index: 999999;
-    box-shadow: 0 4px 14px rgba(10,37,64,.25);
+.rail-item .rail-ico { font-size: 1.35rem; line-height: 1; filter: grayscale(.4) opacity(.75); transition: filter .15s; }
+.rail-item .rail-lbl { font-size: .58rem; font-weight: 600; color: #7a93b3; letter-spacing: .01em; transition: color .15s; text-align: center; }
+.rail-item:hover { background: rgba(255,255,255,.06); }
+.rail-item:hover .rail-ico { filter: none; }
+.rail-item:hover .rail-lbl { color: #cfe0f2; }
+.rail-item.active { background: linear-gradient(135deg, rgba(43,150,232,.25), rgba(0,114,206,.15)); }
+.rail-item.active .rail-ico { filter: none; }
+.rail-item.active .rail-lbl { color: #ffffff; }
+.rail-item.active::before {
+    content: ''; position: absolute; left: -0; top: 50%; transform: translateY(-50%);
+    width: 3px; height: 26px; border-radius: 0 3px 3px 0; background: #2b96e8;
+    left: calc(-1.5rem + 2px);
 }
-.rail-tip::before {
-    content: ''; position: absolute; left: -4px; top: 50%; transform: translateY(-50%) rotate(45deg);
-    width: 8px; height: 8px; background: #0a2540;
-}
-.rail-item:hover .rail-tip { opacity: 1; transform: translateY(-50%) scale(1); left: 60px; }
 @media (max-width: 820px) { .icon-rail { display: none !important; } }
 </style>
 """, unsafe_allow_html=True)
@@ -1068,44 +1098,46 @@ if page == "Επισκόπηση":
         col = "#1aa260" if diff >= 0 else "#E2231A"; arr = "↑" if diff >= 0 else "↓"
         return f'<span style="color:{col};font-weight:700">{arr} {abs(pct):.1f}%</span>'
 
+    def _pct_html_w(cur, ref):
+        # Έκδοση για σκούρες gradient κάρτες (λευκό/ανοιχτό κείμενο)
+        if ref is None or ref == 0:
+            return '<span style="opacity:.85">— χωρίς περσινά</span>'
+        diff = cur - ref; pct = diff / ref * 100
+        bg = "rgba(255,255,255,.25)"; arr = "↑" if diff >= 0 else "↓"
+        return f'<span style="background:{bg};padding:.1rem .45rem;border-radius:6px;font-weight:700">{arr} {abs(pct):.1f}%</span>'
+
     import urllib.parse as _u
     _lnk_sales = "?page=" + _u.quote("Πωλήσεις")
     _lnk_inv   = "?page=" + _u.quote("Παραστατικά")
 
-    # ── Κάρτες σε ξεχωριστά κουτάκια ──
-    # Κουτί 1: ΣΗΜΕΡΑ + ΣΑΝ ΣΗΜΕΡΑ ΠΕΡΣΙ (ενωμένα σε ένα κουτί)
+    # ── Gradient hero cards (στυλ Flowlu) ──
     _today_val = fmt(today_sales) if today_sales is not None else "—"
     _ly_val = fmt(ly_day_sales) if ly_day_sales is not None else "—"
-    _card_today = (
+    # Hero 1: ΣΗΜΕΡΑ (μπλε gradient)
+    _hero_today = (
         f'<a href="{_lnk_sales}" target="_self" style="text-decoration:none">'
-        '<div class="kpi-card" style="--accent:#0072CE"><div class="glow"></div>'
-        f'<div class="kpi-label">📅 Σήμερα · {today_dow} {today.strftime("%d/%m")}</div>'
-        f'<div class="kpi-value green">{_today_val}</div>'
-        f'<div style="margin-top:.85rem;padding-top:.7rem;border-top:1px solid var(--border-soft)">'
-        f'<div class="kpi-sub" style="font-weight:700;color:var(--text)">🕐 Σαν σήμερα πέρσι · {ly_dow} {ly_same_date.strftime("%d/%m/%y")}</div>'
-        f'<div class="kpi-value violet" style="font-size:1.25rem;margin-top:.25rem">{_ly_val}</div>'
-        f'<div class="kpi-sub" style="margin-top:.2rem">Διαφορά: {_pct_html(today_sales or 0, ly_day_sales)}</div>'
-        f'</div>'
+        '<div class="hero-card grad-blue">'
+        '<div class="hero-icon">📅</div>'
+        f'<div class="hero-label">Σήμερα · {today_dow} {today.strftime("%d/%m")}</div>'
+        f'<div class="hero-value">{_today_val}</div>'
+        f'<div class="hero-sub">🕐 Πέρσι {ly_dow} {ly_same_date.strftime("%d/%m")}: <b>{_ly_val}</b> · {_pct_html_w(today_sales or 0, ly_day_sales)}</div>'
         '</div></a>'
     )
-    # Κουτί 2: ΕΒΔΟΜΑΔΑ ΩΣ ΤΩΡΑ (αθροιστικά) + σύγκριση με ανάλογες περσινές μέρες
-    _card_week = (
+    # Hero 2: ΕΒΔΟΜΑΔΑ ΩΣ ΤΩΡΑ (μωβ gradient)
+    _hero_week = (
         f'<a href="{_lnk_sales}" target="_self" style="text-decoration:none">'
-        '<div class="kpi-card" style="--accent:#2b96e8"><div class="glow"></div>'
-        f'<div class="kpi-label">📊 Εβδομάδα ως τώρα · {_wtd_label}</div>'
-        f'<div class="kpi-value blue">{fmt(wtd_sum)}</div>'
-        f'<div class="kpi-sub" style="margin-top:.5rem">vs πέρσι ίδιες μέρες: {_pct_html(wtd_sum, ly_wtd_sum)}</div>'
+        '<div class="hero-card grad-violet">'
+        '<div class="hero-icon">📊</div>'
+        f'<div class="hero-label">Εβδομάδα ως τώρα · {_wtd_label}</div>'
+        f'<div class="hero-value">{fmt(wtd_sum)}</div>'
+        f'<div class="hero-sub">vs πέρσι ίδιες μέρες: {_pct_html_w(wtd_sum, ly_wtd_sum)}</div>'
         '</div></a>'
     )
 
-    _ov_row1 = (
-        '<div class="kpi-grid kpi-2">'
-        f'{_card_today}{_card_week}'
-        '</div>'
-    )
+    _ov_row1 = '<div class="kpi-grid kpi-2">' + _hero_today + _hero_week + '</div>'
     st.markdown(_ov_row1, unsafe_allow_html=True)
 
-    # Δεύτερη σειρά: Τιμολόγια (καθαρό) + Πληρωμή με Επιταγή
+    # Δεύτερη σειρά: Τιμολόγια (καθαρό) + Πληρωμή με Επιταγή (λευκές κάρτες)
     _ov_row2 = (
         '<div class="kpi-grid kpi-2">'
         f'<a href="{_lnk_inv}" target="_self" style="text-decoration:none">'
