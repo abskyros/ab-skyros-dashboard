@@ -981,6 +981,118 @@ if "auto_updated" not in st.session_state:
     st.session_state["auto_updated"] = True
     threading.Thread(target=_background_auto_update, daemon=True).start()
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ΕΡΓΑΛΕΙΑ ΔΙΑΧΕΙΡΙΣΗΣ ΠΩΛΗΣΕΩΝ (διόρθωση / προσθήκη / έλεγχος)
+# ══════════════════════════════════════════════════════════════════════════════
+def _render_sales_fix(df_s):
+    st.caption("Αν εντοπίσεις λάθος τιμή (π.χ. από εσφαλμένη ανάγνωση OCR), επίλεξε την ημερομηνία "
+               "και διόρθωσε τα πεδία.")
+    if df_s.empty:
+        st.markdown('<div class="alert alert-warn">⚠️ Δεν υπάρχουν εγγραφές προς διόρθωση.</div>', unsafe_allow_html=True)
+        return
+    _dates_list = sorted([d.date() if hasattr(d, "date") else d for d in df_s["date"]], reverse=True)
+    _fix_date = st.selectbox("Ημερομηνία", _dates_list,
+                             format_func=lambda d: f"{DAYS_GR[d.weekday()]} {d.strftime('%d/%m/%Y')}", key="fix_sales_date")
+    _cur_row = df_s[df_s["date"].apply(lambda x: (x.date() if hasattr(x, "date") else x)) == _fix_date]
+    _cur_net = float(_cur_row["net_sales"].iloc[0]) if not _cur_row.empty else 0.0
+    _cur_cus = int(_cur_row["customers"].iloc[0]) if (not _cur_row.empty and pd.notna(_cur_row["customers"].iloc[0])) else 0
+    _cur_bsk = float(_cur_row["avg_basket"].iloc[0]) if (not _cur_row.empty and pd.notna(_cur_row["avg_basket"].iloc[0])) else 0.0
+    st.markdown(f'<div class="alert alert-info">Τρέχουσες → Πωλήσεις: <b>{fmt(_cur_net)}</b> · Πελάτες: <b>{_cur_cus}</b> · Καλάθι: <b>{fmt(_cur_bsk)}</b></div>', unsafe_allow_html=True)
+    _f1, _f2, _f3 = st.columns(3)
+    with _f1:
+        _new_net = st.number_input("Καθαρές Πωλήσεις (€)", min_value=0.0, value=_cur_net, step=0.01, format="%.2f", key="fix_net")
+    with _f2:
+        _new_cus = st.number_input("Πελάτες", min_value=0, value=_cur_cus, step=1, key="fix_cus")
+    with _f3:
+        _new_bsk = st.number_input("ΜΟ Καλαθιού (€)", min_value=0.0, value=_cur_bsk, step=0.01, format="%.2f", key="fix_bsk")
+    st.markdown('<div class="btn-primary">', unsafe_allow_html=True)
+    if st.button("💾 Αποθήκευση διόρθωσης", key="save_fix", use_container_width=True):
+        _ns = _new_net if _new_net != _cur_net else None
+        _nc = _new_cus if _new_cus != _cur_cus else None
+        _nb = _new_bsk if _new_bsk != _cur_bsk else None
+        if _ns is None and _nc is None and _nb is None:
+            st.markdown('<div class="alert alert-warn">⚠️ Δεν άλλαξες καμία τιμή.</div>', unsafe_allow_html=True)
+        else:
+            with st.spinner("Αποθήκευση..."):
+                _ok, _msg = update_sales_value(_fix_date, net_sales=_ns, customers=_nc, avg_basket=_nb)
+            if _ok:
+                _raw_load_sales.clear()
+                st.markdown(f'<div class="alert alert-success">✅ {_msg}</div>', unsafe_allow_html=True)
+                st.rerun()
+            else:
+                st.markdown(f'<div class="alert alert-error">❌ {_msg}</div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+
+def _render_sales_add(df_s):
+    st.caption("Αν ο έλεγχος βρήκε κενό (χαμένη μέρα), πρόσθεσέ την εδώ χειροκίνητα.")
+    _add_date = st.date_input("Ημερομηνία", today, key="add_sales_date")
+    _exists = False
+    if not df_s.empty:
+        _exists = not df_s[df_s["date"].apply(lambda x: (x.date() if hasattr(x, "date") else x)) == _add_date].empty
+    if _exists:
+        st.markdown(f'<div class="alert alert-warn">⚠️ Η {_add_date.strftime("%d/%m/%Y")} υπάρχει ήδη. Χρησιμοποίησε τη «Διόρθωση».</div>', unsafe_allow_html=True)
+    else:
+        st.markdown(f'<div class="alert alert-info">Νέα εγγραφή για <b>{DAYS_GR[_add_date.weekday()]} {_add_date.strftime("%d/%m/%Y")}</b></div>', unsafe_allow_html=True)
+    _af1, _af2, _af3 = st.columns(3)
+    with _af1:
+        _add_net = st.number_input("Καθαρές Πωλήσεις (€)", min_value=0.0, value=0.0, step=0.01, format="%.2f", key="add_net")
+    with _af2:
+        _add_cus = st.number_input("Πελάτες", min_value=0, value=0, step=1, key="add_cus")
+    with _af3:
+        _add_bsk = st.number_input("ΜΟ Καλαθιού (€)", min_value=0.0, value=0.0, step=0.01, format="%.2f", key="add_bsk")
+    st.markdown('<div class="btn-primary">', unsafe_allow_html=True)
+    if st.button("➕ Προσθήκη ημέρας", key="save_add", use_container_width=True, disabled=_exists):
+        if _add_net <= 0:
+            st.markdown('<div class="alert alert-warn">⚠️ Βάλε έγκυρη τιμή στις Καθαρές Πωλήσεις.</div>', unsafe_allow_html=True)
+        else:
+            _rec = {"date": _add_date.isoformat(), "net_sales": _add_net,
+                    "customers": int(_add_cus) if _add_cus > 0 else None,
+                    "avg_basket": _add_bsk if _add_bsk > 0 else (round(_add_net / _add_cus, 2) if _add_cus > 0 else None)}
+            with st.spinner("Προσθήκη..."):
+                _added = merge_sales([_rec])
+            if _added:
+                _raw_load_sales.clear()
+                st.markdown(f'<div class="alert alert-success">✅ Προστέθηκε η {_add_date.strftime("%d/%m/%Y")}.</div>', unsafe_allow_html=True)
+                st.rerun()
+            else:
+                st.markdown('<div class="alert alert-warn">ℹ️ Δεν προστέθηκε (ίσως υπάρχει ήδη).</div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+
+def _render_sales_check():
+    st.caption("Ελέγχει για διπλές ημερομηνίες ή χαμένες μέρες στις πωλήσεις.")
+    if st.button("Εκτέλεση ελέγχου", key="run_sales_check", use_container_width=True):
+        st.session_state["sales_check_done"] = True
+    if st.session_state.get("sales_check_done"):
+        with st.spinner("Έλεγχος..."):
+            _q = check_sales_quality()
+        _dups = _q.get("duplicates", [])
+        _gaps = _q.get("gaps", [])
+        if not _dups and not _gaps:
+            st.markdown('<div class="alert alert-success">✅ Όλα εντάξει! Καμία διπλοεγγραφή ή κενό.</div>', unsafe_allow_html=True)
+        if _dups:
+            st.markdown(f'<div class="alert alert-warn">⚠️ Βρέθηκαν {len(_dups)} διπλές ημερομηνίες. Επίλεξε ποια να κρατήσεις:</div>', unsafe_allow_html=True)
+            for _d in _dups:
+                st.markdown(f'**📅 {_d["date"]}** — {len(_d["entries"])} εγγραφές:')
+                for _e in _d["entries"]:
+                    _bc1, _bc2 = st.columns([3, 1])
+                    with _bc1:
+                        st.markdown(f'<div style="padding:.4rem 0">Γραμμή {_e["row"]}: <b>{fmt(_e["net_sales"])}</b></div>', unsafe_allow_html=True)
+                    with _bc2:
+                        if st.button("🗑 Διαγραφή", key=f"del_sales_{_e['row']}", use_container_width=True):
+                            _ok, _msg = delete_sheet_row("sales", _e["row"])
+                            if _ok:
+                                _raw_load_sales.clear()
+                                st.success(_msg); st.rerun()
+                            else:
+                                st.error(_msg)
+        if _gaps:
+            _gaps_str = ", ".join(_gaps[:20]) + (" …" if len(_gaps) > 20 else "")
+            st.markdown(f'<div class="alert alert-error">📭 Λείπουν {len(_gaps)} ημέρες: {_gaps_str}<br><br>Συμπλήρωσέ τες από την «➕ Προσθήκη».</div>', unsafe_allow_html=True)
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE: ΕΠΙΣΚΟΠΗΣΗ (Overview) — 3 κάρτες, χωρίς γραφήματα
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1028,7 +1140,10 @@ if page == "Επισκόπηση":
         return m["net_sales"].sum() if not m.empty else None
 
     today_sales = _day_sales(today)
-    ly_same_date = today.replace(year=today.year - 1)
+    # «Πέρσι σαν σήμερα» = ίδια ΜΕΡΑ της εβδομάδας πέρσι (όχι ίδια ημερομηνία).
+    # 364 ημέρες πίσω (= 52 εβδομάδες) πέφτει πάντα στην ίδια ημέρα της εβδομάδας,
+    # στην αντίστοιχη εβδομάδα της περσινής χρονιάς.
+    ly_same_date = today - timedelta(days=364)
     ly_day_sales = _day_sales(ly_same_date)
     today_dow = DAYS_GR[today.weekday()]
     ly_dow    = DAYS_GR[ly_same_date.weekday()]
@@ -1162,7 +1277,7 @@ elif page == "Πωλήσεις":
     st.markdown("""
 <div class="page-header">
 <div class="icon">📈</div>
-<div><h1>Πωλήσεις</h1><div class="sub">Εβδομαδιαία & μηνιαία ανάλυση</div></div>
+<div><h1>Πωλήσεις</h1><div class="sub">Εβδομαδιαία & ετήσια ανάλυση</div></div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -1170,6 +1285,16 @@ elif page == "Πωλήσεις":
     if df_s.empty:
         st.markdown('<div class="alert alert-warn">⚠️ Δεν υπάρχουν δεδομένα πωλήσεων ακόμη.</div>', unsafe_allow_html=True)
         st.stop()
+
+    # ── Εργαλεία διαχείρισης (κάτω από τον τίτλο) ──
+    with st.expander("🛠 Εργαλεία διαχείρισης (διόρθωση · προσθήκη · έλεγχος)"):
+        _tool_tab1, _tool_tab2, _tool_tab3 = st.tabs(["✏️ Διόρθωση", "➕ Προσθήκη", "🔍 Έλεγχος"])
+        with _tool_tab1:
+            _render_sales_fix(df_s)
+        with _tool_tab2:
+            _render_sales_add(df_s)
+        with _tool_tab3:
+            _render_sales_check()
 
     t_wk, t_yr = st.tabs(["Εβδομαδιαία", "Ετήσια"])
 
@@ -1251,136 +1376,6 @@ elif page == "Πωλήσεις":
             st.download_button(f"↓ Λήψη CSV — Έτος {sy}", _csv, f"sales_{sy}.csv", "text/csv", key="sales_dl")
         else:
             st.markdown('<div class="alert alert-info">ℹ️ Δεν υπάρχουν εγγραφές για αυτό το έτος.</div>', unsafe_allow_html=True)
-
-    # ── Χειροκίνητη διόρθωση τιμής πώλησης ──
-    st.markdown("<div style='height:1rem'></div>", unsafe_allow_html=True)
-    with st.expander("✏️ Διόρθωση τιμής πώλησης"):
-        st.caption("Αν εντοπίσεις λάθος τιμή (π.χ. από εσφαλμένη ανάγνωση OCR), επίλεξε την ημερομηνία "
-                   "και διόρθωσε τα πεδία. Άφησε κενό όποιο πεδίο δεν θέλεις να αλλάξεις.")
-        if df_s.empty:
-            st.markdown('<div class="alert alert-warn">⚠️ Δεν υπάρχουν εγγραφές προς διόρθωση.</div>', unsafe_allow_html=True)
-        else:
-            _dates_list = sorted(
-                [d.date() if hasattr(d, "date") else d for d in df_s["date"]],
-                reverse=True
-            )
-            _cc1, _cc2 = st.columns([1, 2])
-            with _cc1:
-                _fix_date = st.selectbox(
-                    "Ημερομηνία", _dates_list,
-                    format_func=lambda d: f"{DAYS_GR[d.weekday()]} {d.strftime('%d/%m/%Y')}",
-                    key="fix_sales_date"
-                )
-            # Τρέχουσες τιμές για την επιλεγμένη ημερομηνία
-            _cur_row = df_s[df_s["date"].apply(lambda x: (x.date() if hasattr(x, "date") else x)) == _fix_date]
-            _cur_net = float(_cur_row["net_sales"].iloc[0]) if not _cur_row.empty else 0.0
-            _cur_cus = int(_cur_row["customers"].iloc[0]) if (not _cur_row.empty and pd.notna(_cur_row["customers"].iloc[0])) else 0
-            _cur_bsk = float(_cur_row["avg_basket"].iloc[0]) if (not _cur_row.empty and pd.notna(_cur_row["avg_basket"].iloc[0])) else 0.0
-            with _cc2:
-                st.markdown(f'<div class="alert alert-info">Τρέχουσες τιμές → Πωλήσεις: <b>{fmt(_cur_net)}</b> · Πελάτες: <b>{_cur_cus}</b> · Καλάθι: <b>{fmt(_cur_bsk)}</b></div>', unsafe_allow_html=True)
-            _f1, _f2, _f3 = st.columns(3)
-            with _f1:
-                _new_net = st.number_input("Νέες Καθαρές Πωλήσεις (€)", min_value=0.0, value=_cur_net, step=0.01, format="%.2f", key="fix_net")
-            with _f2:
-                _new_cus = st.number_input("Νέοι Πελάτες", min_value=0, value=_cur_cus, step=1, key="fix_cus")
-            with _f3:
-                _new_bsk = st.number_input("Νέο ΜΟ Καλαθιού (€)", min_value=0.0, value=_cur_bsk, step=0.01, format="%.2f", key="fix_bsk")
-            st.markdown('<div class="btn-primary">', unsafe_allow_html=True)
-            if st.button("💾 Αποθήκευση διόρθωσης", key="save_fix", use_container_width=True):
-                _ns = _new_net if _new_net != _cur_net else None
-                _nc = _new_cus if _new_cus != _cur_cus else None
-                _nb = _new_bsk if _new_bsk != _cur_bsk else None
-                if _ns is None and _nc is None and _nb is None:
-                    st.markdown('<div class="alert alert-warn">⚠️ Δεν άλλαξες καμία τιμή.</div>', unsafe_allow_html=True)
-                else:
-                    with st.spinner("Αποθήκευση..."):
-                        _ok, _msg = update_sales_value(_fix_date, net_sales=_ns, customers=_nc, avg_basket=_nb)
-                    if _ok:
-                        _raw_load_sales.clear()
-                        st.markdown(f'<div class="alert alert-success">✅ {_msg}</div>', unsafe_allow_html=True)
-                        st.rerun()
-                    else:
-                        st.markdown(f'<div class="alert alert-error">❌ {_msg}</div>', unsafe_allow_html=True)
-            st.markdown('</div>', unsafe_allow_html=True)
-
-    # ── Προσθήκη ημέρας που λείπει ──
-    with st.expander("➕ Προσθήκη ημέρας που λείπει"):
-        st.caption("Αν ο έλεγχος βρήκε κενό (χαμένη μέρα), πρόσθεσέ την εδώ χειροκίνητα.")
-        _ac1, _ac2 = st.columns([1, 2])
-        with _ac1:
-            _add_date = st.date_input("Ημερομηνία", today, key="add_sales_date")
-        # Έλεγχος αν υπάρχει ήδη
-        _exists = False
-        if not df_s.empty:
-            _exists = not df_s[df_s["date"].apply(lambda x: (x.date() if hasattr(x, "date") else x)) == _add_date].empty
-        with _ac2:
-            if _exists:
-                st.markdown(f'<div class="alert alert-warn">⚠️ Η {_add_date.strftime("%d/%m/%Y")} υπάρχει ήδη. Χρησιμοποίησε τη «Διόρθωση τιμής».</div>', unsafe_allow_html=True)
-            else:
-                st.markdown(f'<div class="alert alert-info">Νέα εγγραφή για <b>{DAYS_GR[_add_date.weekday()]} {_add_date.strftime("%d/%m/%Y")}</b></div>', unsafe_allow_html=True)
-        _af1, _af2, _af3 = st.columns(3)
-        with _af1:
-            _add_net = st.number_input("Καθαρές Πωλήσεις (€)", min_value=0.0, value=0.0, step=0.01, format="%.2f", key="add_net")
-        with _af2:
-            _add_cus = st.number_input("Πελάτες", min_value=0, value=0, step=1, key="add_cus")
-        with _af3:
-            _add_bsk = st.number_input("ΜΟ Καλαθιού (€)", min_value=0.0, value=0.0, step=0.01, format="%.2f", key="add_bsk")
-        st.markdown('<div class="btn-primary">', unsafe_allow_html=True)
-        if st.button("➕ Προσθήκη ημέρας", key="save_add", use_container_width=True, disabled=_exists):
-            if _add_net <= 0:
-                st.markdown('<div class="alert alert-warn">⚠️ Βάλε έγκυρη τιμή στις Καθαρές Πωλήσεις.</div>', unsafe_allow_html=True)
-            else:
-                _rec = {
-                    "date": _add_date.isoformat(),
-                    "net_sales": _add_net,
-                    "customers": int(_add_cus) if _add_cus > 0 else None,
-                    "avg_basket": _add_bsk if _add_bsk > 0 else (round(_add_net / _add_cus, 2) if _add_cus > 0 else None),
-                }
-                with st.spinner("Προσθήκη..."):
-                    _added = merge_sales([_rec])
-                if _added:
-                    _raw_load_sales.clear()
-                    st.markdown(f'<div class="alert alert-success">✅ Προστέθηκε η {_add_date.strftime("%d/%m/%Y")}.</div>', unsafe_allow_html=True)
-                    st.rerun()
-                else:
-                    st.markdown('<div class="alert alert-warn">ℹ️ Δεν προστέθηκε (ίσως υπάρχει ήδη).</div>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    # ── Έλεγχος ποιότητας δεδομένων (διπλά + κενά) ──
-    st.markdown("<div style='height:1rem'></div>", unsafe_allow_html=True)
-    with st.expander("🔍 Έλεγχος δεδομένων (διπλά & κενά)"):
-        st.caption("Ελέγχει για διπλές ημερομηνίες ή χαμένες μέρες στις πωλήσεις.")
-        if st.button("Εκτέλεση ελέγχου", key="run_sales_check", use_container_width=True):
-            st.session_state["sales_check_done"] = True
-        if st.session_state.get("sales_check_done"):
-            with st.spinner("Έλεγχος..."):
-                _q = check_sales_quality()
-            _dups = _q.get("duplicates", [])
-            _gaps = _q.get("gaps", [])
-            if not _dups and not _gaps:
-                st.markdown('<div class="alert alert-success">✅ Όλα εντάξει! Καμία διπλοεγγραφή ή κενό.</div>', unsafe_allow_html=True)
-            # Διπλές εγγραφές
-            if _dups:
-                st.markdown(f'<div class="alert alert-warn">⚠️ Βρέθηκαν {len(_dups)} διπλές ημερομηνίες. Επίλεξε ποια να κρατήσεις:</div>', unsafe_allow_html=True)
-                for _d in _dups:
-                    _dd = _d["date"]
-                    st.markdown(f'**📅 {_dd}** — {len(_d["entries"])} εγγραφές:')
-                    for _e in _d["entries"]:
-                        _bc1, _bc2 = st.columns([3, 1])
-                        with _bc1:
-                            st.markdown(f'<div style="padding:.4rem 0">Γραμμή {_e["row"]}: <b>{fmt(_e["net_sales"])}</b></div>', unsafe_allow_html=True)
-                        with _bc2:
-                            if st.button("🗑 Διαγραφή", key=f"del_sales_{_e['row']}", use_container_width=True):
-                                _ok, _msg = delete_sheet_row("sales", _e["row"])
-                                if _ok:
-                                    _raw_load_sales.clear()
-                                    st.success(_msg); st.rerun()
-                                else:
-                                    st.error(_msg)
-            # Κενά
-            if _gaps:
-                _gaps_str = ", ".join(_gaps[:20]) + (" …" if len(_gaps) > 20 else "")
-                st.markdown(f'<div class="alert alert-error">📭 Λείπουν {len(_gaps)} ημέρες: {_gaps_str}<br><br>Συμπλήρωσέ τες χειροκίνητα από τη «Διόρθωση τιμής πώλησης» ή πάτησε «Ενημέρωση Πωλήσεων».</div>', unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE: ΠΑΡΑΣΤΑΤΙΚΑ — χωρίς πίτα
@@ -1502,43 +1497,90 @@ elif page == "Τιμολογήσεις":
             </div>"""
             st.markdown(_next_html, unsafe_allow_html=True)
 
-        # Σύνολο ανά έτος
+        # ── Συνολικό ποσό ανά έτος: ΑΓΟΡΕΣ (επιταγές) + ΠΩΛΗΣΕΙΣ ──
         st.markdown('<div class="section-label">Συνολικό ποσό ανά έτος</div>', unsafe_allow_html=True)
         df_t2 = df_t.copy()
         df_t2["year"] = df_t2["check_date"].dt.year
         by_year = df_t2.groupby("year").agg(total=("amount", "sum"), count=("amount", "size")).reset_index().sort_values("year", ascending=False)
-        rows_html = ""
-        for _, r in by_year.iterrows():
-            rows_html += f"""
-<div class="year-row">
-<div><span class="yr">{int(r['year'])}</span> &nbsp;<span class="cnt">· {int(r['count'])} επιταγές</span></div>
-<span class="amt">{fmt(r['total'])}</span>
-</div>"""
-        st.markdown(rows_html, unsafe_allow_html=True)
 
-        # Drill-down: επιλογή έτους → ανάλυση ανά μήνα
-        st.markdown('<div class="section-label">Ανάλυση ανά μήνα</div>', unsafe_allow_html=True)
-        _t_yrs = sorted(df_t2["year"].unique(), reverse=True)
-        _sel_ty = st.selectbox("Επίλεξε έτος", _t_yrs, key="timol_yr_sel")
-        _ty_df = df_t2[df_t2["year"] == _sel_ty].copy()
-        _ty_df["month"] = _ty_df["check_date"].dt.month
-        _months_html = ""
-        for _mn in range(1, 13):
-            _mdf = _ty_df[_ty_df["month"] == _mn]
-            if _mdf.empty:
-                continue
-            _mtot = _mdf["amount"].sum()
-            _mcnt = len(_mdf)
-            _months_html += (
-                '<div class="year-row">'
-                f'<div><span class="yr">{MONTHS_GR[_mn-1]}</span> &nbsp;<span class="cnt">· {_mcnt} επιταγές</span></div>'
-                f'<span class="amt">{fmt(_mtot)}</span>'
-                '</div>'
+        # Φόρτωσε πωλήσεις για σύνολο ανά έτος
+        _df_sales_y = load_sales()
+        _sales_by_year = {}
+        if not _df_sales_y.empty:
+            _tmp = _df_sales_y.copy()
+            _tmp["year"] = _tmp["date"].apply(lambda d: d.year if hasattr(d, "year") else d.year)
+            _sales_by_year = _tmp.groupby("year")["net_sales"].sum().to_dict()
+
+        # Ποιο έτος είναι ανοιχτό (drill-down) — από το URL ?ty=YEAR
+        import urllib.parse as _u_ty
+        _open_year = st.query_params.get("ty", "")
+
+        # Επικεφαλίδα στηλών
+        st.markdown(
+            '<div style="display:flex;align-items:center;justify-content:space-between;'
+            'padding:.5rem 1.5rem .4rem;font-size:.64rem;font-weight:700;letter-spacing:.08em;'
+            'text-transform:uppercase;color:var(--text-dim)">'
+            '<span style="flex:0 0 auto">Έτος</span>'
+            '<span style="display:flex;gap:2.5rem"><span style="width:120px;text-align:right">Αγορές</span>'
+            '<span style="width:120px;text-align:right">Πωλήσεις</span></span>'
+            '</div>',
+            unsafe_allow_html=True
+        )
+
+        for _, r in by_year.iterrows():
+            _yr = int(r["year"])
+            _purch = r["total"]
+            _sales_v = _sales_by_year.get(_yr, None)
+            _is_open = str(_yr) == str(_open_year)
+            # Link: αν είναι ανοιχτό, κλικ το κλείνει· αλλιώς το ανοίγει
+            _href = "?page=" + _u_ty.quote("Τιμολογήσεις") + ("" if _is_open else f"&ty={_yr}")
+            _arrow = "▾" if _is_open else "▸"
+            _sales_txt = fmt(_sales_v) if _sales_v is not None else "—"
+            st.markdown(
+                f'<a href="{_href}" target="_self" style="text-decoration:none">'
+                f'<div class="year-row" style="{"border-color:var(--brand);" if _is_open else ""}">'
+                f'<div style="display:flex;align-items:center;gap:.6rem">'
+                f'<span style="color:var(--brand);font-weight:700">{_arrow}</span>'
+                f'<span class="yr">{_yr}</span> '
+                f'<span class="cnt">· {int(r["count"])} επιταγές</span></div>'
+                f'<div style="display:flex;gap:2.5rem;align-items:center">'
+                f'<span class="amt" style="width:120px;text-align:right">{fmt(_purch)}</span>'
+                f'<span class="amt" style="width:120px;text-align:right;color:var(--sky)">{_sales_txt}</span>'
+                f'</div></div></a>',
+                unsafe_allow_html=True
             )
-        if _months_html:
-            st.markdown(_months_html, unsafe_allow_html=True)
-        else:
-            st.markdown('<div class="alert alert-info">ℹ️ Δεν υπάρχουν επιταγές για αυτό το έτος.</div>', unsafe_allow_html=True)
+            # Drill-down: αν ανοιχτό, δείξε μήνες από κάτω
+            if _is_open:
+                _ty_df = df_t2[df_t2["year"] == _yr].copy()
+                _ty_df["month"] = _ty_df["check_date"].dt.month
+                # Μηνιαίες πωλήσεις του έτους
+                _sm_month = {}
+                if not _df_sales_y.empty:
+                    _smdf = _df_sales_y[_df_sales_y["date"].apply(lambda d: d.year) == _yr].copy()
+                    if not _smdf.empty:
+                        _smdf["m"] = _smdf["date"].apply(lambda d: d.month)
+                        _sm_month = _smdf.groupby("m")["net_sales"].sum().to_dict()
+                _mhtml = ""
+                for _mn in range(1, 13):
+                    _mdf = _ty_df[_ty_df["month"] == _mn]
+                    _mpurch = _mdf["amount"].sum() if not _mdf.empty else 0
+                    _msales = _sm_month.get(_mn, None)
+                    if _mdf.empty and _msales is None:
+                        continue
+                    _mstxt = fmt(_msales) if _msales is not None else "—"
+                    _mptxt = fmt(_mpurch) if _mpurch > 0 else "—"
+                    _mhtml += (
+                        '<div style="display:flex;align-items:center;justify-content:space-between;'
+                        'padding:.7rem 1.5rem;margin-left:1.5rem;border-left:2px solid var(--border);'
+                        'background:#f7fbff;border-radius:0 10px 10px 0;margin-bottom:.35rem">'
+                        f'<span style="font-weight:600;color:var(--text)">{MONTHS_GR[_mn-1]}</span>'
+                        f'<div style="display:flex;gap:2.5rem">'
+                        f'<span style="width:120px;text-align:right;font-weight:700;color:var(--brand);font-variant-numeric:tabular-nums">{_mptxt}</span>'
+                        f'<span style="width:120px;text-align:right;font-weight:700;color:var(--sky);font-variant-numeric:tabular-nums">{_mstxt}</span>'
+                        f'</div></div>'
+                    )
+                if _mhtml:
+                    st.markdown(_mhtml, unsafe_allow_html=True)
 
         # Αναλυτικός πίνακας
         st.markdown('<div class="section-label">Όλες οι τιμολογήσεις</div>', unsafe_allow_html=True)
