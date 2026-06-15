@@ -347,28 +347,26 @@ hr { border-color: var(--border-soft) !important; margin: 1.5rem 0 !important; }
 /* ═══════════════ YEAR ROW (timologiseis) ═══════════════ */
 .year-row {
     display: flex; align-items: center; justify-content: space-between;
-    background: #ffffff; border: 1px solid var(--border); border-radius: 13px;
-    padding: .8rem 1.2rem; margin-bottom: .5rem;
-    transition: border-color .15s, transform .15s, box-shadow .15s;
-    box-shadow: 0 1px 6px rgba(10,37,64,.03);
+    background: #ffffff; border: 1px solid var(--border); border-radius: 13px; padding: .7rem 1.2rem; margin-bottom: .5rem;
+    transition: border-color .15s, transform .15s, box-shadow .15s; box-shadow: 0 2px 10px rgba(10,37,64,.03);
 }
-.year-row:hover { border-color: var(--brand); transform: translateX(3px); box-shadow: 0 4px 14px rgba(10,37,64,.07); }
+.year-row:hover { border-color: var(--brand); transform: translateX(3px); box-shadow: 0 6px 18px rgba(10,37,64,.08); }
 .year-row .yr { font-family: 'Plus Jakarta Sans'; font-size: 1.05rem; font-weight: 800; color: var(--text); }
-.year-row .amt { font-family: 'Plus Jakarta Sans'; font-size: 1rem; font-weight: 700; color: var(--brand); font-variant-numeric: tabular-nums; }
+.year-row .amt { font-family: 'Plus Jakarta Sans'; font-size: 1.05rem; font-weight: 800; color: var(--brand); font-variant-numeric: tabular-nums; }
 .year-row .cnt { font-size: .72rem; color: var(--text-mut); }
 
 /* Στήλες Αγορές/Πωλήσεις (header + γραμμές) — ευθυγραμμισμένες & responsive */
 .ty-head {
     display: flex; align-items: center; justify-content: space-between;
-    padding: .4rem 1.2rem .35rem; font-size: .63rem; font-weight: 700; letter-spacing: .08em;
+    padding: .4rem 1.2rem .35rem; font-size: .62rem; font-weight: 700; letter-spacing: .08em;
     text-transform: uppercase; color: var(--text-dim);
 }
 .ty-cols { display: flex; gap: 1.5rem; align-items: center; }
-.ty-col { width: 110px; text-align: right; }
+.ty-col { width: 130px; text-align: right; }
 @media (max-width: 820px) {
-    .ty-head { padding: .4rem .9rem .3rem; font-size: .56rem; }
-    .ty-cols { gap: .75rem; }
-    .ty-col { width: 82px; }
+    .ty-head { padding: .4rem .9rem .35rem; font-size: .56rem; }
+    .ty-cols { gap: .8rem; }
+    .ty-col { width: 96px; }
 }
 
 /* ═══════════════ SIDE PANEL (αριστερή κάθετη μπάρα ανά σελίδα) ═══════════════ */
@@ -379,6 +377,7 @@ hr { border-color: var(--border-soft) !important; margin: 1.5rem 0 !important; }
     position: sticky; top: .5rem;
 }
 .side-panel .page-header { margin-bottom: 1rem; }
+.side-panel [data-testid="stExpander"] { margin-top: .75rem; }
 /* Τα controls του Streamlit μέσα στο side column να ακουμπούν στο panel */
 [data-testid="column"]:first-child [data-testid="stRadio"] > div { gap: .3rem !important; }
 [data-testid="stHorizontalBlock"] { align-items: flex-start !important; }
@@ -417,10 +416,10 @@ hr { border-color: var(--border-soft) !important; margin: 1.5rem 0 !important; }
     .hero-sub { font-size: .68rem; }
     .hero-icon { width: 32px; height: 32px; top: 1rem; right: 1.1rem; font-size: 1rem; }
 
-    /* Year-row (Τιμολογήσεις) — ομοιόμορφα στο κινητό */
-    .year-row { padding: .7rem .9rem; border-radius: 11px; }
-    .year-row .yr { font-size: .95rem; }
-    .year-row .amt { font-size: .9rem !important; width: 82px !important; }
+    /* Year-row (Τιμολογήσεις) — στήλες πιο στενές ώστε να μη κόβονται */
+    .year-row { padding: .6rem .9rem; border-radius: 11px; }
+    .year-row .yr { font-size: .92rem; }
+    .year-row .amt { font-size: .9rem; }
     .year-row .cnt { font-size: .64rem; }
 
     /* Side panel — χωρίς sticky/border στο κινητό, πιο μαζεμένο */
@@ -1151,6 +1150,61 @@ def _render_sales_check():
             _gaps_str = ", ".join(_gaps[:20]) + (" …" if len(_gaps) > 20 else "")
             st.markdown(f'<div class="alert alert-error">📭 Λείπουν {len(_gaps)} ημέρες: {_gaps_str}<br><br>Συμπλήρωσέ τες από την «➕ Προσθήκη».</div>', unsafe_allow_html=True)
 
+# ══════════════════════════════════════════════════════════════════════════════
+# ΔΙΑΚΡΙΤΙΚΗ ΕΝΗΜΕΡΩΣΗ — compact, μπαίνει στο πλάι (side-panel) κάθε σελίδας
+# ══════════════════════════════════════════════════════════════════════════════
+def _render_manual_update():
+    with st.expander("⟳ Χειροκίνητη ενημέρωση"):
+        st.caption("Παραστατικά & Τιμολογήσεις: αυτόματα σε κάθε είσοδο. "
+                   "Πωλήσεις: αυτόματα κάθε βράδυ 23:00. Εδώ μόνο για άμεση ενημέρωση.")
+        if st.button("Πωλήσεις", key="manual_sales", use_container_width=True):
+            if SALES_PW:
+                with st.spinner("Σύνδεση & ανάγνωση (OCR)..."):
+                    _ex = _raw_load_sales()
+                    if _ex is not None and not _ex.empty:
+                        _maxd = max(_ex["date"])
+                        _maxd = _maxd.date() if hasattr(_maxd, "date") else _maxd
+                        _since = _maxd - timedelta(days=4)
+                    else:
+                        _since = None
+                    _recs, _errs_s, _n = fetch_sales_emails(SALES_PW, since=_since, want_records=60, email_scan_limit=120)
+                if _errs_s:
+                    st.markdown(f'<div class="alert alert-error">❌ {_errs_s[0]}</div>', unsafe_allow_html=True)
+                else:
+                    _saved_s = merge_sales(_recs) if _recs else 0
+                    _raw_load_sales.clear()
+                    if _saved_s:
+                        st.markdown(f'<div class="alert alert-success">✅ {_saved_s} νέες ημέρες από {_n} email.</div>', unsafe_allow_html=True)
+                        st.rerun()
+                    else:
+                        st.markdown('<div class="alert alert-info">ℹ️ Καμία νέα εγγραφή. (Πλήρες OCR κάθε βράδυ 23:00.)</div>', unsafe_allow_html=True)
+            else:
+                st.markdown('<div class="alert alert-error">❌ Λείπει το SALES_EMAIL_PASS.</div>', unsafe_allow_html=True)
+        if st.button("Παραστατικά", key="manual_inv", use_container_width=True):
+            if INV_PW:
+                with st.spinner("Σύνδεση & αποθήκευση..."):
+                    _saved, _errs, _total = fetch_and_store_invoices(INV_PW, limit=60)
+                if _errs:
+                    st.markdown(f'<div class="alert alert-error">❌ {_errs[0]}</div>', unsafe_allow_html=True)
+                else:
+                    st.markdown(f'<div class="alert alert-success">✅ {_total} εγγραφές — {_saved} νέες.</div>', unsafe_allow_html=True)
+                    _raw_load_invoices.clear(); st.rerun()
+            else:
+                st.markdown('<div class="alert alert-error">❌ Λείπει το EMAIL_PASS.</div>', unsafe_allow_html=True)
+        if st.button("Τιμολογήσεις", key="manual_timol", use_container_width=True):
+            if SALES_PW:
+                with st.spinner("Σύνδεση & ανάγνωση..."):
+                    _saved_t, _errs_t, _total_t = fetch_and_store_timologiseis(SALES_PW, limit=200)
+                if _errs_t:
+                    st.markdown(f'<div class="alert alert-error">❌ {_errs_t[0]}</div>', unsafe_allow_html=True)
+                else:
+                    st.markdown(f'<div class="alert alert-success">✅ {_total_t} βρέθηκαν — {_saved_t} νέες.</div>', unsafe_allow_html=True)
+                    load_timologiseis.clear(); st.rerun()
+            else:
+                st.markdown('<div class="alert alert-error">❌ Λείπει το SALES_EMAIL_PASS.</div>', unsafe_allow_html=True)
+
+
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE: ΕΠΙΣΚΟΠΗΣΗ (Overview) — 3 κάρτες, χωρίς γραφήματα
@@ -1165,21 +1219,20 @@ if page == "Επισκόπηση":
 <div><h1>Επισκόπηση</h1><div class="sub">Συνοπτική εικόνα τρέχουσας εβδομάδας</div></div>
 </div>
 """, unsafe_allow_html=True)
-        st.markdown(f'<div class="date-badge" style="margin-bottom:.75rem">🗓 {DAYS_GR[today.weekday()]} {today.strftime("%d/%m/%Y")} · Τρέχουσα εβδομάδα</div>', unsafe_allow_html=True)
-        st.caption("Ενημέρωση δεδομένων")
-        _render_manual_sales_btn()
-        _render_manual_inv_btn()
-        _render_manual_timol_btn()
+        st.markdown(f'<div class="date-badge" style="margin-bottom:0">🗓 {DAYS_GR[today.weekday()]} {today.strftime("%d/%m/%Y")} · Τρέχουσα εβδομάδα</div>', unsafe_allow_html=True)
+        _render_manual_update()
         st.markdown('</div>', unsafe_allow_html=True)
 
     df_s = load_sales()
     df_i = load_invoices()
     df_t = load_timologiseis()
 
-    # Επισκόπηση: ΠΑΝΤΑ τρέχουσα εβδομάδα — μηδενίζει κάθε Δευτέρα
-    sw, ew   = get_week_range(today)
-    psw, pew = prev_week_range(sw)
-    _wlabel  = "Τρέχουσα εβδομάδα"
+    # Επιλογή εβδομάδας: τρέχουσα αν έχει δεδομένα, αλλιώς η τελευταία με δεδομένα
+    sw_cur, ew_cur   = get_week_range(today)
+    psw_cur, pew_cur = prev_week_range(sw_cur)
+    # Επισκόπηση: ΠΑΝΤΑ τρέχουσα εβδομάδα (μηδενίζει κάθε Δευτέρα — νέα εβδομάδα από την αρχή)
+    sw, ew, psw, pew = sw_cur, ew_cur, psw_cur, pew_cur
+    _wlabel = "Τρέχουσα εβδομάδα"
 
     # ── Πωλήσεις: ΣΗΜΕΡΑ vs ΠΕΡΣΙ ίδια ημερομηνία ──
     # Φτιάχνουμε βοηθητική στήλη με καθαρές ημερομηνίες (date) για ασφαλείς συγκρίσεις
@@ -1349,7 +1402,6 @@ elif page == "Πωλήσεις":
             else:
                 _yrs = sorted({d.year for d in df_s["date"]}, reverse=True)
                 sy = st.selectbox("Έτος", _yrs, key="sales_yr_sel")
-        _render_manual_sales_btn()
         with st.expander("🛠 Εργαλεία διαχείρισης"):
             _tool_tab1, _tool_tab2, _tool_tab3 = st.tabs(["✏️ Διόρθωση", "➕ Προσθήκη", "🔍 Έλεγχος"])
             with _tool_tab1:
@@ -1358,6 +1410,7 @@ elif page == "Πωλήσεις":
                 _render_sales_add(df_s)
             with _tool_tab3:
                 _render_sales_check()
+        _render_manual_update()
         st.markdown('</div>', unsafe_allow_html=True)
 
     with _main:
@@ -1464,7 +1517,7 @@ elif page == "Παραστατικά":
             else:
                 _yrs = sorted(df_inv["date"].dt.year.unique(), reverse=True)
                 sy = st.selectbox("Έτος", _yrs, key="inv_yr_sel")
-        _render_manual_inv_btn()
+        _render_manual_update()
         st.markdown('</div>', unsafe_allow_html=True)
 
     with _main:
@@ -1569,7 +1622,7 @@ elif page == "Τιμολογήσεις":
 </div>
 <div style="font-family:'Plus Jakarta Sans';font-size:1.7rem;font-weight:800;color:#60a5fa">{fmt(next_check["amount"])}</div>
 </div>""", unsafe_allow_html=True)
-        _render_manual_timol_btn()
+        _render_manual_update()
         st.markdown('</div>', unsafe_allow_html=True)
 
     with _main:
@@ -1703,64 +1756,6 @@ elif page == "Τιμολογήσεις":
                             for _g in _tgaps[:15]:
                                 _gtxt += f'• Μεταξύ <b>{_g["after"]}</b> και <b>{_g["before"]}</b> ({_g["gap_days"]} μέρες, ~{_g["approx_missing"]} εβδομάδες) <br>'
                             st.markdown(f'<div class="alert alert-error">📭 Πιθανές χαμένες εβδομάδες:<br><br>{_gtxt}</div>', unsafe_allow_html=True)
-
-# ══════════════════════════════════════════════════════════════════════════════
-# ΧΕΙΡΟΚΙΝΗΤΗ ΕΝΗΜΕΡΩΣΗ — helper functions (καλούνται από κάθε side panel)
-# ══════════════════════════════════════════════════════════════════════════════
-def _render_manual_sales_btn():
-    """Κουμπί ενημέρωσης πωλήσεων — για side panel."""
-    if st.button("⟳ Ενημέρωση Πωλήσεων", key="manual_sales", use_container_width=True):
-        if SALES_PW:
-            with st.spinner("Σύνδεση & ανάγνωση (OCR)..."):
-                _ex = _raw_load_sales()
-                if _ex is not None and not _ex.empty:
-                    _maxd = max(_ex["date"])
-                    _maxd = _maxd.date() if hasattr(_maxd, "date") else _maxd
-                    _since = _maxd - timedelta(days=4)
-                else:
-                    _since = None
-                _recs, _errs_s, _n = fetch_sales_emails(SALES_PW, since=_since, want_records=60, email_scan_limit=120)
-            if _errs_s:
-                st.markdown(f'<div class="alert alert-error">❌ {_errs_s[0]}</div>', unsafe_allow_html=True)
-            else:
-                _saved_s = merge_sales(_recs) if _recs else 0
-                _raw_load_sales.clear()
-                if _saved_s:
-                    st.markdown(f'<div class="alert alert-success">✅ {_saved_s} νέες ημέρες από {_n} email.</div>', unsafe_allow_html=True)
-                    st.rerun()
-                else:
-                    st.markdown('<div class="alert alert-info">ℹ️ Καμία νέα εγγραφή.</div>', unsafe_allow_html=True)
-        else:
-            st.markdown('<div class="alert alert-error">❌ Λείπει το SALES_EMAIL_PASS.</div>', unsafe_allow_html=True)
-
-def _render_manual_inv_btn():
-    """Κουμπί ενημέρωσης παραστατικών — για side panel."""
-    if st.button("⟳ Ενημέρωση Παραστατικών", key="manual_inv", use_container_width=True):
-        if INV_PW:
-            with st.spinner("Σύνδεση & αποθήκευση..."):
-                _saved, _errs, _total = fetch_and_store_invoices(INV_PW, limit=60)
-            if _errs:
-                st.markdown(f'<div class="alert alert-error">❌ {_errs[0]}</div>', unsafe_allow_html=True)
-            else:
-                st.markdown(f'<div class="alert alert-success">✅ {_total} εγγραφές — {_saved} νέες.</div>', unsafe_allow_html=True)
-                _raw_load_invoices.clear(); st.rerun()
-        else:
-            st.markdown('<div class="alert alert-error">❌ Λείπει το EMAIL_PASS.</div>', unsafe_allow_html=True)
-
-def _render_manual_timol_btn():
-    """Κουμπί ενημέρωσης τιμολογήσεων — για side panel."""
-    if st.button("⟳ Ενημέρωση Τιμολογήσεων", key="manual_timol", use_container_width=True):
-        if SALES_PW:
-            with st.spinner("Σύνδεση & ανάγνωση..."):
-                _saved_t, _errs_t, _total_t = fetch_and_store_timologiseis(SALES_PW, limit=200)
-            if _errs_t:
-                st.markdown(f'<div class="alert alert-error">❌ {_errs_t[0]}</div>', unsafe_allow_html=True)
-            else:
-                st.markdown(f'<div class="alert alert-success">✅ {_total_t} βρέθηκαν — {_saved_t} νέες.</div>', unsafe_allow_html=True)
-                load_timologiseis.clear(); st.rerun()
-        else:
-            st.markdown('<div class="alert alert-error">❌ Λείπει το SALES_EMAIL_PASS.</div>', unsafe_allow_html=True)
-
 # ══════════════════════════════════════════════════════════════════════════════
 # MOBILE BOTTOM NAVIGATION — πραγματικά links (?page=) που δουλεύουν σε iframe
 # ══════════════════════════════════════════════════════════════════════════════
