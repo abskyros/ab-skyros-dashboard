@@ -137,9 +137,9 @@ html, body, [class*="css"] {
 /* Φέρε το περιεχόμενο ψηλά (αφαίρεσε το προεπιλεγμένο κενό του Streamlit) */
 [data-testid="stAppViewContainer"] > .main { padding-top: 0 !important; }
 [data-testid="stMain"] { padding-top: 0 !important; }
-[data-testid="stMainBlockContainer"] { padding-top: 1rem !important; }
-.stApp [data-testid="stVerticalBlock"] { gap: .75rem !important; }
-.block-container { padding: 0.5rem 2.5rem 6rem !important; max-width: 1280px !important; }
+[data-testid="stMainBlockContainer"] { padding-top: .25rem !important; }
+.stApp [data-testid="stVerticalBlock"] { gap: .65rem !important; }
+.block-container { padding: .25rem 2.5rem 5rem !important; max-width: 100% !important; }
 .stApp [data-testid="stDecoration"] { display: none !important; }
 .kpi-value, .stat-num, [data-testid="stDataFrame"] td { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
 
@@ -179,30 +179,30 @@ section[data-testid="stSidebar"] .stRadio label:hover { background: var(--bg-hov
 
 /* ═══════════════ PAGE HEADER (στυλ Folks) ═══════════════ */
 .page-header {
-    display: flex; align-items: center; gap: 1.1rem;
-    margin: 0 0 1.25rem 0; padding-bottom: 0;
+    display: flex; align-items: center; gap: .85rem;
+    margin: 0 0 .9rem 0; padding-bottom: 0;
 }
 .page-header .icon {
-    width: 54px; height: 54px; border-radius: 16px; display: flex; align-items: center; justify-content: center;
-    font-size: 1.6rem; color: #fff;
+    width: 44px; height: 44px; border-radius: 13px; display: flex; align-items: center; justify-content: center;
+    font-size: 1.3rem; color: #fff;
     background: linear-gradient(135deg, var(--brand), var(--brand-2));
     box-shadow: 0 8px 22px var(--brand-glow); flex-shrink: 0;
 }
 .page-header h1 {
-    font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.8rem; font-weight: 800;
+    font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.45rem; font-weight: 800;
     letter-spacing: -.025em; color: var(--text); margin: 0; line-height: 1.05;
 }
-.page-header .sub { font-size: .85rem; color: var(--text-mut); margin-top: .3rem; font-weight: 500; }
+.page-header .sub { font-size: .78rem; color: var(--text-mut); margin-top: .2rem; font-weight: 500; }
 
 /* ═══════════════ SECTION LABEL ═══════════════ */
 .section-label {
     font-size: .68rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
-    color: var(--text-dim); margin: 1.75rem 0 .85rem; display: flex; align-items: center; gap: .65rem;
+    color: var(--text-dim); margin: 1.1rem 0 .6rem; display: flex; align-items: center; gap: .65rem;
 }
 .section-label::after { content: ''; flex: 1; height: 1px; background: var(--border-soft); }
 
 /* ═══════════════ KPI CARDS ═══════════════ */
-.kpi-grid { display: grid; gap: 1.35rem; margin-bottom: 1.5rem; }
+.kpi-grid { display: grid; gap: 1rem; margin-bottom: 1rem; }
 .kpi-2 { grid-template-columns: repeat(2, 1fr); }
 .kpi-3 { grid-template-columns: repeat(3, 1fr); }
 .kpi-4 { grid-template-columns: repeat(4, 1fr); }
@@ -211,7 +211,7 @@ section[data-testid="stSidebar"] .stRadio label:hover { background: var(--bg-hov
 .kpi-card {
     position: relative; overflow: hidden;
     background: #ffffff;
-    border: 1px solid var(--border); border-radius: 20px; padding: 1.65rem 1.75rem;
+    border: 1px solid var(--border); border-radius: 20px; padding: 1.3rem 1.5rem;
     transition: transform .18s cubic-bezier(.2,.8,.2,1), border-color .18s, box-shadow .18s;
     box-shadow: 0 2px 12px rgba(10,37,64,.04);
 }
@@ -249,8 +249,8 @@ section[data-testid="stSidebar"] .stRadio label:hover { background: var(--bg-hov
 
 /* ═══════════════ GRADIENT HERO CARDS (στυλ Flowlu) ═══════════════ */
 .hero-card {
-    position: relative; overflow: hidden; border-radius: 20px; padding: 1.6rem 1.75rem;
-    color: #fff; min-height: 140px; display: flex; flex-direction: column; justify-content: space-between;
+    position: relative; overflow: hidden; border-radius: 20px; padding: 1.3rem 1.6rem;
+    color: #fff; min-height: 118px; display: flex; flex-direction: column; justify-content: space-between;
     box-shadow: 0 12px 30px rgba(10,37,64,.18); transition: transform .2s, box-shadow .2s;
 }
 .hero-card:hover { transform: translateY(-4px); box-shadow: 0 20px 44px rgba(10,37,64,.26); }
@@ -295,7 +295,7 @@ section[data-testid="stSidebar"] .stRadio label:hover { background: var(--bg-hov
 .date-badge {
     display: inline-flex; align-items: center; gap: .5rem;
     background: #eef6fd; border: 1px solid var(--border);
-    border-radius: 12px; padding: .55rem 1rem; font-size: .8rem; font-weight: 600; color: var(--brand); margin-bottom: 1.35rem;
+    border-radius: 12px; padding: .5rem .9rem; font-size: .78rem; font-weight: 600; color: var(--brand); margin-bottom: .85rem;
 }
 
 /* ═══════════════ ALERTS ═══════════════ */
@@ -355,6 +355,20 @@ hr { border-color: var(--border-soft) !important; margin: 1.5rem 0 !important; }
 .year-row .amt { font-family: 'Plus Jakarta Sans'; font-size: 1.3rem; font-weight: 800; color: var(--brand); font-variant-numeric: tabular-nums; }
 .year-row .cnt { font-size: .74rem; color: var(--text-mut); }
 
+/* Στήλες Αγορές/Πωλήσεις (header + γραμμές) — ευθυγραμμισμένες & responsive */
+.ty-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: .5rem 1.5rem .4rem; font-size: .64rem; font-weight: 700; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--text-dim);
+}
+.ty-cols { display: flex; gap: 2.5rem; align-items: center; }
+.ty-col { width: 120px; text-align: right; }
+@media (max-width: 820px) {
+    .ty-head { padding: .45rem 1rem .35rem; font-size: .56rem; }
+    .ty-cols { gap: .9rem; }
+    .ty-col { width: 92px; }
+}
+
 /* ═══════════════ MOBILE BOTTOM NAV ═══════════════ */
 .mobile-only { display: none; }
 @media (max-width: 820px) {
@@ -363,12 +377,38 @@ hr { border-color: var(--border-soft) !important; margin: 1.5rem 0 !important; }
         min-width: 1px !important; opacity: 0 !important; pointer-events: none !important;
     }
     [data-testid="collapsedControl"], [data-testid="stSidebarCollapsedControl"] { display: none !important; }
-    .block-container { padding: 1rem 1rem 6.5rem !important; }
-    .page-header h1 { font-size: 1.3rem; }
-    .page-header .icon { width: 42px; height: 42px; font-size: 1.25rem; }
-    .kpi-3, .kpi-4 { grid-template-columns: 1fr !important; }
-    .kpi-2 { grid-template-columns: 1fr !important; }
-    .kpi-value { font-size: 1.55rem; }
+    .block-container { padding: .4rem .85rem 6rem !important; }
+    .stApp [data-testid="stVerticalBlock"] { gap: .5rem !important; }
+
+    /* Επικεφαλίδα — compact, ξεκινάει ψηλά */
+    .page-header { gap: .65rem; margin: 0 0 .6rem 0; }
+    .page-header h1 { font-size: 1.2rem; }
+    .page-header .sub { font-size: .72rem; margin-top: .15rem; }
+    .page-header .icon { width: 38px; height: 38px; border-radius: 11px; font-size: 1.15rem; }
+
+    .date-badge { margin-bottom: .6rem; padding: .4rem .8rem; font-size: .72rem; }
+    .section-label { margin: .85rem 0 .5rem; font-size: .62rem; }
+
+    /* Κάρτες — μικρότερες ώστε να χωράνε χωρίς scroll */
+    .kpi-grid { gap: .7rem; margin-bottom: .7rem; }
+    .kpi-3, .kpi-4, .kpi-2 { grid-template-columns: 1fr !important; }
+    .kpi-card { padding: 1rem 1.15rem; border-radius: 16px; }
+    .kpi-label { font-size: .62rem; margin-bottom: .55rem; }
+    .kpi-value { font-size: 1.35rem; }
+    .kpi-sub { font-size: .7rem; margin-top: .4rem; }
+
+    .hero-card { min-height: 92px; padding: 1rem 1.2rem; border-radius: 16px; }
+    .hero-label { font-size: .66rem; }
+    .hero-value { font-size: 1.5rem; }
+    .hero-sub { font-size: .68rem; }
+    .hero-icon { width: 32px; height: 32px; top: 1rem; right: 1.1rem; font-size: 1rem; }
+
+    /* Year-row (Τιμολογήσεις) — στήλες πιο στενές ώστε να μη κόβονται */
+    .year-row { padding: .85rem 1rem; border-radius: 13px; }
+    .year-row .yr { font-size: 1rem; }
+    .year-row .amt { font-size: .95rem !important; width: 92px !important; }
+    .year-row .cnt { font-size: .66rem; }
+
     .mobile-only { display: block; }
 }
 </style>
@@ -1517,12 +1557,10 @@ elif page == "Τιμολογήσεις":
 
         # Επικεφαλίδα στηλών
         st.markdown(
-            '<div style="display:flex;align-items:center;justify-content:space-between;'
-            'padding:.5rem 1.5rem .4rem;font-size:.64rem;font-weight:700;letter-spacing:.08em;'
-            'text-transform:uppercase;color:var(--text-dim)">'
+            '<div class="ty-head">'
             '<span style="flex:0 0 auto">Έτος</span>'
-            '<span style="display:flex;gap:2.5rem"><span style="width:120px;text-align:right">Αγορές</span>'
-            '<span style="width:120px;text-align:right">Πωλήσεις</span></span>'
+            '<span class="ty-cols"><span class="ty-col">Αγορές</span>'
+            '<span class="ty-col">Πωλήσεις</span></span>'
             '</div>',
             unsafe_allow_html=True
         )
@@ -1543,9 +1581,9 @@ elif page == "Τιμολογήσεις":
                 f'<span style="color:var(--brand);font-weight:700">{_arrow}</span>'
                 f'<span class="yr">{_yr}</span> '
                 f'<span class="cnt">· {int(r["count"])} επιταγές</span></div>'
-                f'<div style="display:flex;gap:2.5rem;align-items:center">'
-                f'<span class="amt" style="width:120px;text-align:right">{fmt(_purch)}</span>'
-                f'<span class="amt" style="width:120px;text-align:right;color:var(--sky)">{_sales_txt}</span>'
+                f'<div class="ty-cols">'
+                f'<span class="amt ty-col">{fmt(_purch)}</span>'
+                f'<span class="amt ty-col" style="color:var(--sky)">{_sales_txt}</span>'
                 f'</div></div></a>',
                 unsafe_allow_html=True
             )
@@ -1574,9 +1612,9 @@ elif page == "Τιμολογήσεις":
                         'padding:.7rem 1.5rem;margin-left:1.5rem;border-left:2px solid var(--border);'
                         'background:#f7fbff;border-radius:0 10px 10px 0;margin-bottom:.35rem">'
                         f'<span style="font-weight:600;color:var(--text)">{MONTHS_GR[_mn-1]}</span>'
-                        f'<div style="display:flex;gap:2.5rem">'
-                        f'<span style="width:120px;text-align:right;font-weight:700;color:var(--brand);font-variant-numeric:tabular-nums">{_mptxt}</span>'
-                        f'<span style="width:120px;text-align:right;font-weight:700;color:var(--sky);font-variant-numeric:tabular-nums">{_mstxt}</span>'
+                        f'<div class="ty-cols">'
+                        f'<span class="ty-col" style="font-weight:700;color:var(--brand);font-variant-numeric:tabular-nums">{_mptxt}</span>'
+                        f'<span class="ty-col" style="font-weight:700;color:var(--sky);font-variant-numeric:tabular-nums">{_mstxt}</span>'
                         f'</div></div>'
                     )
                 if _mhtml:
