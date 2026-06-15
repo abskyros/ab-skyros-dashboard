@@ -369,7 +369,19 @@ hr { border-color: var(--border-soft) !important; margin: 1.5rem 0 !important; }
     .ty-col { width: 92px; }
 }
 
-/* ═══════════════ MOBILE BOTTOM NAV ═══════════════ */
+/* ═══════════════ SIDE PANEL (αριστερή κάθετη μπάρα ανά σελίδα) ═══════════════ */
+.side-panel {
+    background: linear-gradient(180deg, #ffffff, #f7fbff);
+    border: 1px solid var(--border); border-radius: 18px;
+    padding: 1.25rem 1.2rem; box-shadow: 0 4px 16px rgba(10,37,64,.05);
+    position: sticky; top: .5rem;
+}
+.side-panel .page-header { margin-bottom: 1rem; }
+/* Τα controls του Streamlit μέσα στο side column να ακουμπούν στο panel */
+[data-testid="column"]:first-child [data-testid="stRadio"] > div { gap: .3rem !important; }
+[data-testid="stHorizontalBlock"] { align-items: flex-start !important; }
+
+
 .mobile-only { display: none; }
 @media (max-width: 820px) {
     section[data-testid="stSidebar"] {
@@ -408,6 +420,11 @@ hr { border-color: var(--border-soft) !important; margin: 1.5rem 0 !important; }
     .year-row .yr { font-size: 1rem; }
     .year-row .amt { font-size: .95rem !important; width: 92px !important; }
     .year-row .cnt { font-size: .66rem; }
+
+    /* Side panel — χωρίς sticky/border στο κινητό, πιο μαζεμένο */
+    .side-panel { position: static; padding: .5rem .25rem; border: none; background: transparent; box-shadow: none; }
+    .side-panel .page-header { margin-bottom: .5rem; }
+    /* Οι 2 στήλες να στοιβάζονται κανονικά (Streamlit το κάνει αυτόματα <820px) */
 
     .mobile-only { display: block; }
 }
@@ -1137,12 +1154,17 @@ def _render_sales_check():
 # PAGE: ΕΠΙΣΚΟΠΗΣΗ (Overview) — 3 κάρτες, χωρίς γραφήματα
 # ══════════════════════════════════════════════════════════════════════════════
 if page == "Επισκόπηση":
-    st.markdown("""
+    _side, _main = st.columns([1, 2.6], gap="large")
+    with _side:
+        st.markdown('<div class="side-panel">', unsafe_allow_html=True)
+        st.markdown("""
 <div class="page-header">
 <div class="icon">🏠</div>
 <div><h1>Επισκόπηση</h1><div class="sub">Συνοπτική εικόνα τρέχουσας εβδομάδας</div></div>
 </div>
 """, unsafe_allow_html=True)
+        st.markdown(f'<div class="date-badge" style="margin-bottom:0">🗓 {DAYS_GR[today.weekday()]} {today.strftime("%d/%m/%Y")} · Τρέχουσα εβδομάδα</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
     df_s = load_sales()
     df_i = load_invoices()
@@ -1163,8 +1185,6 @@ if page == "Επισκόπηση":
     else:
         sw, ew, psw, pew = sw_cur, ew_cur, psw_cur, pew_cur
         _wlabel = "Τρέχουσα εβδομάδα"
-
-    st.markdown(f'<div class="date-badge">🗓 {DAYS_GR[today.weekday()]} {today.strftime("%d/%m/%Y")} · Τρέχουσα εβδομάδα</div>', unsafe_allow_html=True)
 
     # ── Πωλήσεις: ΣΗΜΕΡΑ vs ΠΕΡΣΙ ίδια ημερομηνία ──
     # Φτιάχνουμε βοηθητική στήλη με καθαρές ημερομηνίες (date) για ασφαλείς συγκρίσεις
@@ -1294,62 +1314,72 @@ if page == "Επισκόπηση":
         '</div></a>'
     )
 
-    _ov_row1 = '<div class="kpi-grid kpi-2">' + _hero_today + _hero_week + '</div>'
-    st.markdown(_ov_row1, unsafe_allow_html=True)
+    with _main:
+        _ov_row1 = '<div class="kpi-grid kpi-2">' + _hero_today + _hero_week + '</div>'
+        st.markdown(_ov_row1, unsafe_allow_html=True)
 
-    # Δεύτερη σειρά: Τιμολόγια (καθαρό) + Πληρωμή με Επιταγή (λευκές κάρτες)
-    _ov_row2 = (
-        '<div class="kpi-grid kpi-2">'
-        f'<a href="{_lnk_inv}" target="_self" style="text-decoration:none">'
-        '<div class="kpi-card" style="--accent:#0072CE"><div class="glow"></div>'
-        '<div class="kpi-label">Τιμολόγια (καθαρό) →</div>'
-        f'<div class="kpi-value green">{fmt(inv_net_ov)}</div>'
-        '<div class="kpi-sub">Σύνολο εβδομάδας</div></div></a>'
-        f'{check_html}'
-        '</div>'
-    )
-    st.markdown(_ov_row2, unsafe_allow_html=True)
+        # Δεύτερη σειρά: Τιμολόγια (καθαρό) + Πληρωμή με Επιταγή (λευκές κάρτες)
+        _ov_row2 = (
+            '<div class="kpi-grid kpi-2">'
+            f'<a href="{_lnk_inv}" target="_self" style="text-decoration:none">'
+            '<div class="kpi-card" style="--accent:#0072CE"><div class="glow"></div>'
+            '<div class="kpi-label">Τιμολόγια (καθαρό) →</div>'
+            f'<div class="kpi-value green">{fmt(inv_net_ov)}</div>'
+            '<div class="kpi-sub">Σύνολο εβδομάδας</div></div></a>'
+            f'{check_html}'
+            '</div>'
+        )
+        st.markdown(_ov_row2, unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE: ΠΩΛΗΣΕΙΣ — χωρίς γραφήματα, χωρίς βαθιά σάρωση
 # ══════════════════════════════════════════════════════════════════════════════
 elif page == "Πωλήσεις":
-    st.markdown("""
+    df_s = load_sales()
+
+    _side, _main = st.columns([1, 2.6], gap="large")
+
+    with _side:
+        st.markdown('<div class="side-panel">', unsafe_allow_html=True)
+        st.markdown("""
 <div class="page-header">
 <div class="icon">📈</div>
 <div><h1>Πωλήσεις</h1><div class="sub">Εβδομαδιαία & ετήσια ανάλυση</div></div>
 </div>
 """, unsafe_allow_html=True)
+        _view_s = st.radio("Προβολή", ["Εβδομαδιαία", "Ετήσια"], key="sales_view", label_visibility="collapsed")
+        if not df_s.empty:
+            if _view_s == "Εβδομαδιαία":
+                sel_s = st.date_input("Επίλεξε ημέρα", today, key="sales_wk_date")
+            else:
+                _yrs = sorted({d.year for d in df_s["date"]}, reverse=True)
+                sy = st.selectbox("Έτος", _yrs, key="sales_yr_sel")
+        with st.expander("🛠 Εργαλεία διαχείρισης"):
+            _tool_tab1, _tool_tab2, _tool_tab3 = st.tabs(["✏️ Διόρθωση", "➕ Προσθήκη", "🔍 Έλεγχος"])
+            with _tool_tab1:
+                _render_sales_fix(df_s)
+            with _tool_tab2:
+                _render_sales_add(df_s)
+            with _tool_tab3:
+                _render_sales_check()
+        st.markdown('</div>', unsafe_allow_html=True)
 
-    df_s = load_sales()
-    if df_s.empty:
-        st.markdown('<div class="alert alert-warn">⚠️ Δεν υπάρχουν δεδομένα πωλήσεων ακόμη.</div>', unsafe_allow_html=True)
-        st.stop()
+    with _main:
+        if df_s.empty:
+            st.markdown('<div class="alert alert-warn">⚠️ Δεν υπάρχουν δεδομένα πωλήσεων ακόμη.</div>', unsafe_allow_html=True)
+            st.stop()
 
-    # ── Εργαλεία διαχείρισης (κάτω από τον τίτλο) ──
-    with st.expander("🛠 Εργαλεία διαχείρισης (διόρθωση · προσθήκη · έλεγχος)"):
-        _tool_tab1, _tool_tab2, _tool_tab3 = st.tabs(["✏️ Διόρθωση", "➕ Προσθήκη", "🔍 Έλεγχος"])
-        with _tool_tab1:
-            _render_sales_fix(df_s)
-        with _tool_tab2:
-            _render_sales_add(df_s)
-        with _tool_tab3:
-            _render_sales_check()
-
-    t_wk, t_yr = st.tabs(["Εβδομαδιαία", "Ετήσια"])
-
-    with t_wk:
-        sel_s = st.date_input("Επίλεξε ημέρα", today, key="sales_wk_date")
-        sw, ew = get_week_range(sel_s); psw, pew = prev_week_range(sw)
-        st.markdown(f'<div class="date-badge">🗓 Δευτ. {sw.strftime("%d/%m/%Y")} — Κυρ. {ew.strftime("%d/%m/%Y")}</div>', unsafe_allow_html=True)
-        w_df  = df_s[(df_s["date"] >= pd.Timestamp(sw))  & (df_s["date"] <= pd.Timestamp(ew))]
-        pw_df = df_s[(df_s["date"] >= pd.Timestamp(psw)) & (df_s["date"] <= pd.Timestamp(pew))]
-        if not w_df.empty:
-            tot = w_df["net_sales"].sum(); cst = w_df["customers"].sum(); avg = w_df["avg_basket"].mean()
-            p_tot = pw_df["net_sales"].sum() if not pw_df.empty else None
-            p_cst = pw_df["customers"].sum() if not pw_df.empty else None
-            p_avg = pw_df["avg_basket"].mean() if not pw_df.empty else None
-            st.markdown(f"""
+        if _view_s == "Εβδομαδιαία":
+            sw, ew = get_week_range(sel_s); psw, pew = prev_week_range(sw)
+            st.markdown(f'<div class="date-badge">🗓 Δευτ. {sw.strftime("%d/%m/%Y")} — Κυρ. {ew.strftime("%d/%m/%Y")}</div>', unsafe_allow_html=True)
+            w_df  = df_s[(df_s["date"] >= pd.Timestamp(sw))  & (df_s["date"] <= pd.Timestamp(ew))]
+            pw_df = df_s[(df_s["date"] >= pd.Timestamp(psw)) & (df_s["date"] <= pd.Timestamp(pew))]
+            if not w_df.empty:
+                tot = w_df["net_sales"].sum(); cst = w_df["customers"].sum(); avg = w_df["avg_basket"].mean()
+                p_tot = pw_df["net_sales"].sum() if not pw_df.empty else None
+                p_cst = pw_df["customers"].sum() if not pw_df.empty else None
+                p_avg = pw_df["avg_basket"].mean() if not pw_df.empty else None
+                st.markdown(f"""
 <div class="kpi-grid kpi-3">
 <div class="kpi-card" style="--accent:#10b981"><div class="glow"></div>
 <div class="kpi-label">Καθαρές Πωλήσεις</div>
@@ -1362,28 +1392,26 @@ elif page == "Πωλήσεις":
 <div class="kpi-value violet">{fmt(avg)}</div>{trend_html(avg, p_avg)}</div>
 </div>
 """, unsafe_allow_html=True)
-            st.markdown('<div class="section-label">Αναλυτικά ανά ημέρα</div>', unsafe_allow_html=True)
-            disp = w_df.copy(); disp["date"] = disp["date"].apply(lambda d: d.strftime("%d/%m/%Y"))
-            disp = disp.sort_values("date", ascending=False)
-            st.dataframe(disp.rename(columns={"date":"ΗΜΕΡΟΜΗΝΙΑ","net_sales":"ΠΩΛΗΣΕΙΣ","customers":"ΠΕΛΑΤΕΣ","avg_basket":"ΜΟ ΚΑΛΑΘΙΟΥ"}).style.format({
-                "ΠΩΛΗΣΕΙΣ": lambda v: fmt(v), "ΜΟ ΚΑΛΑΘΙΟΥ": lambda v: fmt(v) if pd.notna(v) else "—",
-                "ΠΕΛΑΤΕΣ": lambda v: f"{int(v)}" if pd.notna(v) else "—"}),
-                use_container_width=True, hide_index=True)
-        else:
-            st.markdown('<div class="alert alert-info">ℹ️ Δεν υπάρχουν εγγραφές για αυτή την εβδομάδα.</div>', unsafe_allow_html=True)
+                st.markdown('<div class="section-label">Αναλυτικά ανά ημέρα</div>', unsafe_allow_html=True)
+                disp = w_df.copy(); disp["date"] = disp["date"].apply(lambda d: d.strftime("%d/%m/%Y"))
+                disp = disp.sort_values("date", ascending=False)
+                st.dataframe(disp.rename(columns={"date":"ΗΜΕΡΟΜΗΝΙΑ","net_sales":"ΠΩΛΗΣΕΙΣ","customers":"ΠΕΛΑΤΕΣ","avg_basket":"ΜΟ ΚΑΛΑΘΙΟΥ"}).style.format({
+                    "ΠΩΛΗΣΕΙΣ": lambda v: fmt(v), "ΜΟ ΚΑΛΑΘΙΟΥ": lambda v: fmt(v) if pd.notna(v) else "—",
+                    "ΠΕΛΑΤΕΣ": lambda v: f"{int(v)}" if pd.notna(v) else "—"}),
+                    use_container_width=True, hide_index=True)
+            else:
+                st.markdown('<div class="alert alert-info">ℹ️ Δεν υπάρχουν εγγραφές για αυτή την εβδομάδα.</div>', unsafe_allow_html=True)
 
-    with t_yr:
-        _yrs = sorted({(d.year if hasattr(d, "year") else d.year) for d in df_s["date"]}, reverse=True)
-        sy = st.selectbox("Έτος", _yrs, key="sales_yr_sel")
-        st.markdown(f'<div class="date-badge">🗓 Έτος {sy}</div>', unsafe_allow_html=True)
-        y_df = df_s[df_s["date"].apply(lambda d: d.year) == sy]
-        py_df = df_s[df_s["date"].apply(lambda d: d.year) == (sy - 1)]
-        if not y_df.empty:
-            y_tot = y_df["net_sales"].sum()
-            y_cst = y_df["customers"].sum() if "customers" in y_df.columns else None
-            y_avg = y_df["net_sales"].mean()
-            py_tot = py_df["net_sales"].sum() if not py_df.empty else None
-            st.markdown(f"""
+        else:
+            st.markdown(f'<div class="date-badge">🗓 Έτος {sy}</div>', unsafe_allow_html=True)
+            y_df = df_s[df_s["date"].apply(lambda d: d.year) == sy]
+            py_df = df_s[df_s["date"].apply(lambda d: d.year) == (sy - 1)]
+            if not y_df.empty:
+                y_tot = y_df["net_sales"].sum()
+                y_cst = y_df["customers"].sum() if "customers" in y_df.columns else None
+                y_avg = y_df["net_sales"].mean()
+                py_tot = py_df["net_sales"].sum() if not py_df.empty else None
+                st.markdown(f"""
 <div class="kpi-grid kpi-3">
 <div class="kpi-card" style="--accent:#0072CE"><div class="glow"></div>
 <div class="kpi-label">Σύνολο Έτους</div><div class="kpi-value green">{fmt(y_tot)}</div>{trend_html(y_tot, py_tot)}</div>
@@ -1393,57 +1421,68 @@ elif page == "Πωλήσεις":
 <div class="kpi-label">Πελάτες (σύνολο)</div><div class="kpi-value violet">{fmt_int(y_cst) if y_cst else '—'}</div></div>
 </div>
 """, unsafe_allow_html=True)
-            # Ανάλυση ανά μήνα (μήνες + αθροίσματα)
-            st.markdown('<div class="section-label">Ανάλυση ανά μήνα</div>', unsafe_allow_html=True)
-            _months_html = ""
-            for _mn in range(1, 13):
-                _mdf = y_df[y_df["date"].apply(lambda d: d.month) == _mn]
-                if _mdf.empty:
-                    continue
-                _mtot = _mdf["net_sales"].sum()
-                _mcst = int(_mdf["customers"].sum()) if "customers" in _mdf.columns and _mdf["customers"].notna().any() else 0
-                _mdays = len(_mdf)
-                _months_html += (
-                    '<div class="year-row">'
-                    f'<div><span class="yr">{MONTHS_GR[_mn-1]}</span> &nbsp;<span class="cnt">· {_mdays} ημέρες · {_mcst} πελάτες</span></div>'
-                    f'<span class="amt">{fmt(_mtot)}</span>'
-                    '</div>'
-                )
-            st.markdown(_months_html, unsafe_allow_html=True)
-            _csv = y_df.rename(columns={"date":"ΗΜΕΡΟΜΗΝΙΑ","net_sales":"ΠΩΛΗΣΕΙΣ","customers":"ΠΕΛΑΤΕΣ","avg_basket":"ΜΟ ΚΑΛΑΘΙΟΥ"}).copy()
-            _csv["ΗΜΕΡΟΜΗΝΙΑ"] = _csv["ΗΜΕΡΟΜΗΝΙΑ"].apply(lambda d: d.strftime("%d/%m/%Y"))
-            _csv = _csv.to_csv(index=False).encode("utf-8-sig")
-            st.download_button(f"↓ Λήψη CSV — Έτος {sy}", _csv, f"sales_{sy}.csv", "text/csv", key="sales_dl")
-        else:
-            st.markdown('<div class="alert alert-info">ℹ️ Δεν υπάρχουν εγγραφές για αυτό το έτος.</div>', unsafe_allow_html=True)
+                # Ανάλυση ανά μήνα (μήνες + αθροίσματα)
+                st.markdown('<div class="section-label">Ανάλυση ανά μήνα</div>', unsafe_allow_html=True)
+                _months_html = ""
+                for _mn in range(1, 13):
+                    _mdf = y_df[y_df["date"].apply(lambda d: d.month) == _mn]
+                    if _mdf.empty:
+                        continue
+                    _mtot = _mdf["net_sales"].sum()
+                    _mcst = int(_mdf["customers"].sum()) if "customers" in _mdf.columns and _mdf["customers"].notna().any() else 0
+                    _mdays = len(_mdf)
+                    _months_html += (
+                        '<div class="year-row">'
+                        f'<div><span class="yr">{MONTHS_GR[_mn-1]}</span> &nbsp;<span class="cnt">· {_mdays} ημέρες · {_mcst} πελάτες</span></div>'
+                        f'<span class="amt">{fmt(_mtot)}</span>'
+                        '</div>'
+                    )
+                st.markdown(_months_html, unsafe_allow_html=True)
+                _csv = y_df.rename(columns={"date":"ΗΜΕΡΟΜΗΝΙΑ","net_sales":"ΠΩΛΗΣΕΙΣ","customers":"ΠΕΛΑΤΕΣ","avg_basket":"ΜΟ ΚΑΛΑΘΙΟΥ"}).copy()
+                _csv["ΗΜΕΡΟΜΗΝΙΑ"] = _csv["ΗΜΕΡΟΜΗΝΙΑ"].apply(lambda d: d.strftime("%d/%m/%Y"))
+                _csv = _csv.to_csv(index=False).encode("utf-8-sig")
+                st.download_button(f"↓ Λήψη CSV — Έτος {sy}", _csv, f"sales_{sy}.csv", "text/csv", key="sales_dl")
+            else:
+                st.markdown('<div class="alert alert-info">ℹ️ Δεν υπάρχουν εγγραφές για αυτό το έτος.</div>', unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE: ΠΑΡΑΣΤΑΤΙΚΑ — χωρίς πίτα
 # ══════════════════════════════════════════════════════════════════════════════
 elif page == "Παραστατικά":
-    st.markdown("""
+    df_inv = load_invoices()
+
+    _side, _main = st.columns([1, 2.6], gap="large")
+
+    with _side:
+        st.markdown('<div class="side-panel">', unsafe_allow_html=True)
+        st.markdown("""
 <div class="page-header">
 <div class="icon">🧾</div>
 <div><h1>Παραστατικά</h1><div class="sub">Τιμολόγια & πιστωτικά</div></div>
 </div>
 """, unsafe_allow_html=True)
+        _view_i = st.radio("Προβολή", ["Εβδομαδιαία", "Ετήσια"], key="inv_view", label_visibility="collapsed")
+        if not df_inv.empty:
+            if _view_i == "Εβδομαδιαία":
+                sel_i = st.date_input("Επίλεξε ημέρα", today, key="inv_wk_date")
+            else:
+                _yrs = sorted(df_inv["date"].dt.year.unique(), reverse=True)
+                sy = st.selectbox("Έτος", _yrs, key="inv_yr_sel")
+        st.markdown('</div>', unsafe_allow_html=True)
 
-    df_inv = load_invoices()
-    t_wk, t_yr = st.tabs(["Εβδομαδιαία", "Ετήσια"])
-
-    with t_wk:
-        if df_inv.empty:
-            st.markdown('<div class="alert alert-warn">⚠️ Δεν υπάρχουν δεδομένα παραστατικών ακόμη.</div>', unsafe_allow_html=True)
-        else:
-            sel_i = st.date_input("Επίλεξε ημέρα", today, key="inv_wk_date")
-            sw, ew = get_week_range(sel_i)
-            st.markdown(f'<div class="date-badge">🗓 Δευτ. {sw.strftime("%d/%m/%Y")} — Κυρ. {ew.strftime("%d/%m/%Y")}</div>', unsafe_allow_html=True)
-            mask = (df_inv["date"] >= pd.Timestamp(sw)) & (df_inv["date"] <= pd.Timestamp(ew) + pd.Timedelta(hours=23, minutes=59))
-            w_df = df_inv.loc[mask]
-            if not w_df.empty:
-                inv_v = w_df[~w_df["type"].str.upper().str.contains("ΠΙΣΤΩΤΙΚΟ", na=False)]["value"].sum()
-                crd_v = w_df[w_df["type"].str.upper().str.contains("ΠΙΣΤΩΤΙΚΟ", na=False)]["value"].sum()
-                st.markdown(f"""
+    with _main:
+        if _view_i == "Εβδομαδιαία":
+            if df_inv.empty:
+                st.markdown('<div class="alert alert-warn">⚠️ Δεν υπάρχουν δεδομένα παραστατικών ακόμη.</div>', unsafe_allow_html=True)
+            else:
+                sw, ew = get_week_range(sel_i)
+                st.markdown(f'<div class="date-badge">🗓 Δευτ. {sw.strftime("%d/%m/%Y")} — Κυρ. {ew.strftime("%d/%m/%Y")}</div>', unsafe_allow_html=True)
+                mask = (df_inv["date"] >= pd.Timestamp(sw)) & (df_inv["date"] <= pd.Timestamp(ew) + pd.Timedelta(hours=23, minutes=59))
+                w_df = df_inv.loc[mask]
+                if not w_df.empty:
+                    inv_v = w_df[~w_df["type"].str.upper().str.contains("ΠΙΣΤΩΤΙΚΟ", na=False)]["value"].sum()
+                    crd_v = w_df[w_df["type"].str.upper().str.contains("ΠΙΣΤΩΤΙΚΟ", na=False)]["value"].sum()
+                    st.markdown(f"""
 <div class="kpi-grid kpi-3">
 <div class="kpi-card" style="--accent:#10b981"><div class="glow"></div>
 <div class="kpi-label">Τιμολόγια</div><div class="kpi-value green">{fmt(inv_v)}</div></div>
@@ -1453,26 +1492,24 @@ elif page == "Παραστατικά":
 <div class="kpi-label">Καθαρό</div><div class="kpi-value blue">{fmt(inv_v - crd_v)}</div></div>
 </div>
 """, unsafe_allow_html=True)
-                st.markdown('<div class="section-label">Αναλυτικά</div>', unsafe_allow_html=True)
-                disp = w_df.copy(); disp["date"] = disp["date"].dt.strftime("%d/%m/%Y")
-                disp = disp.sort_values("date", ascending=False)
-                st.dataframe(disp.rename(columns={"date":"ΗΜΕΡΟΜΗΝΙΑ","type":"ΤΥΠΟΣ","value":"ΑΞΙΑ"}).style.format({"ΑΞΙΑ": lambda v: fmt(v)}),
-                    use_container_width=True, hide_index=True)
-            else:
-                st.markdown('<div class="alert alert-info">ℹ️ Δεν υπάρχουν εγγραφές για αυτή την εβδομάδα.</div>', unsafe_allow_html=True)
+                    st.markdown('<div class="section-label">Αναλυτικά</div>', unsafe_allow_html=True)
+                    disp = w_df.copy(); disp["date"] = disp["date"].dt.strftime("%d/%m/%Y")
+                    disp = disp.sort_values("date", ascending=False)
+                    st.dataframe(disp.rename(columns={"date":"ΗΜΕΡΟΜΗΝΙΑ","type":"ΤΥΠΟΣ","value":"ΑΞΙΑ"}).style.format({"ΑΞΙΑ": lambda v: fmt(v)}),
+                        use_container_width=True, hide_index=True)
+                else:
+                    st.markdown('<div class="alert alert-info">ℹ️ Δεν υπάρχουν εγγραφές για αυτή την εβδομάδα.</div>', unsafe_allow_html=True)
 
-    with t_yr:
-        if df_inv.empty:
-            st.markdown('<div class="alert alert-warn">⚠️ Δεν υπάρχουν δεδομένα.</div>', unsafe_allow_html=True)
         else:
-            _yrs = sorted(df_inv["date"].dt.year.unique(), reverse=True)
-            sy = st.selectbox("Έτος", _yrs, key="inv_yr_sel")
-            st.markdown(f'<div class="date-badge">🗓 Έτος {sy}</div>', unsafe_allow_html=True)
-            y_df = df_inv[df_inv["date"].dt.year == sy]
-            if not y_df.empty:
-                inv_y = y_df[~y_df["type"].str.upper().str.contains("ΠΙΣΤΩΤΙΚΟ", na=False)]["value"].sum()
-                crd_y = y_df[y_df["type"].str.upper().str.contains("ΠΙΣΤΩΤΙΚΟ", na=False)]["value"].sum()
-                st.markdown(f"""
+            if df_inv.empty:
+                st.markdown('<div class="alert alert-warn">⚠️ Δεν υπάρχουν δεδομένα.</div>', unsafe_allow_html=True)
+            else:
+                st.markdown(f'<div class="date-badge">🗓 Έτος {sy}</div>', unsafe_allow_html=True)
+                y_df = df_inv[df_inv["date"].dt.year == sy]
+                if not y_df.empty:
+                    inv_y = y_df[~y_df["type"].str.upper().str.contains("ΠΙΣΤΩΤΙΚΟ", na=False)]["value"].sum()
+                    crd_y = y_df[y_df["type"].str.upper().str.contains("ΠΙΣΤΩΤΙΚΟ", na=False)]["value"].sum()
+                    st.markdown(f"""
 <div class="kpi-grid kpi-3">
 <div class="kpi-card" style="--accent:#0072CE"><div class="glow"></div>
 <div class="kpi-label">Τιμολόγια</div><div class="kpi-value green">{fmt(inv_y)}</div></div>
@@ -1482,187 +1519,192 @@ elif page == "Παραστατικά":
 <div class="kpi-label">Σύνολο Έτους</div><div class="kpi-value blue">{fmt(inv_y - crd_y)}</div></div>
 </div>
 """, unsafe_allow_html=True)
-                # Ανάλυση ανά μήνα (μήνες + καθαρά αθροίσματα)
-                st.markdown('<div class="section-label">Ανάλυση ανά μήνα (καθαρό)</div>', unsafe_allow_html=True)
-                _months_html = ""
-                for _mn in range(1, 13):
-                    _mdf = y_df[y_df["date"].dt.month == _mn]
-                    if _mdf.empty:
-                        continue
-                    _minv = _mdf[~_mdf["type"].str.upper().str.contains("ΠΙΣΤΩΤΙΚΟ", na=False)]["value"].sum()
-                    _mcrd = _mdf[_mdf["type"].str.upper().str.contains("ΠΙΣΤΩΤΙΚΟ", na=False)]["value"].sum()
-                    _mnet = _minv - _mcrd
-                    _months_html += (
-                        '<div class="year-row">'
-                        f'<div><span class="yr">{MONTHS_GR[_mn-1]}</span> &nbsp;<span class="cnt">· Τιμ. {fmt(_minv)} · Πιστ. {fmt(_mcrd)}</span></div>'
-                        f'<span class="amt">{fmt(_mnet)}</span>'
-                        '</div>'
-                    )
-                st.markdown(_months_html, unsafe_allow_html=True)
-                _csv = y_df.rename(columns={"date":"ΗΜΕΡΟΜΗΝΙΑ","type":"ΤΥΠΟΣ","value":"ΑΞΙΑ"}).copy()
-                _csv["ΗΜΕΡΟΜΗΝΙΑ"] = _csv["ΗΜΕΡΟΜΗΝΙΑ"].dt.strftime("%d/%m/%Y")
-                _csv = _csv.to_csv(index=False).encode("utf-8-sig")
-                st.download_button(f"↓ Λήψη CSV — Έτος {sy}", _csv, f"invoices_{sy}.csv", "text/csv", key="inv_dl")
-            else:
-                st.markdown('<div class="alert alert-info">ℹ️ Δεν υπάρχουν εγγραφές για αυτό το έτος.</div>', unsafe_allow_html=True)
+                    # Ανάλυση ανά μήνα (μήνες + καθαρά αθροίσματα)
+                    st.markdown('<div class="section-label">Ανάλυση ανά μήνα (καθαρό)</div>', unsafe_allow_html=True)
+                    _months_html = ""
+                    for _mn in range(1, 13):
+                        _mdf = y_df[y_df["date"].dt.month == _mn]
+                        if _mdf.empty:
+                            continue
+                        _minv = _mdf[~_mdf["type"].str.upper().str.contains("ΠΙΣΤΩΤΙΚΟ", na=False)]["value"].sum()
+                        _mcrd = _mdf[_mdf["type"].str.upper().str.contains("ΠΙΣΤΩΤΙΚΟ", na=False)]["value"].sum()
+                        _mnet = _minv - _mcrd
+                        _months_html += (
+                            '<div class="year-row">'
+                            f'<div><span class="yr">{MONTHS_GR[_mn-1]}</span> &nbsp;<span class="cnt">· Τιμ. {fmt(_minv)} · Πιστ. {fmt(_mcrd)}</span></div>'
+                            f'<span class="amt">{fmt(_mnet)}</span>'
+                            '</div>'
+                        )
+                    st.markdown(_months_html, unsafe_allow_html=True)
+                    _csv = y_df.rename(columns={"date":"ΗΜΕΡΟΜΗΝΙΑ","type":"ΤΥΠΟΣ","value":"ΑΞΙΑ"}).copy()
+                    _csv["ΗΜΕΡΟΜΗΝΙΑ"] = _csv["ΗΜΕΡΟΜΗΝΙΑ"].dt.strftime("%d/%m/%Y")
+                    _csv = _csv.to_csv(index=False).encode("utf-8-sig")
+                    st.download_button(f"↓ Λήψη CSV — Έτος {sy}", _csv, f"invoices_{sy}.csv", "text/csv", key="inv_dl")
+                else:
+                    st.markdown('<div class="alert alert-info">ℹ️ Δεν υπάρχουν εγγραφές για αυτό το έτος.</div>', unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE: ΤΙΜΟΛΟΓΗΣΕΙΣ — σύνολο ανά έτος, χωρίς βαθιά σάρωση
 # ══════════════════════════════════════════════════════════════════════════════
 elif page == "Τιμολογήσεις":
-    st.markdown("""
+    df_t = load_timologiseis()
+
+    _side, _main = st.columns([1, 2.6], gap="large")
+
+    with _side:
+        st.markdown('<div class="side-panel">', unsafe_allow_html=True)
+        st.markdown("""
 <div class="page-header">
 <div class="icon">💳</div>
 <div><h1>Τιμολογήσεις</h1><div class="sub">Πληρωμές με επιταγή ανά έτος</div></div>
 </div>
 """, unsafe_allow_html=True)
+        if not df_t.empty:
+            future = df_t[df_t["check_date"] >= pd.Timestamp(today)].sort_values("check_date")
+            next_check = future.iloc[0] if not future.empty else None
+            if next_check is not None:
+                st.markdown(f"""
+<div class="check-card" style="margin-top:0">
+<div class="glow"></div>
+<div>
+<div style="font-size:.64rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#60a5fa;margin-bottom:.45rem">💳 Επόμενη Επιταγή</div>
+<div style="font-size:.82rem;color:var(--text-mut)">Ημερομηνία: <b style="color:var(--text)">{next_check["check_date"].strftime("%d/%m/%Y")}</b>{f' · Περίοδος: {next_check["period"]}' if next_check.get("period") else ''}</div>
+</div>
+<div style="font-family:'Plus Jakarta Sans';font-size:1.7rem;font-weight:800;color:#60a5fa">{fmt(next_check["amount"])}</div>
+</div>""", unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
-    df_t = load_timologiseis()
-    if df_t.empty:
-        st.markdown('<div class="alert alert-warn">⚠️ Δεν υπάρχουν τιμολογήσεις ακόμη.</div>', unsafe_allow_html=True)
-    else:
-        # Επόμενη επιταγή
-        future = df_t[df_t["check_date"] >= pd.Timestamp(today)].sort_values("check_date")
-        next_check = future.iloc[0] if not future.empty else None
-        _next_html = ""
-        if next_check is not None:
-            _next_html = f"""
-            <div class="check-card">
-                <div class="glow"></div>
-                <div>
-                    <div style="font-size:.64rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#60a5fa;margin-bottom:.45rem">💳 Επόμενη Επιταγή</div>
-                    <div style="font-size:.82rem;color:var(--text-mut)">Ημερομηνία: <b style="color:var(--text)">{next_check["check_date"].strftime("%d/%m/%Y")}</b>{f' · Περίοδος: {next_check["period"]}' if next_check.get("period") else ''}</div>
-                </div>
-                <div style="font-family:'Plus Jakarta Sans';font-size:1.7rem;font-weight:800;color:#60a5fa">{fmt(next_check["amount"])}</div>
-            </div>"""
-            st.markdown(_next_html, unsafe_allow_html=True)
+    with _main:
+        if df_t.empty:
+            st.markdown('<div class="alert alert-warn">⚠️ Δεν υπάρχουν τιμολογήσεις ακόμη.</div>', unsafe_allow_html=True)
+        else:
+            if True:
+                # ── Συνολικό ποσό ανά έτος: ΑΓΟΡΕΣ (επιταγές) + ΠΩΛΗΣΕΙΣ ──
+                st.markdown('<div class="section-label" style="margin-top:0">Συνολικό ποσό ανά έτος</div>', unsafe_allow_html=True)
+                df_t2 = df_t.copy()
+                df_t2["year"] = df_t2["check_date"].dt.year
+                by_year = df_t2.groupby("year").agg(total=("amount", "sum"), count=("amount", "size")).reset_index().sort_values("year", ascending=False)
 
-        # ── Συνολικό ποσό ανά έτος: ΑΓΟΡΕΣ (επιταγές) + ΠΩΛΗΣΕΙΣ ──
-        st.markdown('<div class="section-label">Συνολικό ποσό ανά έτος</div>', unsafe_allow_html=True)
-        df_t2 = df_t.copy()
-        df_t2["year"] = df_t2["check_date"].dt.year
-        by_year = df_t2.groupby("year").agg(total=("amount", "sum"), count=("amount", "size")).reset_index().sort_values("year", ascending=False)
-
-        # Φόρτωσε πωλήσεις για σύνολο ανά έτος
-        _df_sales_y = load_sales()
-        _sales_by_year = {}
-        if not _df_sales_y.empty:
-            _tmp = _df_sales_y.copy()
-            _tmp["year"] = _tmp["date"].apply(lambda d: d.year if hasattr(d, "year") else d.year)
-            _sales_by_year = _tmp.groupby("year")["net_sales"].sum().to_dict()
-
-        # Ποιο έτος είναι ανοιχτό (drill-down) — από το URL ?ty=YEAR
-        import urllib.parse as _u_ty
-        _open_year = st.query_params.get("ty", "")
-
-        # Επικεφαλίδα στηλών
-        st.markdown(
-            '<div class="ty-head">'
-            '<span style="flex:0 0 auto">Έτος</span>'
-            '<span class="ty-cols"><span class="ty-col">Αγορές</span>'
-            '<span class="ty-col">Πωλήσεις</span></span>'
-            '</div>',
-            unsafe_allow_html=True
-        )
-
-        for _, r in by_year.iterrows():
-            _yr = int(r["year"])
-            _purch = r["total"]
-            _sales_v = _sales_by_year.get(_yr, None)
-            _is_open = str(_yr) == str(_open_year)
-            # Link: αν είναι ανοιχτό, κλικ το κλείνει· αλλιώς το ανοίγει
-            _href = "?page=" + _u_ty.quote("Τιμολογήσεις") + ("" if _is_open else f"&ty={_yr}")
-            _arrow = "▾" if _is_open else "▸"
-            _sales_txt = fmt(_sales_v) if _sales_v is not None else "—"
-            st.markdown(
-                f'<a href="{_href}" target="_self" style="text-decoration:none">'
-                f'<div class="year-row" style="{"border-color:var(--brand);" if _is_open else ""}">'
-                f'<div style="display:flex;align-items:center;gap:.6rem">'
-                f'<span style="color:var(--brand);font-weight:700">{_arrow}</span>'
-                f'<span class="yr">{_yr}</span> '
-                f'<span class="cnt">· {int(r["count"])} επιταγές</span></div>'
-                f'<div class="ty-cols">'
-                f'<span class="amt ty-col">{fmt(_purch)}</span>'
-                f'<span class="amt ty-col" style="color:var(--sky)">{_sales_txt}</span>'
-                f'</div></div></a>',
-                unsafe_allow_html=True
-            )
-            # Drill-down: αν ανοιχτό, δείξε μήνες από κάτω
-            if _is_open:
-                _ty_df = df_t2[df_t2["year"] == _yr].copy()
-                _ty_df["month"] = _ty_df["check_date"].dt.month
-                # Μηνιαίες πωλήσεις του έτους
-                _sm_month = {}
+                # Φόρτωσε πωλήσεις για σύνολο ανά έτος
+                _df_sales_y = load_sales()
+                _sales_by_year = {}
                 if not _df_sales_y.empty:
-                    _smdf = _df_sales_y[_df_sales_y["date"].apply(lambda d: d.year) == _yr].copy()
-                    if not _smdf.empty:
-                        _smdf["m"] = _smdf["date"].apply(lambda d: d.month)
-                        _sm_month = _smdf.groupby("m")["net_sales"].sum().to_dict()
-                _mhtml = ""
-                for _mn in range(1, 13):
-                    _mdf = _ty_df[_ty_df["month"] == _mn]
-                    _mpurch = _mdf["amount"].sum() if not _mdf.empty else 0
-                    _msales = _sm_month.get(_mn, None)
-                    if _mdf.empty and _msales is None:
-                        continue
-                    _mstxt = fmt(_msales) if _msales is not None else "—"
-                    _mptxt = fmt(_mpurch) if _mpurch > 0 else "—"
-                    _mhtml += (
-                        '<div style="display:flex;align-items:center;justify-content:space-between;'
-                        'padding:.7rem 1.5rem;margin-left:1.5rem;border-left:2px solid var(--border);'
-                        'background:#f7fbff;border-radius:0 10px 10px 0;margin-bottom:.35rem">'
-                        f'<span style="font-weight:600;color:var(--text)">{MONTHS_GR[_mn-1]}</span>'
+                    _tmp = _df_sales_y.copy()
+                    _tmp["year"] = _tmp["date"].apply(lambda d: d.year if hasattr(d, "year") else d.year)
+                    _sales_by_year = _tmp.groupby("year")["net_sales"].sum().to_dict()
+
+                # Ποιο έτος είναι ανοιχτό (drill-down) — από το URL ?ty=YEAR
+                import urllib.parse as _u_ty
+                _open_year = st.query_params.get("ty", "")
+
+                # Επικεφαλίδα στηλών
+                st.markdown(
+                    '<div class="ty-head">'
+                    '<span style="flex:0 0 auto">Έτος</span>'
+                    '<span class="ty-cols"><span class="ty-col">Αγορές</span>'
+                    '<span class="ty-col">Πωλήσεις</span></span>'
+                    '</div>',
+                    unsafe_allow_html=True
+                )
+
+                for _, r in by_year.iterrows():
+                    _yr = int(r["year"])
+                    _purch = r["total"]
+                    _sales_v = _sales_by_year.get(_yr, None)
+                    _is_open = str(_yr) == str(_open_year)
+                    # Link: αν είναι ανοιχτό, κλικ το κλείνει· αλλιώς το ανοίγει
+                    _href = "?page=" + _u_ty.quote("Τιμολογήσεις") + ("" if _is_open else f"&ty={_yr}")
+                    _arrow = "▾" if _is_open else "▸"
+                    _sales_txt = fmt(_sales_v) if _sales_v is not None else "—"
+                    st.markdown(
+                        f'<a href="{_href}" target="_self" style="text-decoration:none">'
+                        f'<div class="year-row" style="{"border-color:var(--brand);" if _is_open else ""}">'
+                        f'<div style="display:flex;align-items:center;gap:.6rem">'
+                        f'<span style="color:var(--brand);font-weight:700">{_arrow}</span>'
+                        f'<span class="yr">{_yr}</span> '
+                        f'<span class="cnt">· {int(r["count"])} επιταγές</span></div>'
                         f'<div class="ty-cols">'
-                        f'<span class="ty-col" style="font-weight:700;color:var(--brand);font-variant-numeric:tabular-nums">{_mptxt}</span>'
-                        f'<span class="ty-col" style="font-weight:700;color:var(--sky);font-variant-numeric:tabular-nums">{_mstxt}</span>'
-                        f'</div></div>'
+                        f'<span class="amt ty-col">{fmt(_purch)}</span>'
+                        f'<span class="amt ty-col" style="color:var(--sky)">{_sales_txt}</span>'
+                        f'</div></div></a>',
+                        unsafe_allow_html=True
                     )
-                if _mhtml:
-                    st.markdown(_mhtml, unsafe_allow_html=True)
+                    # Drill-down: αν ανοιχτό, δείξε μήνες από κάτω
+                    if _is_open:
+                        _ty_df = df_t2[df_t2["year"] == _yr].copy()
+                        _ty_df["month"] = _ty_df["check_date"].dt.month
+                        # Μηνιαίες πωλήσεις του έτους
+                        _sm_month = {}
+                        if not _df_sales_y.empty:
+                            _smdf = _df_sales_y[_df_sales_y["date"].apply(lambda d: d.year) == _yr].copy()
+                            if not _smdf.empty:
+                                _smdf["m"] = _smdf["date"].apply(lambda d: d.month)
+                                _sm_month = _smdf.groupby("m")["net_sales"].sum().to_dict()
+                        _mhtml = ""
+                        for _mn in range(1, 13):
+                            _mdf = _ty_df[_ty_df["month"] == _mn]
+                            _mpurch = _mdf["amount"].sum() if not _mdf.empty else 0
+                            _msales = _sm_month.get(_mn, None)
+                            if _mdf.empty and _msales is None:
+                                continue
+                            _mstxt = fmt(_msales) if _msales is not None else "—"
+                            _mptxt = fmt(_mpurch) if _mpurch > 0 else "—"
+                            _mhtml += (
+                                '<div style="display:flex;align-items:center;justify-content:space-between;'
+                                'padding:.7rem 1.5rem;margin-left:1.5rem;border-left:2px solid var(--border);'
+                                'background:#f7fbff;border-radius:0 10px 10px 0;margin-bottom:.35rem">'
+                                f'<span style="font-weight:600;color:var(--text)">{MONTHS_GR[_mn-1]}</span>'
+                                f'<div class="ty-cols">'
+                                f'<span class="ty-col" style="font-weight:700;color:var(--brand);font-variant-numeric:tabular-nums">{_mptxt}</span>'
+                                f'<span class="ty-col" style="font-weight:700;color:var(--sky);font-variant-numeric:tabular-nums">{_mstxt}</span>'
+                                f'</div></div>'
+                            )
+                        if _mhtml:
+                            st.markdown(_mhtml, unsafe_allow_html=True)
 
-        # Αναλυτικός πίνακας
-        st.markdown('<div class="section-label">Όλες οι τιμολογήσεις</div>', unsafe_allow_html=True)
-        disp_t = df_t.copy()
-        disp_t["check_date"] = disp_t["check_date"].dt.strftime("%d/%m/%Y")
-        disp_t = disp_t.rename(columns={"check_date":"ΗΜΕΡ. ΕΠΙΤΑΓΗΣ","period":"ΠΕΡΙΟΔΟΣ","amount":"ΠΟΣΟ"})
-        st.dataframe(disp_t.style.format({"ΠΟΣΟ": lambda v: fmt(v)}), use_container_width=True, hide_index=True)
-        _csv = df_t.to_csv(index=False).encode("utf-8-sig")
-        st.download_button("↓ Λήψη CSV", _csv, "timologiseis.csv", "text/csv", key="timol_dl")
+                # Αναλυτικός πίνακας
+                st.markdown('<div class="section-label">Όλες οι τιμολογήσεις</div>', unsafe_allow_html=True)
+                disp_t = df_t.copy()
+                disp_t["check_date"] = disp_t["check_date"].dt.strftime("%d/%m/%Y")
+                disp_t = disp_t.rename(columns={"check_date":"ΗΜΕΡ. ΕΠΙΤΑΓΗΣ","period":"ΠΕΡΙΟΔΟΣ","amount":"ΠΟΣΟ"})
+                st.dataframe(disp_t.style.format({"ΠΟΣΟ": lambda v: fmt(v)}), use_container_width=True, hide_index=True)
+                _csv = df_t.to_csv(index=False).encode("utf-8-sig")
+                st.download_button("↓ Λήψη CSV", _csv, "timologiseis.csv", "text/csv", key="timol_dl")
 
-        # ── Έλεγχος ποιότητας δεδομένων (διπλά + κενές εβδομάδες) ──
-        st.markdown("<div style='height:1rem'></div>", unsafe_allow_html=True)
-        with st.expander("🔍 Έλεγχος δεδομένων (διπλά & κενά)"):
-            st.caption("Ελέγχει για διπλές ημερομηνίες επιταγής ή χαμένες εβδομάδες.")
-            if st.button("Εκτέλεση ελέγχου", key="run_timol_check", use_container_width=True):
-                st.session_state["timol_check_done"] = True
-            if st.session_state.get("timol_check_done"):
-                with st.spinner("Έλεγχος..."):
-                    _qt = check_timologiseis_quality()
-                _tdups = _qt.get("duplicates", [])
-                _tgaps = _qt.get("gaps", [])
-                if not _tdups and not _tgaps:
-                    st.markdown('<div class="alert alert-success">✅ Όλα εντάξει! Καμία διπλοεγγραφή ή κενό.</div>', unsafe_allow_html=True)
-                if _tdups:
-                    st.markdown(f'<div class="alert alert-warn">⚠️ Βρέθηκαν {len(_tdups)} διπλές ημερομηνίες επιταγής. Επίλεξε ποια να κρατήσεις:</div>', unsafe_allow_html=True)
-                    for _d in _tdups:
-                        st.markdown(f'**📅 {_d["date"]}** — {len(_d["entries"])} εγγραφές:')
-                        for _e in _d["entries"]:
-                            _tbc1, _tbc2 = st.columns([3, 1])
-                            with _tbc1:
-                                st.markdown(f'<div style="padding:.4rem 0">Γραμμή {_e["row"]}: <b>{fmt(_e["amount"])}</b></div>', unsafe_allow_html=True)
-                            with _tbc2:
-                                if st.button("🗑 Διαγραφή", key=f"del_timol_{_e['row']}", use_container_width=True):
-                                    _ok, _msg = delete_sheet_row("timologiseis", _e["row"])
-                                    if _ok:
-                                        load_timologiseis.clear()
-                                        st.success(_msg); st.rerun()
-                                    else:
-                                        st.error(_msg)
-                if _tgaps:
-                    _gtxt = ""
-                    for _g in _tgaps[:15]:
-                        _gtxt += f'• Μεταξύ <b>{_g["after"]}</b> και <b>{_g["before"]}</b> ({_g["gap_days"]} μέρες, ~{_g["approx_missing"]} εβδομάδες) <br>'
-                    st.markdown(f'<div class="alert alert-error">📭 Πιθανές χαμένες εβδομάδες:<br><br>{_gtxt}</div>', unsafe_allow_html=True)
+                # ── Έλεγχος ποιότητας δεδομένων (διπλά + κενές εβδομάδες) ──
+                st.markdown("<div style='height:1rem'></div>", unsafe_allow_html=True)
+                with st.expander("🔍 Έλεγχος δεδομένων (διπλά & κενά)"):
+                    st.caption("Ελέγχει για διπλές ημερομηνίες επιταγής ή χαμένες εβδομάδες.")
+                    if st.button("Εκτέλεση ελέγχου", key="run_timol_check", use_container_width=True):
+                        st.session_state["timol_check_done"] = True
+                    if st.session_state.get("timol_check_done"):
+                        with st.spinner("Έλεγχος..."):
+                            _qt = check_timologiseis_quality()
+                        _tdups = _qt.get("duplicates", [])
+                        _tgaps = _qt.get("gaps", [])
+                        if not _tdups and not _tgaps:
+                            st.markdown('<div class="alert alert-success">✅ Όλα εντάξει! Καμία διπλοεγγραφή ή κενό.</div>', unsafe_allow_html=True)
+                        if _tdups:
+                            st.markdown(f'<div class="alert alert-warn">⚠️ Βρέθηκαν {len(_tdups)} διπλές ημερομηνίες επιταγής. Επίλεξε ποια να κρατήσεις:</div>', unsafe_allow_html=True)
+                            for _d in _tdups:
+                                st.markdown(f'**📅 {_d["date"]}** — {len(_d["entries"])} εγγραφές:')
+                                for _e in _d["entries"]:
+                                    _tbc1, _tbc2 = st.columns([3, 1])
+                                    with _tbc1:
+                                        st.markdown(f'<div style="padding:.4rem 0">Γραμμή {_e["row"]}: <b>{fmt(_e["amount"])}</b></div>', unsafe_allow_html=True)
+                                    with _tbc2:
+                                        if st.button("🗑 Διαγραφή", key=f"del_timol_{_e['row']}", use_container_width=True):
+                                            _ok, _msg = delete_sheet_row("timologiseis", _e["row"])
+                                            if _ok:
+                                                load_timologiseis.clear()
+                                                st.success(_msg); st.rerun()
+                                            else:
+                                                st.error(_msg)
+                        if _tgaps:
+                            _gtxt = ""
+                            for _g in _tgaps[:15]:
+                                _gtxt += f'• Μεταξύ <b>{_g["after"]}</b> και <b>{_g["before"]}</b> ({_g["gap_days"]} μέρες, ~{_g["approx_missing"]} εβδομάδες) <br>'
+                            st.markdown(f'<div class="alert alert-error">📭 Πιθανές χαμένες εβδομάδες:<br><br>{_gtxt}</div>', unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # ΔΙΑΚΡΙΤΙΚΗ ΕΝΗΜΕΡΩΣΗ (όχι στην κεφαλίδα) — κάτω από το περιεχόμενο
