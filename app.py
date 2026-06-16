@@ -355,6 +355,20 @@ hr { border-color: var(--border-soft) !important; margin: 1.5rem 0 !important; }
 .year-row .amt { font-family: 'Plus Jakarta Sans'; font-size: 1.05rem; font-weight: 800; color: var(--brand); font-variant-numeric: tabular-nums; }
 .year-row .cnt { font-size: .72rem; color: var(--text-mut); }
 
+/* ── Ανά-ημέρα κάρτα (φέτος + περσινή αντίστοιχη μέρα) ── */
+.day-row {
+    background: #ffffff; border: 1px solid var(--border); border-radius: 12px;
+    padding: .7rem 1rem; margin-bottom: .5rem; box-shadow: 0 2px 8px rgba(10,37,64,.03);
+}
+.day-row-top { display: flex; align-items: center; justify-content: space-between; }
+.day-row .day-name { font-family: 'Plus Jakarta Sans'; font-weight: 800; font-size: .95rem; color: var(--text); }
+.day-row .day-cst { font-size: .72rem; color: var(--text-mut); }
+.day-row .day-net { font-family: 'Plus Jakarta Sans'; font-weight: 800; font-size: 1.05rem; color: var(--brand); font-variant-numeric: tabular-nums; }
+.day-row .day-row-ly {
+    margin-top: .4rem; padding-top: .4rem; border-top: 1px dashed var(--border);
+    font-size: .76rem; color: var(--text-mut);
+}
+
 /* Στήλες Αγορές/Πωλήσεις (header + γραμμές) — ευθυγραμμισμένες & responsive */
 .ty-head {
     display: flex; align-items: center; justify-content: space-between;
@@ -421,6 +435,10 @@ hr { border-color: var(--border-soft) !important; margin: 1.5rem 0 !important; }
     .year-row .yr { font-size: .92rem; }
     .year-row .amt { font-size: .9rem; }
     .year-row .cnt { font-size: .64rem; }
+    .day-row { padding: .6rem .8rem; }
+    .day-row .day-name { font-size: .88rem; }
+    .day-row .day-net { font-size: .95rem; }
+    .day-row .day-cst, .day-row .day-row-ly { font-size: .68rem; }
 
     /* Side panel — χωρίς sticky/border στο κινητό, πιο μαζεμένο */
     .side-panel { position: static; padding: .5rem .25rem; border: none; background: transparent; box-shadow: none; }
@@ -818,7 +836,7 @@ def fmt_int(v):
     except:
         return "—"
 
-def trend_html(current, previous, unit="€", lower_is_better=False):
+def trend_html(current, previous, unit="€", lower_is_better=False, label="προηγούμενη"):
     if previous is None or previous == 0 or pd.isna(previous):
         return '<span class="kpi-trend flat">— χωρίς σύγκριση</span>'
     try:
@@ -826,7 +844,7 @@ def trend_html(current, previous, unit="€", lower_is_better=False):
         pct  = diff / previous * 100
         arrow = "↑" if diff > 0 else "↓"
         cls   = ("up" if diff > 0 else "down") if not lower_is_better else ("down" if diff > 0 else "up")
-        return f'<span class="kpi-trend {cls}">{arrow} {abs(pct):.1f}% vs προηγούμενη</span>'
+        return f'<span class="kpi-trend {cls}">{arrow} {abs(pct):.1f}% vs {label}</span>'
     except:
         return '<span class="kpi-trend flat">—</span>'
 
@@ -1419,35 +1437,79 @@ elif page == "Πωλήσεις":
             st.stop()
 
         if _view_s == "Εβδομαδιαία":
-            sw, ew = get_week_range(sel_s); psw, pew = prev_week_range(sw)
+            sw, ew = get_week_range(sel_s)
             st.markdown(f'<div class="date-badge">🗓 Δευτ. {sw.strftime("%d/%m/%Y")} — Κυρ. {ew.strftime("%d/%m/%Y")}</div>', unsafe_allow_html=True)
             w_df  = df_s[(df_s["date"] >= pd.Timestamp(sw))  & (df_s["date"] <= pd.Timestamp(ew))]
-            pw_df = df_s[(df_s["date"] >= pd.Timestamp(psw)) & (df_s["date"] <= pd.Timestamp(pew))]
+            # Περσινή ΑΝΤΙΣΤΟΙΧΗ εβδομάδα = 364 μέρες πίσω (ίδιες μέρες της εβδομάδας)
+            ly_sw = sw - timedelta(days=364)
+            ly_ew = ew - timedelta(days=364)
+            # Βοηθητική: καθαρές ημερομηνίες για ασφαλείς συγκρίσεις
+            _sd = df_s["date"].apply(lambda x: x.date() if hasattr(x, "date") else x)
             if not w_df.empty:
+                # Φέτος: άθροισμα ΜΟΝΟ των ημερών που έχουν δεδομένα (π.χ. αν η εβδομάδα είναι μισή)
+                _days_with_data = sorted({(d.date() if hasattr(d, "date") else d) for d in w_df["date"]})
+                # Περσινές αντίστοιχες μέρες (ίδια θέση στην εβδομάδα = -364 ημέρες)
+                _ly_days = [d - timedelta(days=364) for d in _days_with_data]
+                ly_df = df_s[_sd.isin(_ly_days)]
+
                 tot = w_df["net_sales"].sum(); cst = w_df["customers"].sum(); avg = w_df["avg_basket"].mean()
-                p_tot = pw_df["net_sales"].sum() if not pw_df.empty else None
-                p_cst = pw_df["customers"].sum() if not pw_df.empty else None
-                p_avg = pw_df["avg_basket"].mean() if not pw_df.empty else None
+                p_tot = ly_df["net_sales"].sum() if not ly_df.empty else None
+                p_cst = ly_df["customers"].sum() if not ly_df.empty else None
+                p_avg = ly_df["avg_basket"].mean() if not ly_df.empty else None
                 st.markdown(f"""
 <div class="kpi-grid kpi-3">
 <div class="kpi-card" style="--accent:#10b981"><div class="glow"></div>
 <div class="kpi-label">Καθαρές Πωλήσεις</div>
-<div class="kpi-value green">{fmt(tot)}</div>{trend_html(tot, p_tot)}</div>
+<div class="kpi-value green">{fmt(tot)}</div>{trend_html(tot, p_tot, label="πέρσι")}</div>
 <div class="kpi-card" style="--accent:#3b82f6"><div class="glow"></div>
-<div class="kpi-label">Πελάτες</div>
-<div class="kpi-value blue">{fmt_int(cst)}</div>{trend_html(cst, p_cst, unit="")}</div>
+<div class="kpi-label">Πελάτες (σύνολο)</div>
+<div class="kpi-value blue">{fmt_int(cst)}</div>{trend_html(cst, p_cst, unit="", label="πέρσι")}</div>
 <div class="kpi-card" style="--accent:#8b5cf6"><div class="glow"></div>
 <div class="kpi-label">ΜΟ Καλαθιού</div>
-<div class="kpi-value violet">{fmt(avg)}</div>{trend_html(avg, p_avg)}</div>
+<div class="kpi-value violet">{fmt(avg)}</div>{trend_html(avg, p_avg, label="πέρσι")}</div>
 </div>
 """, unsafe_allow_html=True)
-                st.markdown('<div class="section-label">Αναλυτικά ανά ημέρα</div>', unsafe_allow_html=True)
-                disp = w_df.copy(); disp["date"] = disp["date"].apply(lambda d: d.strftime("%d/%m/%Y"))
-                disp = disp.sort_values("date", ascending=False)
-                st.dataframe(disp.rename(columns={"date":"ΗΜΕΡΟΜΗΝΙΑ","net_sales":"ΠΩΛΗΣΕΙΣ","customers":"ΠΕΛΑΤΕΣ","avg_basket":"ΜΟ ΚΑΛΑΘΙΟΥ"}).style.format({
-                    "ΠΩΛΗΣΕΙΣ": lambda v: fmt(v), "ΜΟ ΚΑΛΑΘΙΟΥ": lambda v: fmt(v) if pd.notna(v) else "—",
-                    "ΠΕΛΑΤΕΣ": lambda v: f"{int(v)}" if pd.notna(v) else "—"}),
-                    use_container_width=True, hide_index=True)
+                if p_tot is not None:
+                    st.markdown(f'<div style="font-size:.72rem;color:var(--text-mut);margin:-.3rem 0 .4rem">↪ Σύγκριση με {ly_sw.strftime("%d/%m")}–{ly_ew.strftime("%d/%m/%Y")} (ίδιες {len(_days_with_data)} μέρες πέρσι)</div>', unsafe_allow_html=True)
+
+                # ── Αναλυτικά ανά ημέρα: φέτος + περσινή αντίστοιχη μέρα ──
+                st.markdown('<div class="section-label">Αναλυτικά ανά ημέρα (vs πέρσι)</div>', unsafe_allow_html=True)
+                _rows_html = ""
+                for _d in sorted(_days_with_data, reverse=True):
+                    _cur = w_df[_sd[w_df.index] == _d]
+                    _cur_net = _cur["net_sales"].sum()
+                    _cur_cst = int(_cur["customers"].sum()) if not _cur["customers"].isna().all() else None
+                    _cur_avg = _cur["avg_basket"].mean()
+                    _ld = _d - timedelta(days=364)
+                    _lm = df_s[_sd == _ld]
+                    _ly_net = _lm["net_sales"].sum() if not _lm.empty else None
+                    _ly_cst = int(_lm["customers"].sum()) if (not _lm.empty and not _lm["customers"].isna().all()) else None
+                    _dow = DAYS_GR[_d.weekday()]
+                    # ποσοστό μεταβολής πωλήσεων
+                    if _ly_net and _ly_net != 0:
+                        _pct = (_cur_net - _ly_net) / _ly_net * 100
+                        _pcls = "up" if _pct >= 0 else "down"
+                        _parrow = "↑" if _pct >= 0 else "↓"
+                        _ptxt = f'<span class="kpi-trend {_pcls}" style="margin:0">{_parrow} {abs(_pct):.1f}%</span>'
+                    else:
+                        _ptxt = '<span class="kpi-trend flat" style="margin:0">— νέο</span>'
+                    _cst_txt = f"{_cur_cst} πελ." if _cur_cst is not None else "—"
+                    _ly_line = (
+                        f'πέρσι ({_ld.strftime("%d/%m")}): <b>{fmt(_ly_net)}</b> · {_ly_cst} πελ.'
+                        if _ly_net is not None else 'πέρσι: <span style="opacity:.6">χωρίς δεδομένα</span>'
+                    )
+                    _rows_html += (
+                        '<div class="day-row">'
+                        '<div class="day-row-top">'
+                        f'<div><span class="day-name">{_dow} {_d.strftime("%d/%m")}</span> '
+                        f'<span class="day-cst">· {_cst_txt} · ΜΟ {fmt(_cur_avg) if pd.notna(_cur_avg) else "—"}</span></div>'
+                        f'<div style="display:flex;align-items:center;gap:.7rem">'
+                        f'<span class="day-net">{fmt(_cur_net)}</span>{_ptxt}</div>'
+                        '</div>'
+                        f'<div class="day-row-ly">{_ly_line}</div>'
+                        '</div>'
+                    )
+                st.markdown(_rows_html, unsafe_allow_html=True)
             else:
                 st.markdown('<div class="alert alert-info">ℹ️ Δεν υπάρχουν εγγραφές για αυτή την εβδομάδα.</div>', unsafe_allow_html=True)
 
