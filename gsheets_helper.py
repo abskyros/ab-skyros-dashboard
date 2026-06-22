@@ -1,7 +1,8 @@
 """
 gsheets_helper.py
+ΕΚΔΟΣΗ: v5.0 — με check_invoices_quality + check_timologiseis_quality + delete_sheet_row
 Κοινό module για ανάγνωση/εγγραφή στο Google Sheets.
-Φύλλα: "sales" και "invoices"
+Φύλλα: "sales", "invoices", "timologiseis"
 """
 
 import json
