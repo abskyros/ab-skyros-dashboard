@@ -425,6 +425,73 @@ def check_timologiseis_quality(lookback_days=None):
     return result
 
 
+def check_invoices_quality(lookback_days=None):
+    """Ελέγχει το φύλλο invoices για διπλές εγγραφές (ίδια ημερομηνία+τύπος+αξία)
+    και κενά (χαμένες μέρες στο εύρος). Επιστρέφει dict: {duplicates, gaps}."""
+    result = {"duplicates": [], "gaps": []}
+    try:
+        ws = _get_sheet("invoices")
+        vals = ws.get_all_values()
+        if len(vals) < 2:
+            return result
+        rows = vals[1:]
+        from collections import defaultdict
+        # Διπλά = ίδιος συνδυασμός (date|type|value)
+        combo_rows = defaultdict(list)
+        all_dates_set = set()
+        for i, r in enumerate(rows, start=2):
+            if r and r[0]:
+                d_str = str(r[0]).strip()
+                t_str = str(r[1]).strip() if len(r) > 1 else ""
+                v_str = str(r[2]).strip() if len(r) > 2 else ""
+                combo_rows[f"{d_str}|{t_str}|{v_str}"].append((i, d_str, t_str, v_str))
+                try:
+                    all_dates_set.add(datetime.strptime(d_str, "%Y-%m-%d").date())
+                except Exception:
+                    pass
+
+        cutoff = None
+        if lookback_days:
+            cutoff = (date.today() - timedelta(days=lookback_days)).isoformat()
+
+        # Διπλές εγγραφές (πανομοιότυπες: ίδια date+type+value)
+        for combo, entries in combo_rows.items():
+            if len(entries) > 1:
+                d_str = entries[0][1]
+                if cutoff and d_str < cutoff:
+                    continue
+                try:
+                    _v = _parse_number(entries[0][3]) / 100.0
+                except Exception:
+                    _v = 0
+                result["duplicates"].append({
+                    "date": d_str,
+                    "type": entries[0][2],
+                    "value": round(_v, 2),
+                    "rows": [e[0] for e in entries],
+                })
+
+        # Κενά (χαμένες μέρες) — παραβλέπουμε Κυριακές (συνήθως κλειστά)
+        try:
+            parsed = sorted(all_dates_set)
+            if cutoff:
+                _c = datetime.strptime(cutoff, "%Y-%m-%d").date()
+                parsed = [d for d in parsed if d >= _c]
+            if len(parsed) >= 2:
+                start, end = parsed[0], parsed[-1]
+                existing = set(parsed)
+                cur = start
+                while cur <= end:
+                    if cur not in existing and cur.weekday() != 6:
+                        result["gaps"].append(cur.isoformat())
+                    cur += timedelta(days=1)
+        except Exception:
+            pass
+    except Exception as e:
+        result["error"] = str(e)
+    return result
+
+
 def delete_sheet_row(sheet_name, row_index):
     """Σβήνει μια συγκεκριμένη γραμμή (1-indexed) από το φύλλο.
     Επιστρέφει (success, message)."""
