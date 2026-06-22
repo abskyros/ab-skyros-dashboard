@@ -2,12 +2,15 @@ name: Nightly Sales Sync
 
 on:
   schedule:
-    # 21:00 UTC = 23:00 ώρα Ελλάδας (θερινή ώρα EEST, UTC+2... προσοχή: το cron είναι σε UTC)
-    # Χειμώνας Ελλάδα = UTC+2 → 21:00 UTC = 23:00. Καλοκαίρι = UTC+3 → 20:00 UTC = 23:00.
-    # Βάζουμε δύο ώρες ώστε να καλύπτονται και οι δύο· το script είναι idempotent (skip διπλών).
-    - cron: '0 21 * * *'   # χειμερινή ώρα Ελλάδας → 23:00
-    - cron: '0 20 * * *'   # θερινή ώρα Ελλάδας → 23:00
-  workflow_dispatch:        # χειροκίνητη εκτέλεση από το tab Actions
+    # Στόχος: αυτόματη ενημέρωση πωλήσεων στις 22:00 ΚΑΙ 23:00 ώρα Ελλάδας.
+    # Χειμώνας (UTC+2): 22:00→20 UTC, 23:00→21 UTC
+    # Καλοκαίρι (UTC+3): 22:00→19 UTC, 23:00→20 UTC
+    # Τα 19/20/21 UTC καλύπτουν 22:00 & 23:00 και στις δύο εποχές (DST).
+    # Το script είναι idempotent — προσθέτει μόνο ό,τι λείπει, οπότε τυχόν διπλή εκτέλεση δεν πειράζει.
+    - cron: '0 19 * * *'
+    - cron: '0 20 * * *'
+    - cron: '0 21 * * *'
+  workflow_dispatch:
 
 jobs:
   sync-sales:
@@ -29,7 +32,7 @@ jobs:
       - name: Install Python deps
         run: |
           python -m pip install --upgrade pip
-          pip install gspread google-auth pandas openpyxl imap-tools pdf2image pytesseract
+          pip install gspread google-auth imap-tools pdf2image pytesseract pillow
 
       - name: Run sales sync
         env:
