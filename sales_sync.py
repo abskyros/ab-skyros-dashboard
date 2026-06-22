@@ -32,7 +32,7 @@ SALES_EMAIL_SENDER = "abf.skyros@gmail.com"
 SALES_SUBJECT_KW   = "ΑΒ ΣΚΥΡΟΣ"
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets",
           "https://www.googleapis.com/auth/drive"]
-OCR_DPI = 180
+OCR_DPI = 300
 # Πόσες μέρες πίσω να ελέγχει (incremental — μικρό παράθυρο για ταχύτητα)
 LOOKBACK_DAYS = 10
 EMAIL_SCAN_LIMIT = 80
@@ -149,6 +149,26 @@ def main():
                     added += 1
                     print(f"  + {d_str}: {rec['net_sales']}€")
                     break
+
+    # Ταξινόμηση του φύλλου κατά ημερομηνία (νεότερη πρώτη) ώστε να είναι πάντα σε σειρά
+    try:
+        all_vals = ws.get_all_values()
+        if len(all_vals) > 2:
+            header = all_vals[0]
+            data = all_vals[1:]
+            # Ταξινόμηση φθίνουσα κατά ημερομηνία (στήλη 0)
+            data_sorted = sorted(data, key=lambda r: r[0] if r and r[0] else "", reverse=True)
+            if data_sorted != data:
+                # Συμβατό με gspread 5.x & 6.x: named arguments
+                _rng = f"A2:D{len(data_sorted)+1}"
+                try:
+                    ws.update(values=data_sorted, range_name=_rng, value_input_option="RAW")
+                except TypeError:
+                    # Παλαιότερη υπογραφή (gspread < 6)
+                    ws.update(_rng, data_sorted, value_input_option="RAW")
+                print("  ↕ Το φύλλο ταξινομήθηκε κατά ημερομηνία.")
+    except Exception as e:
+        print(f"  ⚠️ Δεν έγινε ταξινόμηση: {e}")
 
     print(f"✅ Ολοκληρώθηκε — {added} νέες ημέρες πωλήσεων.")
 
