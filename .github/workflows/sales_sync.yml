@@ -32,7 +32,7 @@ jobs:
       - name: Install Python deps
         run: |
           python -m pip install --upgrade pip
-          pip install gspread google-auth imap-tools pdf2image pytesseract pillow
+          pip install "gspread>=6.0.0" "google-auth>=2.0.0" imap-tools pdf2image pytesseract pillow
 
       - name: Run sales sync
         env:
