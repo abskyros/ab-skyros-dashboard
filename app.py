@@ -1,6 +1,6 @@
 """
 app.py — ΑΒ Σκύρος Dashboard
-ΕΚΔΟΣΗ: v4.0 FLOWLU — σκούρα μπάρα + gradient hero cards
+ΕΚΔΟΣΗ: v5.0 GLASSMORPHISM — ημιδιάφανες κάρτες με blur
 (Αν βλέπεις αυτή τη γραμμή στο GitHub, ανέβηκε η ΣΩΣΤΗ έκδοση)
 """
 
@@ -132,7 +132,7 @@ html, body, [class*="css"] {
     background: var(--bg) !important;
     color: var(--text) !important;
 }
-.stApp { background: radial-gradient(ellipse 130% 90% at 50% -15%, #e3f0fb 0%, var(--bg) 55%) !important; }
+.stApp { background: linear-gradient(135deg, #eef1f8 0%, #e6edf7 40%, #eaf0fa 100%) !important; }
 #MainMenu, footer, header[data-testid="stHeader"] { display: none !important; }
 /* Φέρε το περιεχόμενο ψηλά (αφαίρεσε το προεπιλεγμένο κενό του Streamlit) */
 [data-testid="stAppViewContainer"] > .main { padding-top: 0 !important; }
@@ -210,15 +210,17 @@ section[data-testid="stSidebar"] .stRadio label:hover { background: var(--bg-hov
 .kpi-grid a { text-decoration: none !important; }
 .kpi-card {
     position: relative; overflow: hidden;
-    background: #ffffff;
-    border: 1px solid var(--border); border-radius: 20px; padding: 1.65rem 1.75rem;
+    background: rgba(255,255,255,.55);
+    backdrop-filter: blur(20px) saturate(160%);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+    border: 1px solid rgba(255,255,255,.7); border-radius: 22px; padding: 1.65rem 1.75rem;
     transition: transform .18s cubic-bezier(.2,.8,.2,1), border-color .18s, box-shadow .18s;
-    box-shadow: 0 2px 12px rgba(10,37,64,.04);
+    box-shadow: 0 8px 28px rgba(10,37,64,.08), inset 0 1px 0 rgba(255,255,255,.6);
 }
 .kpi-card:hover {
-    transform: translateY(-3px);
-    border-color: color-mix(in srgb, var(--accent, var(--brand)) 45%, var(--border));
-    box-shadow: 0 16px 36px rgba(10,37,64,.1);
+    transform: translateY(-4px);
+    background: rgba(255,255,255,.7);
+    box-shadow: 0 18px 42px rgba(10,37,64,.14), inset 0 1px 0 rgba(255,255,255,.7);
 }
 .kpi-card::after {
     content: ''; position: absolute; inset: 0 0 auto 0; height: 4px;
@@ -226,7 +228,7 @@ section[data-testid="stSidebar"] .stRadio label:hover { background: var(--bg-hov
 }
 .kpi-card .glow {
     position: absolute; top: -40%; right: -20%; width: 160px; height: 160px; border-radius: 50%;
-    background: var(--accent, var(--brand)); filter: blur(60px); opacity: .08; pointer-events: none;
+    background: var(--accent, var(--brand)); filter: blur(55px); opacity: .12; pointer-events: none;
 }
 .kpi-label {
     font-size: .68rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
@@ -294,8 +296,11 @@ section[data-testid="stSidebar"] .stRadio label:hover { background: var(--bg-hov
 /* ═══════════════ DATE BADGE ═══════════════ */
 .date-badge {
     display: inline-flex; align-items: center; gap: .5rem;
-    background: #eef6fd; border: 1px solid var(--border);
+    background: rgba(255,255,255,.55); backdrop-filter: blur(14px) saturate(150%);
+    -webkit-backdrop-filter: blur(14px) saturate(150%);
+    border: 1px solid rgba(255,255,255,.7);
     border-radius: 12px; padding: .55rem 1rem; font-size: .8rem; font-weight: 600; color: var(--brand); margin-bottom: 1.35rem;
+    box-shadow: 0 4px 14px rgba(10,37,64,.05);
 }
 
 /* ═══════════════ ALERTS ═══════════════ */
@@ -306,9 +311,9 @@ section[data-testid="stSidebar"] .stRadio label:hover { background: var(--bg-hov
 .alert-info    { background: rgba(0,114,206,.08); border: 1px solid rgba(0,114,206,.3); color: var(--brand); }
 
 /* ═══════════════ TABLE ═══════════════ */
-[data-testid="stDataFrame"] { border: 1px solid var(--border) !important; border-radius: 14px !important; overflow: hidden !important; box-shadow: 0 4px 14px rgba(10,37,64,.05) !important; }
-[data-testid="stDataFrame"] th { background: #eef6fd !important; color: var(--text-mut) !important; font-size: .64rem !important; letter-spacing: .08em !important; text-transform: uppercase !important; font-weight: 700 !important; }
-[data-testid="stDataFrame"] td { background: #ffffff !important; color: var(--text) !important; font-size: .82rem !important; border-color: var(--border-soft) !important; }
+[data-testid="stDataFrame"] { border: 1px solid rgba(255,255,255,.7) !important; border-radius: 18px !important; overflow: hidden !important; box-shadow: 0 8px 26px rgba(10,37,64,.08) !important; backdrop-filter: blur(16px) !important; -webkit-backdrop-filter: blur(16px) !important; }
+[data-testid="stDataFrame"] th { background: rgba(238,246,253,.85) !important; color: var(--text-mut) !important; font-size: .66rem !important; letter-spacing: .08em !important; text-transform: uppercase !important; font-weight: 700 !important; padding-top: .6rem !important; padding-bottom: .6rem !important; }
+[data-testid="stDataFrame"] td { background: rgba(255,255,255,.5) !important; color: var(--text) !important; font-size: .84rem !important; border-color: rgba(216,230,244,.6) !important; }
 
 /* ═══════════════ BUTTONS ═══════════════ */
 .stButton > button {
@@ -334,7 +339,7 @@ section[data-testid="stSidebar"] .stRadio label:hover { background: var(--bg-hov
 label { color: var(--text-mut) !important; font-size: .76rem !important; font-weight: 600 !important; }
 
 /* ═══════════════ EXPANDER (manual update) ═══════════════ */
-[data-testid="stExpander"] { border: 1px solid var(--border) !important; border-radius: 12px !important; background: #ffffff !important; }
+[data-testid="stExpander"] { border: 1px solid rgba(255,255,255,.7) !important; border-radius: 16px !important; background: rgba(255,255,255,.5) !important; backdrop-filter: blur(16px) saturate(150%) !important; -webkit-backdrop-filter: blur(16px) saturate(150%) !important; box-shadow: 0 6px 20px rgba(10,37,64,.06) !important; }
 [data-testid="stExpander"] summary { color: var(--text-mut) !important; font-size: .82rem !important; font-weight: 600 !important; }
 
 /* ═══════════════ PROGRESS CARD ═══════════════ */
@@ -347,10 +352,12 @@ hr { border-color: var(--border-soft) !important; margin: 1.5rem 0 !important; }
 /* ═══════════════ YEAR ROW (timologiseis) ═══════════════ */
 .year-row {
     display: flex; align-items: center; justify-content: space-between;
-    background: #ffffff; border: 1px solid var(--border); border-radius: 16px; padding: 1.15rem 1.5rem; margin-bottom: .75rem;
-    transition: border-color .15s, transform .15s, box-shadow .15s; box-shadow: 0 2px 10px rgba(10,37,64,.03);
+    background: rgba(255,255,255,.55); backdrop-filter: blur(16px) saturate(150%);
+    -webkit-backdrop-filter: blur(16px) saturate(150%);
+    border: 1px solid rgba(255,255,255,.7); border-radius: 16px; padding: 1.15rem 1.5rem; margin-bottom: .75rem;
+    transition: all .15s; box-shadow: 0 6px 20px rgba(10,37,64,.06), inset 0 1px 0 rgba(255,255,255,.6);
 }
-.year-row:hover { border-color: var(--brand); transform: translateX(3px); box-shadow: 0 6px 18px rgba(10,37,64,.08); }
+.year-row:hover { background: rgba(255,255,255,.72); transform: translateX(3px); box-shadow: 0 10px 26px rgba(10,37,64,.1); }
 .year-row .yr { font-family: 'Plus Jakarta Sans'; font-size: 1.15rem; font-weight: 800; color: var(--text); }
 .year-row .amt { font-family: 'Plus Jakarta Sans'; font-size: 1.3rem; font-weight: 800; color: var(--brand); font-variant-numeric: tabular-nums; }
 .year-row .cnt { font-size: .74rem; color: var(--text-mut); }
