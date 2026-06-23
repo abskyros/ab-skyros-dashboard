@@ -18,7 +18,6 @@ import json
 import sys
 from datetime import date, datetime, timedelta
 
-import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
 from imap_tools import MailBox, AND
