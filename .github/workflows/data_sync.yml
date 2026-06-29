@@ -1,0 +1,31 @@
+name: Data Sync (Invoices + Timologiseis)
+
+on:
+  schedule:
+    # Κάθε 2 ώρες, όλο το 24ωρο (ώρα UTC — δεν εξαρτάται από εποχή).
+    - cron: '0 */2 * * *'
+  workflow_dispatch:
+
+jobs:
+  data-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install "gspread>=6.0.0" "google-auth>=2.0.0" imap-tools pandas openpyxl
+
+      - name: Run data sync
+        env:
+          GOOGLE_KEY_JSON: ${{ secrets.GOOGLE_KEY_JSON }}
+          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+          SALES_EMAIL_PASS: ${{ secrets.SALES_EMAIL_PASS }}
+        run: python data_sync.py
