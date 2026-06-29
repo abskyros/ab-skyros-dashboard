@@ -970,7 +970,9 @@ today = date.today()
 # ══════════════════════════════════════════════════════════════════════════════
 import threading
 
-def _background_auto_update():
+def _do_auto_update():
+    """Αυτόματη ενημέρωση Παραστατικών & Τιμολογήσεων σε κάθε νέα είσοδο (login).
+    Τρέχει συγχρονισμένα ώστε τα δεδομένα να είναι φρέσκα όταν φορτώσει η σελίδα."""
     try:
         if INV_PW:
             fetch_and_store_invoices(INV_PW, limit=40)
@@ -984,9 +986,11 @@ def _background_auto_update():
     except Exception:
         pass
 
+# Auto-update ΜΙΑ φορά ανά session (κάθε login), συγχρονισμένα με μικρό μήνυμα.
 if "auto_updated" not in st.session_state:
+    with st.spinner("🔄 Αυτόματη ενημέρωση Παραστατικών & Τιμολογήσεων..."):
+        _do_auto_update()
     st.session_state["auto_updated"] = True
-    threading.Thread(target=_background_auto_update, daemon=True).start()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1115,21 +1119,14 @@ if page == "Επισκόπηση":
     df_i = load_invoices()
     df_t = load_timologiseis()
 
-    # Επιλογή εβδομάδας: τρέχουσα αν έχει δεδομένα, αλλιώς η τελευταία με δεδομένα
+    # Επιλογή εβδομάδας: ΠΑΝΤΑ η τρέχουσα εβδομάδα (Δευτ→Κυρ).
+    # Κάθε Δευτέρα ξεκινά αυτόματα νέα εβδομάδα — τα παλιά δεδομένα παραμένουν
+    # αποθηκευμένα στο αρχείο, αλλά το Overview δείχνει πάντα την τρέχουσα εβδομάδα.
+    # Όσο περνούν οι μέρες, η εβδομάδα συμπληρώνεται με τα νέα στοιχεία.
     sw_cur, ew_cur   = get_week_range(today)
     psw_cur, pew_cur = prev_week_range(sw_cur)
-    if not df_s.empty:
-        _has_cur = not df_s[(df_s["date"] >= pd.Timestamp(sw_cur)) & (df_s["date"] <= pd.Timestamp(ew_cur))].empty
-        if _has_cur:
-            sw, ew, psw, pew = sw_cur, ew_cur, psw_cur, pew_cur
-            _wlabel = "Τρέχουσα εβδομάδα"
-        else:
-            sw, ew = psw_cur, pew_cur
-            psw, pew = prev_week_range(sw)
-            _wlabel = "Τελευταία εβδομάδα με δεδομένα"
-    else:
-        sw, ew, psw, pew = sw_cur, ew_cur, psw_cur, pew_cur
-        _wlabel = "Τρέχουσα εβδομάδα"
+    sw, ew, psw, pew = sw_cur, ew_cur, psw_cur, pew_cur
+    _wlabel = "Τρέχουσα εβδομάδα"
 
     st.markdown(f'<div class="date-badge">🗓 {DAYS_GR[today.weekday()]} {today.strftime("%d/%m/%Y")} · Τρέχουσα εβδομάδα</div>', unsafe_allow_html=True)
 
