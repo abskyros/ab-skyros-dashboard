@@ -1701,20 +1701,32 @@ elif page == "Τιμολογήσεις":
         _sdates_t = _df_sales_t["date"].apply(lambda x: x.date() if hasattr(x, "date") else x) if not _df_sales_t.empty else None
 
         def _parse_period(period_str, ref_year):
-            """Μετατρέπει 'ΗΗ.ΜΜ-ΗΗ.ΜΜ' σε (start_date, end_date) για το έτος ref_year.
+            """Μετατρέπει περίοδο σε (start_date, end_date).
+            Δέχεται μορφές: 'ΗΗ.ΜΜ.ΕΕΕΕ - ΗΗ.ΜΜ.ΕΕΕΕ' ή 'ΗΗ.ΜΜ - ΗΗ.ΜΜ'.
             Επιστρέφει (None, None) αν αποτύχει."""
             import re as _re_p
-            m = _re_p.search(r"(\d{1,2})[./](\d{1,2})\s*-\s*(\d{1,2})[./](\d{1,2})", str(period_str))
-            if not m:
-                return None, None
-            d1, m1, d2, m2 = int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4))
-            try:
-                start = date(ref_year, m1, d1)
-                end_year = ref_year + 1 if m2 < m1 else ref_year  # περνά σε νέο έτος
-                end = date(end_year, m2, d2)
-                return start, end
-            except Exception:
-                return None, None
+            s = str(period_str)
+            # Πρώτα δοκίμασε πλήρεις ημερομηνίες με έτος: ΗΗ.ΜΜ.ΕΕΕΕ - ΗΗ.ΜΜ.ΕΕΕΕ
+            m = _re_p.search(r"(\d{1,2})[./](\d{1,2})[./](\d{4})\s*-\s*(\d{1,2})[./](\d{1,2})[./](\d{4})", s)
+            if m:
+                try:
+                    start = date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
+                    end = date(int(m.group(6)), int(m.group(5)), int(m.group(4)))
+                    return start, end
+                except Exception:
+                    return None, None
+            # Αλλιώς: ΗΗ.ΜΜ - ΗΗ.ΜΜ (χωρίς έτος) — χρησιμοποίησε το ref_year
+            m = _re_p.search(r"(\d{1,2})[./](\d{1,2})\s*-\s*(\d{1,2})[./](\d{1,2})", s)
+            if m:
+                d1, m1, d2, m2 = int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4))
+                try:
+                    start = date(ref_year, m1, d1)
+                    end_year = ref_year + 1 if m2 < m1 else ref_year
+                    end = date(end_year, m2, d2)
+                    return start, end
+                except Exception:
+                    return None, None
+            return None, None
 
         def _sales_in_range(start, end):
             if _df_sales_t is None or _df_sales_t.empty or start is None:
