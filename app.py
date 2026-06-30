@@ -1291,6 +1291,11 @@ if page == "Επισκόπηση":
         _cust_chart.index.name = "Εβδομάδα"
         st.markdown('<div style="font-size:.78rem;color:var(--text-mut);margin:1rem 0 .5rem">Πελάτες ανά εβδομάδα</div>', unsafe_allow_html=True)
         st.line_chart(_cust_chart, height=260, color=["#10b981", "#f59e0b"])
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PAGE: ΠΩΛΗΣΕΙΣ
+# ══════════════════════════════════════════════════════════════════════════════
+elif page == "Πωλήσεις":
     st.markdown("""
 <div class="page-header">
 <div class="icon">📈</div>
@@ -1756,7 +1761,10 @@ elif page == "Τιμολογήσεις":
             _chk_num = _trow.get("check_number", "") if "check_number" in _trow else ""
 
             # Πωλήσεις περιόδου (φέτος)
-            _ps, _pe = _parse_period(_period, _cd_date.year)
+            # Πωλήσεις περιόδου = οι 7 ημέρες ΠΡΙΝ την ημ. επιταγής.
+            # Π.χ. επιταγή 08/07 → πωλήσεις 01/07 έως 07/07 (οι 7 μέρες ακριβώς πριν).
+            _pe = _cd_date - timedelta(days=1)   # μία μέρα πριν την επιταγή (π.χ. 07/07)
+            _ps = _cd_date - timedelta(days=7)   # 7 μέρες πριν (π.χ. 01/07)
             _sales_period = _sales_in_range(_ps, _pe)
 
             # Πέρσι τιμολόγηση ίδιας περιόδου (επιταγή ~364 μέρες πριν)
