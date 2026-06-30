@@ -243,12 +243,14 @@ def load_timologiseis() -> pd.DataFrame:
             # Δεν υπάρχει header — όλες οι γραμμές είναι δεδομένα
             data_rows = all_vals
         rows = []
-        for r in data_rows:
+        for ri, r in enumerate(data_rows, start=2):
             if len(r) < 3:
                 continue
-            rows.append({"check_date": r[0], "period": r[1], "amount": r[2]})
+            _chknum = r[3] if len(r) > 3 else ""
+            rows.append({"check_date": r[0], "period": r[1], "amount": r[2],
+                         "check_number": str(_chknum).strip(), "_row": ri})
         if not rows:
-            return pd.DataFrame(columns=TIMOL_COLS)
+            return pd.DataFrame(columns=TIMOL_COLS + ["check_number", "_row"])
         df = pd.DataFrame(rows)
         df["check_date"] = pd.to_datetime(df["check_date"], errors="coerce")
         df["amount"] = df["amount"].apply(_parse_number) / 100.0
@@ -305,6 +307,17 @@ def merge_timologiseis(records: list) -> int:
     except Exception as e:
         st.error(f"❌ Σφάλμα αποθήκευσης τιμολογήσεων: {e}")
         return 0
+
+
+def update_timologiseis_check_number(target_row, check_number):
+    """Αποθηκεύει τον αριθμό επιταγής στη στήλη D της δοσμένης γραμμής (1-indexed)."""
+    try:
+        ws = _get_sheet("timologiseis")
+        ws.update_cell(int(target_row), 4, str(check_number))
+        load_timologiseis.clear()
+        return True, "Αποθηκεύτηκε ο αριθμός επιταγής."
+    except Exception as e:
+        return False, f"Σφάλμα: {e}"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
