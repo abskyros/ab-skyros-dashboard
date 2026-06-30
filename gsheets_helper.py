@@ -247,10 +247,12 @@ def load_timologiseis() -> pd.DataFrame:
             if len(r) < 3:
                 continue
             _chknum = r[3] if len(r) > 3 else ""
+            _exp = r[4] if len(r) > 4 else ""
             rows.append({"check_date": r[0], "period": r[1], "amount": r[2],
-                         "check_number": str(_chknum).strip(), "_row": ri})
+                         "check_number": str(_chknum).strip(),
+                         "expenses": str(_exp).strip(), "_row": ri})
         if not rows:
-            return pd.DataFrame(columns=TIMOL_COLS + ["check_number", "_row"])
+            return pd.DataFrame(columns=TIMOL_COLS + ["check_number", "expenses", "_row"])
         df = pd.DataFrame(rows)
         df["check_date"] = pd.to_datetime(df["check_date"], errors="coerce")
         df["amount"] = df["amount"].apply(_parse_number) / 100.0
@@ -316,6 +318,17 @@ def update_timologiseis_check_number(target_row, check_number):
         ws.update_cell(int(target_row), 4, str(check_number))
         load_timologiseis.clear()
         return True, "Αποθηκεύτηκε ο αριθμός επιταγής."
+    except Exception as e:
+        return False, f"Σφάλμα: {e}"
+
+
+def update_timologiseis_expenses(target_row, expenses):
+    """Αποθηκεύει τα έξοδα μήνα στη στήλη E της δοσμένης γραμμής (1-indexed)."""
+    try:
+        ws = _get_sheet("timologiseis")
+        ws.update_cell(int(target_row), 5, str(expenses))
+        load_timologiseis.clear()
+        return True, "Αποθηκεύτηκαν τα έξοδα."
     except Exception as e:
         return False, f"Σφάλμα: {e}"
 
