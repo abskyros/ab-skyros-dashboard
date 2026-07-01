@@ -1757,17 +1757,21 @@ elif page == "Μήνας":
         st.markdown('<div class="alert alert-info">ℹ️ Δεν υπάρχουν τιμολογήσεις ακόμη.</div>', unsafe_allow_html=True)
         st.stop()
 
-    # Επιλογή έτους + μήνα (με «Όλο το έτος»)
+    # Επιλογή έτους + μήνα (με «Όλο το έτος») + ταξινόμηση
     _yrs_m = sorted({(d.year if hasattr(d, "year") else d.year) for d in df_t["check_date"]}, reverse=True)
-    _mc1, _mc2 = st.columns(2)
+    _mc1, _mc2, _mc3 = st.columns([1, 1, 1])
     with _mc1:
         _sel_year_m = st.selectbox("Έτος", _yrs_m, key="month_year_sel")
     with _mc2:
-        # 0 = Όλο το έτος, 1-12 = μήνες
+        # 0 = Όλο το έτος, 1-12 = μήνες. Αρχική προβολή: Όλο το έτος (index=0)
         _month_opts = [0] + list(range(1, 13))
         _sel_month_m = st.selectbox("Μήνας", _month_opts,
                                     format_func=lambda m: "📆 Όλο το έτος" if m == 0 else MONTHS_GR[m - 1],
-                                    index=(today.month), key="month_month_sel")
+                                    index=0, key="month_month_sel")
+    with _mc3:
+        _sort_dir = st.selectbox("Ταξινόμηση", ["Παλαιότερες πρώτα ↑", "Νεότερες πρώτα ↓"],
+                                 index=0, key="month_sort_dir")
+    _ascending = _sort_dir.startswith("Παλαιότερες")
 
     # Φιλτράρισμα (βάσει ημ. επιταγής)
     if _sel_month_m == 0:
@@ -1776,7 +1780,7 @@ elif page == "Μήνας":
     else:
         _month_df = df_t[df_t["check_date"].apply(lambda d: (d.year == _sel_year_m and d.month == _sel_month_m))].copy()
         _period_label = f"{MONTHS_GR[_sel_month_m-1]} {_sel_year_m}"
-    _month_df = _month_df.sort_values("check_date")
+    _month_df = _month_df.sort_values("check_date", ascending=_ascending)
 
     st.markdown(f'<div class="date-badge">🗓 {_period_label} · {len(_month_df)} τιμολογήσεις</div>', unsafe_allow_html=True)
 
