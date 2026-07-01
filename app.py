@@ -132,14 +132,19 @@ html, body, [class*="css"] {
     background: var(--bg) !important;
     color: var(--text) !important;
 }
-.stApp { background: linear-gradient(135deg, #eef1f8 0%, #e6edf7 40%, #eaf0fa 100%) !important; }
+.stApp { background: linear-gradient(135deg, #eaeef7 0%, #e4ebf6 35%, #e8eef9 70%, #eef2fb 100%) !important; }
+.stApp::before {
+    content: ''; position: fixed; top: 0; left: 0; right: 0; height: 340px; pointer-events: none; z-index: 0;
+    background: radial-gradient(ellipse 80% 100% at 70% 0%, rgba(0,114,206,.06), transparent 60%),
+                radial-gradient(ellipse 60% 80% at 20% 0%, rgba(139,92,246,.05), transparent 55%);
+}
 #MainMenu, footer, header[data-testid="stHeader"] { display: none !important; }
 /* Φέρε το περιεχόμενο ψηλά (αφαίρεσε το προεπιλεγμένο κενό του Streamlit) */
 [data-testid="stAppViewContainer"] > .main { padding-top: 0 !important; }
 [data-testid="stMain"] { padding-top: 0 !important; }
 [data-testid="stMainBlockContainer"] { padding-top: 1rem !important; }
 .stApp [data-testid="stVerticalBlock"] { gap: .75rem !important; }
-.block-container { padding: 0.5rem 2.5rem 6rem !important; max-width: 1280px !important; }
+.block-container { padding: 0.5rem 2.5rem 6rem !important; max-width: 1280px !important; position: relative; z-index: 1; }
 .stApp [data-testid="stDecoration"] { display: none !important; }
 .kpi-value, .stat-num, [data-testid="stDataFrame"] td { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
 
@@ -179,20 +184,25 @@ section[data-testid="stSidebar"] .stRadio label:hover { background: var(--bg-hov
 
 /* ═══════════════ PAGE HEADER (στυλ Folks) ═══════════════ */
 .page-header {
-    display: flex; align-items: center; gap: 1.1rem;
-    margin: 0 0 1.25rem 0; padding-bottom: 0;
+    display: flex; align-items: center; gap: 1.15rem;
+    margin: 0 0 1.5rem 0; padding-bottom: 1.1rem;
+    border-bottom: 1px solid var(--border-soft);
 }
 .page-header .icon {
-    width: 54px; height: 54px; border-radius: 16px; display: flex; align-items: center; justify-content: center;
-    font-size: 1.6rem; color: #fff;
+    width: 56px; height: 56px; border-radius: 17px; display: flex; align-items: center; justify-content: center;
+    font-size: 1.65rem; color: #fff; position: relative;
     background: linear-gradient(135deg, var(--brand), var(--brand-2));
-    box-shadow: 0 8px 22px var(--brand-glow); flex-shrink: 0;
+    box-shadow: 0 10px 26px var(--brand-glow), inset 0 1px 0 rgba(255,255,255,.3); flex-shrink: 0;
+}
+.page-header .icon::after {
+    content: ''; position: absolute; inset: 0; border-radius: 17px;
+    background: radial-gradient(circle at 30% 25%, rgba(255,255,255,.35), transparent 60%);
 }
 .page-header h1 {
-    font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.8rem; font-weight: 800;
+    font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.85rem; font-weight: 800;
     letter-spacing: -.025em; color: var(--text); margin: 0; line-height: 1.05;
 }
-.page-header .sub { font-size: .85rem; color: var(--text-mut); margin-top: .3rem; font-weight: 500; }
+.page-header .sub { font-size: .85rem; color: var(--text-mut); margin-top: .35rem; font-weight: 500; }
 
 /* ═══════════════ SECTION LABEL ═══════════════ */
 .section-label {
@@ -223,13 +233,15 @@ section[data-testid="stSidebar"] .stRadio label:hover { background: var(--bg-hov
     box-shadow: 0 18px 42px rgba(10,37,64,.14), inset 0 1px 0 rgba(255,255,255,.7);
 }
 .kpi-card::after {
-    content: ''; position: absolute; inset: 0 0 auto 0; height: 4px;
-    background: linear-gradient(90deg, var(--accent, var(--brand)), transparent 85%);
+    content: ''; position: absolute; inset: 0 0 auto 0; height: 5px;
+    background: linear-gradient(90deg, var(--accent, var(--brand)), color-mix(in srgb, var(--accent, var(--brand)) 40%, transparent) 70%, transparent);
 }
 .kpi-card .glow {
-    position: absolute; top: -40%; right: -20%; width: 160px; height: 160px; border-radius: 50%;
-    background: var(--accent, var(--brand)); filter: blur(55px); opacity: .12; pointer-events: none;
+    position: absolute; top: -40%; right: -20%; width: 170px; height: 170px; border-radius: 50%;
+    background: var(--accent, var(--brand)); filter: blur(55px); opacity: .14; pointer-events: none;
+    transition: opacity .18s;
 }
+.kpi-card:hover .glow { opacity: .2; }
 .kpi-label {
     font-size: .68rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
     color: var(--text-mut); margin-bottom: .85rem; display: flex; align-items: center; gap: .4rem;
@@ -251,37 +263,39 @@ section[data-testid="stSidebar"] .stRadio label:hover { background: var(--bg-hov
 
 /* ═══════════════ GRADIENT HERO CARDS (στυλ Flowlu) ═══════════════ */
 .hero-card {
-    position: relative; overflow: hidden; border-radius: 20px; padding: 1.6rem 1.75rem;
-    color: #fff; min-height: 140px; display: flex; flex-direction: column; justify-content: space-between;
-    box-shadow: 0 12px 30px rgba(10,37,64,.18); transition: transform .2s, box-shadow .2s;
+    position: relative; overflow: hidden; border-radius: 22px; padding: 1.7rem 1.85rem;
+    color: #fff; min-height: 148px; display: flex; flex-direction: column; justify-content: space-between;
+    box-shadow: 0 16px 40px rgba(10,37,64,.24), inset 0 1px 0 rgba(255,255,255,.22);
+    transition: transform .22s cubic-bezier(.2,.8,.2,1), box-shadow .22s;
 }
-.hero-card:hover { transform: translateY(-4px); box-shadow: 0 20px 44px rgba(10,37,64,.26); }
-.hero-card.grad-blue   { background: linear-gradient(135deg, #2b96e8 0%, #0072CE 100%); }
-.hero-card.grad-violet { background: linear-gradient(135deg, #8b5cf6 0%, #6d5bd0 100%); }
-.hero-card.grad-navy   { background: linear-gradient(135deg, #0a2540 0%, #1a4a7a 100%); }
-.hero-card.grad-teal   { background: linear-gradient(135deg, #14b8a6 0%, #0d9488 100%); }
+.hero-card:hover { transform: translateY(-5px) scale(1.008); box-shadow: 0 26px 56px rgba(10,37,64,.32), inset 0 1px 0 rgba(255,255,255,.28); }
+.hero-card.grad-blue   { background: linear-gradient(135deg, #3aa0f2 0%, #0072CE 55%, #005ba6 100%); }
+.hero-card.grad-violet { background: linear-gradient(135deg, #9d6ef7 0%, #7c5cd8 50%, #5b45b8 100%); }
+.hero-card.grad-navy   { background: linear-gradient(135deg, #12365c 0%, #1a4a7a 60%, #0a2540 100%); }
+.hero-card.grad-teal   { background: linear-gradient(135deg, #2dd4bf 0%, #14b8a6 55%, #0d9488 100%); }
 .hero-card::after {
-    content: ''; position: absolute; top: -30%; right: -10%; width: 180px; height: 180px;
-    border-radius: 50%; background: rgba(255,255,255,.12); pointer-events: none;
+    content: ''; position: absolute; top: -35%; right: -12%; width: 200px; height: 200px;
+    border-radius: 50%; background: radial-gradient(circle, rgba(255,255,255,.2), rgba(255,255,255,.05) 70%); pointer-events: none;
 }
 .hero-card::before {
-    content: ''; position: absolute; bottom: -40%; left: 10%; width: 140px; height: 140px;
-    border-radius: 50%; background: rgba(255,255,255,.07); pointer-events: none;
+    content: ''; position: absolute; bottom: -45%; left: 8%; width: 160px; height: 160px;
+    border-radius: 50%; background: radial-gradient(circle, rgba(255,255,255,.1), transparent 70%); pointer-events: none;
 }
 .hero-label {
-    font-size: .72rem; font-weight: 600; letter-spacing: .04em; opacity: .9;
+    font-size: .74rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; opacity: .92;
     display: flex; align-items: center; gap: .5rem; position: relative; z-index: 1;
 }
 .hero-icon {
-    position: absolute; top: 1.4rem; right: 1.5rem; width: 38px; height: 38px; border-radius: 11px;
-    background: rgba(255,255,255,.18); display: flex; align-items: center; justify-content: center;
-    font-size: 1.15rem; z-index: 1;
+    position: absolute; top: 1.5rem; right: 1.6rem; width: 42px; height: 42px; border-radius: 13px;
+    background: rgba(255,255,255,.2); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center;
+    font-size: 1.2rem; z-index: 1; box-shadow: inset 0 1px 0 rgba(255,255,255,.3);
 }
 .hero-value {
-    font-family: 'Plus Jakarta Sans', sans-serif; font-size: 2.1rem; font-weight: 800;
+    font-family: 'Plus Jakarta Sans', sans-serif; font-size: 2.2rem; font-weight: 800;
     letter-spacing: -.03em; line-height: 1; position: relative; z-index: 1; font-variant-numeric: tabular-nums;
+    text-shadow: 0 2px 8px rgba(0,0,0,.12);
 }
-.hero-sub { font-size: .76rem; opacity: .88; position: relative; z-index: 1; font-weight: 500; }
+.hero-sub { font-size: .77rem; opacity: .9; position: relative; z-index: 1; font-weight: 500; }
 .hero-sub b { font-weight: 700; }
 
 /* ═══════════════ CHECK PAYMENT CARD ═══════════════ */
@@ -929,37 +943,48 @@ st.markdown(_rail_html, unsafe_allow_html=True)
 st.markdown("""
 <style>
 .icon-rail {
-    position: fixed; top: 0; left: 0; bottom: 0; width: 5rem; z-index: 999990;
-    background: linear-gradient(180deg, #0a2540 0%, #071b30 100%);
-    border-right: 1px solid rgba(255,255,255,.06);
+    position: fixed; top: 0; left: 0; bottom: 0; width: 5.25rem; z-index: 999990;
+    background: linear-gradient(165deg, #0d2f52 0%, #0a2540 45%, #061826 100%);
+    border-right: 1px solid rgba(120,170,230,.1);
     display: flex; flex-direction: column; align-items: center;
-    padding: 1.1rem 0; gap: .15rem;
-    box-shadow: 2px 0 24px rgba(7,27,48,.18);
+    padding: 1.25rem 0; gap: .15rem;
+    box-shadow: 4px 0 30px rgba(6,24,38,.35), inset -1px 0 0 rgba(255,255,255,.03);
+}
+.icon-rail::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 180px;
+    background: radial-gradient(ellipse 120% 80% at 50% 0%, rgba(43,150,232,.18), transparent 70%);
+    pointer-events: none;
 }
 .rail-logo {
-    width: 46px; height: 46px; border-radius: 14px; margin-bottom: 1.4rem;
-    display: flex; align-items: center; justify-content: center; font-size: 1.45rem;
-    background: linear-gradient(135deg, #2b96e8, #0072CE);
-    box-shadow: 0 6px 18px rgba(43,150,232,.5); flex-shrink: 0;
+    width: 50px; height: 50px; border-radius: 15px; margin-bottom: 1.6rem;
+    display: flex; align-items: center; justify-content: center; font-size: 1.55rem;
+    background: linear-gradient(135deg, #38a0f0, #0072CE 60%, #005ba6);
+    box-shadow: 0 8px 24px rgba(43,150,232,.55), inset 0 1px 0 rgba(255,255,255,.35);
+    flex-shrink: 0; position: relative; z-index: 1;
 }
-.rail-nav { display: flex; flex-direction: column; gap: .2rem; width: 100%; align-items: center; }
+.rail-nav { display: flex; flex-direction: column; gap: .35rem; width: 100%; align-items: center; position: relative; z-index: 1; }
 .rail-item {
-    position: relative; width: 4rem; padding: .65rem 0; border-radius: 12px;
-    display: flex; flex-direction: column; align-items: center; gap: .25rem;
-    text-decoration: none !important; transition: all .18s cubic-bezier(.2,.8,.2,1);
+    position: relative; width: 4.1rem; padding: .7rem 0; border-radius: 14px;
+    display: flex; flex-direction: column; align-items: center; gap: .3rem;
+    text-decoration: none !important; transition: all .2s cubic-bezier(.2,.8,.2,1);
 }
-.rail-item .rail-ico { font-size: 1.35rem; line-height: 1; filter: grayscale(.4) opacity(.75); transition: filter .15s; }
-.rail-item .rail-lbl { font-size: .58rem; font-weight: 600; color: #7a93b3; letter-spacing: .01em; transition: color .15s; text-align: center; }
-.rail-item:hover { background: rgba(255,255,255,.06); }
-.rail-item:hover .rail-ico { filter: none; }
+.rail-item .rail-ico { font-size: 1.4rem; line-height: 1; filter: grayscale(.5) opacity(.7); transition: all .2s; }
+.rail-item .rail-lbl { font-size: .57rem; font-weight: 600; color: #7a93b3; letter-spacing: .02em; transition: color .2s; text-align: center; }
+.rail-item:hover { background: rgba(255,255,255,.07); transform: translateY(-1px); }
+.rail-item:hover .rail-ico { filter: none; transform: scale(1.08); }
 .rail-item:hover .rail-lbl { color: #cfe0f2; }
-.rail-item.active { background: linear-gradient(135deg, rgba(43,150,232,.25), rgba(0,114,206,.15)); }
+.rail-item.active {
+    background: linear-gradient(135deg, rgba(56,160,240,.3), rgba(0,114,206,.18));
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.12), 0 4px 14px rgba(43,150,232,.25);
+}
 .rail-item.active .rail-ico { filter: none; }
 .rail-item.active .rail-lbl { color: #ffffff; }
 .rail-item.active::before {
-    content: ''; position: absolute; left: -0; top: 50%; transform: translateY(-50%);
-    width: 3px; height: 26px; border-radius: 0 3px 3px 0; background: #2b96e8;
-    left: calc(-1.5rem + 2px);
+    content: ''; position: absolute; top: 50%; transform: translateY(-50%);
+    width: 4px; height: 30px; border-radius: 0 4px 4px 0;
+    background: linear-gradient(180deg, #56b0f8, #2b96e8);
+    box-shadow: 0 0 12px rgba(43,150,232,.8);
+    left: calc(-1.625rem + 2px);
 }
 @media (max-width: 820px) { .icon-rail { display: none !important; } }
 </style>
@@ -1769,7 +1794,7 @@ elif page == "Μήνας":
                                     format_func=lambda m: "📆 Όλο το έτος" if m == 0 else MONTHS_GR[m - 1],
                                     index=0, key="month_month_sel")
     with _mc3:
-        _sort_dir = st.selectbox("Ταξινόμηση", ["Παλαιότερες πρώτα ↑", "Νεότερες πρώτα ↓"],
+        _sort_dir = st.selectbox("Ταξινόμηση", ["Νεότερες πρώτα ↓", "Παλαιότερες πρώτα ↑"],
                                  index=0, key="month_sort_dir")
     _ascending = _sort_dir.startswith("Παλαιότερες")
 
