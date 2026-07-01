@@ -89,6 +89,7 @@ MONTHS_GR = [
 ]
 # Συντομογραφίες ημερών (Δευτέρα=0 ... Κυριακή=6) — 3 πρώτα γράμματα
 DAYS_GR = ["Δευ", "Τρι", "Τετ", "Πεμ", "Παρ", "Σαβ", "Κυρ"]
+DAYS_GR_FULL = ["Δευτέρα", "Τρίτη", "Τετάρτη", "Πέμπτη", "Παρασκευή", "Σάββατο", "Κυριακή"]
 
 # ── PAGE CONFIG ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -902,131 +903,192 @@ st.markdown("""
 <style>
 section[data-testid="stSidebar"] { display: none !important; }
 [data-testid="collapsedControl"], [data-testid="stSidebarCollapsedControl"] { display: none !important; }
-.block-container { padding-left: 6.5rem !important; }
+.block-container { padding-left: 264px !important; }
 @media (max-width: 820px) { .block-container { padding-left: 1rem !important; } }
 </style>
 """, unsafe_allow_html=True)
 
 # ── CUSTOM SIDEBAR (σκούρα μπάρα με εικονίδιο + κείμενο — στυλ Flowlu) ──
 import urllib.parse as _u_rail
+# ── Wide sidebar with grouped navigation (like enterprise dashboards) ──
+# Ομάδες: ΛΕΙΤΟΥΡΓΙΕΣ (οι κύριες σελίδες μας)
+_NAV_GROUPS = [
+    ("", [("Επισκόπηση", "Dashboard")]),
+    ("ΛΕΙΤΟΥΡΓΙΕΣ", [("Πωλήσεις", "Πωλήσεις"), ("Παραστατικά", "Παραστατικά"),
+                     ("Τιμολογήσεις", "Τιμολογήσεις"), ("Μήνας", "Μήνας")]),
+]
+
 _rail_items = ""
-for p in PAGES:
-    _active = p == page
-    _href = "?page=" + _u_rail.quote(p)
-    _cls = "rail-item active" if _active else "rail-item"
-    _rail_items += (
-        f'<a href="{_href}" target="_self" class="{_cls}">'
-        f'<span class="rail-ico">{PAGE_ICONS[p]}</span>'
-        f'<span class="rail-lbl">{p}</span>'
-        f'</a>'
-    )
+for _grp_name, _grp_pages in _NAV_GROUPS:
+    if _grp_name:
+        _rail_items += f'<div class="rail-group">{_grp_name}</div>'
+    for p, _lbl in _grp_pages:
+        _active = p == page
+        _href = "?page=" + _u_rail.quote(p)
+        _cls = "rail-item active" if _active else "rail-item"
+        _chevron = '<span class="rail-chev">›</span>' if _active else ''
+        _rail_items += (
+            f'<a href="{_href}" target="_self" class="{_cls}">'
+            f'<span class="rail-ico">{PAGE_ICONS[p]}</span>'
+            f'<span class="rail-lbl">{_lbl}</span>'
+            f'{_chevron}'
+            f'</a>'
+        )
 
 _rail_html = (
-    '<div class="icon-rail">'
-    '<div class="rail-logo">🏪</div>'
+    '<div class="side-rail">'
+    '<div class="side-brand">'
+    '<div class="side-logo">ΑΒ</div>'
+    '<div class="side-brand-txt"><span class="side-name">AB Σκύρος</span>'
+    '<span class="side-sub">Business Intelligence</span></div>'
+    '</div>'
     '<div class="rail-nav">' + _rail_items + '</div>'
+    '<div class="side-promo">'
+    '<div class="side-promo-title">AB Σκύρος</div>'
+    '<div class="side-promo-sub">Έξυπνη πληροφόρηση, καλύτερες αποφάσεις.</div>'
+    '</div>'
+    '<div class="side-user">'
+    '<div class="side-user-av">FT</div>'
+    '<div class="side-user-txt"><span class="side-user-name">Διαχειριστής</span>'
+    '<span class="side-user-status"><span class="su-dot"></span>Online</span></div>'
+    '</div>'
     '</div>'
 )
 st.markdown(_rail_html, unsafe_allow_html=True)
 
-# ── Enterprise top bar ──
+# ── Blue gradient header banner ──
+from datetime import datetime as _dtnow
+_today_hdr = date.today()
+_hr = _dtnow.now().hour
+_gr = "Καλημέρα" if _hr < 12 else ("Καλησπέρα" if _hr < 18 else "Καλό βράδυ")
 _topbar = (
-    '<div class="topbar">'
-    '<div class="topbar-brand">'
-    '<span class="topbar-logo">ΑΒ</span>'
-    '<div class="topbar-titles">'
-    '<span class="topbar-name">ΑΒ Σκύρος</span>'
-    '<span class="topbar-tag">Πίνακας Ελέγχου Καταστήματος</span>'
-    '</div></div>'
-    '<div class="topbar-right">'
-    f'<span class="topbar-date">📅 {date.today().strftime("%d/%m/%Y")}</span>'
-    '<span class="topbar-live"><span class="live-dot"></span>Live</span>'
+    '<div class="hero-banner">'
+    '<div class="hero-banner-inner">'
+    '<div class="hb-left">'
+    f'<div class="hb-greet">{_gr}! ☀️</div>'
+    '<div class="hb-title">AB Σκύρος Store</div>'
+    '<div class="hb-sub">Retail Operations Dashboard</div>'
+    '</div>'
+    '<div class="hb-right">'
+    '<div class="hb-datebox">'
+    f'<div class="hb-date-d">📅 {DAYS_GR_FULL[_today_hdr.weekday()]}, {_today_hdr.day} {MONTHS_GR[_today_hdr.month-1]} {_today_hdr.year}</div>'
+    '</div>'
+    '<div class="hb-live"><span class="hb-live-dot"></span>Live</div>'
+    '</div>'
     '</div></div>'
 )
 st.markdown(_topbar, unsafe_allow_html=True)
 
 st.markdown("""
 <style>
-.icon-rail {
-    position: fixed; top: 0; left: 0; bottom: 0; width: 5rem; z-index: 999990;
-    background: #ffffff;
-    border-right: 1px solid var(--border);
-    display: flex; flex-direction: column; align-items: center;
-    padding: 1.1rem 0; gap: .15rem;
-    box-shadow: 1px 0 0 rgba(26,34,51,.02);
+/* ═══════════════ WIDE SIDEBAR (enterprise) ═══════════════ */
+.side-rail {
+    position: fixed; top: 0; left: 0; bottom: 0; width: 240px; z-index: 999990;
+    background: linear-gradient(180deg, #0f2847 0%, #0a1f38 55%, #071528 100%);
+    border-right: 1px solid rgba(120,170,230,.08);
+    display: flex; flex-direction: column;
+    padding: 1.4rem 0 1rem; overflow-y: auto;
+    box-shadow: 3px 0 24px rgba(6,20,40,.25);
 }
-.rail-logo {
-    width: 44px; height: 44px; border-radius: 12px; margin-bottom: 1.5rem;
-    display: flex; align-items: center; justify-content: center; font-size: 1.4rem;
-    background: linear-gradient(135deg, #7a73ff, #635bff 55%, #4b45c6);
-    box-shadow: 0 4px 14px rgba(99,91,255,.4), inset 0 1px 0 rgba(255,255,255,.4);
-    flex-shrink: 0; position: relative; z-index: 1;
+.side-rail::-webkit-scrollbar { width: 5px; }
+.side-rail::-webkit-scrollbar-thumb { background: rgba(255,255,255,.1); border-radius: 3px; }
+.side-brand { display: flex; align-items: center; gap: .7rem; padding: 0 1.3rem 1.5rem; }
+.side-logo {
+    width: 44px; height: 44px; border-radius: 12px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Plus Jakarta Sans'; font-weight: 800; font-size: 1.1rem; color: #fff;
+    background: linear-gradient(135deg, #3b82f6, #2563eb 60%, #1d4ed8);
+    box-shadow: 0 4px 14px rgba(59,130,246,.45), inset 0 1px 0 rgba(255,255,255,.35);
 }
-.rail-nav { display: flex; flex-direction: column; gap: .4rem; width: 100%; align-items: center; }
+.side-brand-txt { display: flex; flex-direction: column; gap: .1rem; }
+.side-name { font-family: 'Plus Jakarta Sans'; font-weight: 800; font-size: 1.05rem; color: #fff; letter-spacing: -.01em; line-height: 1.1; }
+.side-sub { font-size: .66rem; color: #7e98bd; font-weight: 500; }
+.rail-nav { display: flex; flex-direction: column; gap: .12rem; padding: 0 .75rem; flex: 1; }
+.rail-group {
+    font-size: .62rem; font-weight: 700; letter-spacing: .1em; color: #5e779c;
+    text-transform: uppercase;
+    padding: 1.1rem .7rem .4rem;
+}
 .rail-item {
-    position: relative; width: 3.6rem; padding: .6rem 0; border-radius: 11px;
-    display: flex; flex-direction: column; align-items: center; gap: .28rem;
-    text-decoration: none !important; transition: all .15s ease;
+    position: relative; display: flex; align-items: center; gap: .8rem;
+    padding: .7rem .85rem; border-radius: 10px; text-decoration: none !important;
+    transition: all .15s ease; margin-bottom: .05rem;
 }
-.rail-item .rail-ico { font-size: 1.3rem; line-height: 1; filter: grayscale(1) opacity(.45); transition: all .15s; }
-.rail-item .rail-lbl { font-size: .56rem; font-weight: 600; color: #97a3b6; letter-spacing: .01em; transition: color .15s; text-align: center; }
-.rail-item:hover { background: var(--bg-hover); }
-.rail-item:hover .rail-ico { filter: grayscale(.3) opacity(.85); }
-.rail-item:hover .rail-lbl { color: var(--text-mut); }
+.rail-item .rail-ico { font-size: 1.15rem; line-height: 1; width: 1.4rem; text-align: center; filter: grayscale(1) opacity(.6); transition: all .15s; }
+.rail-item .rail-lbl { font-size: .86rem; font-weight: 600; color: #a9bdd8; transition: color .15s; flex: 1; }
+.rail-item .rail-chev { color: #fff; font-size: 1.1rem; font-weight: 700; }
+.rail-item:hover { background: rgba(255,255,255,.06); }
+.rail-item:hover .rail-ico { filter: grayscale(.2) opacity(.9); }
+.rail-item:hover .rail-lbl { color: #e2ecf8; }
 .rail-item.active {
-    background: linear-gradient(135deg, rgba(99,91,255,.12), rgba(99,91,255,.06));
+    background: linear-gradient(135deg, #2563eb, #1d4ed8);
+    box-shadow: 0 4px 14px rgba(37,99,235,.4);
 }
 .rail-item.active .rail-ico { filter: none; }
-.rail-item.active .rail-lbl { color: var(--brand); font-weight: 700; }
-.rail-item.active::before {
-    content: ''; position: absolute; top: 50%; transform: translateY(-50%);
-    width: 3px; height: 28px; border-radius: 0 3px 3px 0;
-    background: var(--brand);
-    box-shadow: 0 0 10px rgba(99,91,255,.6);
-    left: calc(-1.5rem + 2px);
+.rail-item.active .rail-lbl { color: #fff; font-weight: 700; }
+.side-promo {
+    margin: 1rem .9rem .8rem; padding: 1.1rem 1rem; border-radius: 14px;
+    background: linear-gradient(145deg, rgba(37,99,235,.22), rgba(29,78,216,.12));
+    border: 1px solid rgba(90,140,220,.2);
 }
-@media (max-width: 820px) { .icon-rail { display: none !important; } }
-
-/* ═══════════════ ENTERPRISE TOP BAR ═══════════════ */
-.topbar {
-    position: sticky; top: 0; z-index: 999980;
-    display: flex; align-items: center; justify-content: space-between;
-    background: rgba(255,255,255,.85); backdrop-filter: blur(12px) saturate(160%);
-    -webkit-backdrop-filter: blur(12px) saturate(160%);
-    border: 1px solid var(--border); border-radius: 14px;
-    padding: .7rem 1.25rem; margin: 0 0 1.5rem 0;
-    box-shadow: var(--shadow);
+.side-promo-title { font-family: 'Plus Jakarta Sans'; font-weight: 800; font-size: .92rem; color: #fff; margin-bottom: .2rem; }
+.side-promo-sub { font-size: .72rem; color: #a9bdd8; line-height: 1.4; }
+.side-user {
+    display: flex; align-items: center; gap: .65rem; margin: 0 .9rem;
+    padding: .75rem .5rem; border-top: 1px solid rgba(255,255,255,.08);
 }
-.topbar-brand { display: flex; align-items: center; gap: .8rem; }
-.topbar-logo {
-    width: 42px; height: 42px; border-radius: 11px; flex-shrink: 0;
+.side-user-av {
+    width: 38px; height: 38px; border-radius: 10px; flex-shrink: 0;
     display: flex; align-items: center; justify-content: center;
-    font-family: 'Plus Jakarta Sans'; font-weight: 800; font-size: 1.05rem; color: #fff;
-    background: linear-gradient(135deg, #7a73ff, #635bff 55%, #4b45c6);
-    box-shadow: 0 4px 12px rgba(99,91,255,.35), inset 0 1px 0 rgba(255,255,255,.35);
+    font-weight: 800; font-size: .82rem; color: #fff;
+    background: linear-gradient(135deg, #3b82f6, #2563eb);
 }
-.topbar-titles { display: flex; flex-direction: column; gap: .1rem; }
-.topbar-name { font-family: 'Plus Jakarta Sans'; font-weight: 800; font-size: 1.05rem; color: var(--text); letter-spacing: -.01em; line-height: 1.1; }
-.topbar-tag { font-size: .7rem; color: var(--text-dim); font-weight: 500; }
-.topbar-right { display: flex; align-items: center; gap: .8rem; }
-.topbar-date {
-    font-size: .78rem; font-weight: 600; color: var(--text-mut);
-    background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: .4rem .75rem;
+.side-user-txt { display: flex; flex-direction: column; gap: .1rem; }
+.side-user-name { font-size: .82rem; font-weight: 700; color: #fff; }
+.side-user-status { font-size: .68rem; color: #5eba7d; display: flex; align-items: center; gap: .3rem; }
+.su-dot { width: 6px; height: 6px; border-radius: 50%; background: #22c55e; }
+@media (max-width: 820px) { .side-rail { display: none !important; } }
+
+/* ═══════════════ BLUE GRADIENT HERO BANNER ═══════════════ */
+.hero-banner {
+    position: relative; overflow: hidden; border-radius: 18px; margin: 0 0 1.5rem 0;
+    background: linear-gradient(120deg, #0f2847 0%, #1a4a8a 45%, #2563eb 100%);
+    box-shadow: 0 10px 30px rgba(15,40,71,.28);
 }
-.topbar-live {
+.hero-banner::after {
+    content: ''; position: absolute; top: -50%; right: -5%; width: 340px; height: 340px;
+    border-radius: 50%; background: radial-gradient(circle, rgba(96,165,250,.28), transparent 65%); pointer-events: none;
+}
+.hero-banner::before {
+    content: ''; position: absolute; bottom: -60%; left: 20%; width: 280px; height: 280px;
+    border-radius: 50%; background: radial-gradient(circle, rgba(59,130,246,.2), transparent 68%); pointer-events: none;
+}
+.hero-banner-inner {
+    position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between;
+    padding: 1.6rem 1.9rem; gap: 1rem; flex-wrap: wrap;
+}
+.hb-greet { font-size: .88rem; color: #bcd4f5; font-weight: 600; margin-bottom: .3rem; }
+.hb-title { font-family: 'Plus Jakarta Sans'; font-weight: 800; font-size: 1.9rem; color: #fff; letter-spacing: -.02em; line-height: 1.05; }
+.hb-sub { font-size: .82rem; color: #a9c5ec; margin-top: .25rem; font-weight: 500; }
+.hb-right { display: flex; align-items: center; gap: .7rem; }
+.hb-datebox {
+    background: rgba(255,255,255,.14); backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,.18); border-radius: 11px; padding: .6rem .95rem;
+}
+.hb-date-d { font-size: .8rem; font-weight: 600; color: #fff; }
+.hb-live {
     display: inline-flex; align-items: center; gap: .4rem;
-    font-size: .74rem; font-weight: 700; color: var(--green);
-    background: color-mix(in srgb, var(--green) 10%, #fff);
-    border: 1px solid color-mix(in srgb, var(--green) 25%, var(--border));
-    border-radius: 8px; padding: .4rem .7rem;
+    font-size: .76rem; font-weight: 700; color: #fff;
+    background: rgba(34,197,94,.25); border: 1px solid rgba(34,197,94,.4);
+    border-radius: 10px; padding: .55rem .8rem;
 }
-.live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 0 rgba(23,163,74,.5); animation: livepulse 2s infinite; }
+.hb-live-dot { width: 7px; height: 7px; border-radius: 50%; background: #4ade80; box-shadow: 0 0 8px #4ade80; animation: livepulse 2s infinite; }
 @keyframes livepulse {
-    0% { box-shadow: 0 0 0 0 rgba(23,163,74,.5); }
-    70% { box-shadow: 0 0 0 6px rgba(23,163,74,0); }
-    100% { box-shadow: 0 0 0 0 rgba(23,163,74,0); }
+    0% { box-shadow: 0 0 0 0 rgba(74,222,128,.6); }
+    70% { box-shadow: 0 0 0 6px rgba(74,222,128,0); }
+    100% { box-shadow: 0 0 0 0 rgba(74,222,128,0); }
 }
-@media (max-width: 820px) { .topbar-tag { display: none; } .topbar-date { display: none; } }
+@media (max-width: 820px) { .hb-title { font-size: 1.5rem; } .hb-sub { display: none; } }
 </style>
 """, unsafe_allow_html=True)
 
