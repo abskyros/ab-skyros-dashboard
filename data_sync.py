@@ -28,7 +28,7 @@ SCOPES = ["https://www.googleapis.com/auth/spreadsheets",
 
 INVOICES_EMAIL_USER   = "abf.skyros@gmail.com"
 INVOICES_EMAIL_SENDER = "Notifications@WeDoConnect.com"
-TIMOL_EMAIL_USER      = "ftoulisgm@gmail.com"
+TIMOL_EMAIL_USER      = "abf.skyros@gmail.com"
 TIMOL_EMAIL_SENDER    = "fr.georgios.manos.ftoylis@ab.gr"
 TIMOL_SUBJECT_KW      = "ΤΙΜΟΛΟΓΗΣΕΙΣ"
 
@@ -265,7 +265,8 @@ def main():
     wb = _get_wb()
 
     inv_pw = os.environ.get("EMAIL_PASS", "")
-    tim_pw = os.environ.get("SALES_EMAIL_PASS", "")
+    # Οι τιμολογήσεις έρχονται πλέον στο abf.skyros (ίδιο inbox με παραστατικά) → EMAIL_PASS.
+    tim_pw = os.environ.get("EMAIL_PASS", "") or os.environ.get("SALES_EMAIL_PASS", "")
 
     print("\n🧾 ΠΑΡΑΣΤΑΤΙΚΑ")
     if inv_pw:
@@ -279,7 +280,7 @@ def main():
         n = sync_timologiseis(wb, tim_pw)
         print(f"  ✅ {n} νέες τιμολογήσεις." if n else "  ℹ️ Καμία νέα τιμολόγηση.")
     else:
-        print("  ⚠️ Λείπει το SALES_EMAIL_PASS — παράλειψη.")
+        print("  ⚠️ Λείπει το EMAIL_PASS — παράλειψη.")
 
     print("\n🎉 Ολοκληρώθηκε.")
 

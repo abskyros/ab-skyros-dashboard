@@ -74,8 +74,8 @@ INVOICES_EMAIL_USER   = "abf.skyros@gmail.com"
 INVOICES_EMAIL_SENDER = "Notifications@WeDoConnect.com"
 SALES_EMAIL_USER      = "ftoulisgm@gmail.com"
 SALES_EMAIL_SENDER    = "abf.skyros@gmail.com"
-# Τιμολογήσεις (επιταγές) — έρχονται στο ftoulisgm από fr.georgios.manos.ftoylis@ab.gr
-TIMOL_EMAIL_USER      = "ftoulisgm@gmail.com"
+# Τιμολογήσεις (επιταγές) — έρχονται στο abf.skyros από fr.georgios.manos.ftoylis@ab.gr
+TIMOL_EMAIL_USER      = "abf.skyros@gmail.com"
 TIMOL_EMAIL_SENDER    = "fr.georgios.manos.ftoylis@ab.gr"
 TIMOL_SUBJECT_KW      = "ΤΙΜΟΛΟΓΗΣΕΙΣ"
 SALES_SUBJECT_KW      = "ΑΒ ΣΚΥΡΟΣ"
@@ -1798,39 +1798,35 @@ elif page == "Τιμολογήσεις":
                 f'</div></div></a>',
                 unsafe_allow_html=True
             )
-            # Drill-down: μήνες με ξεχωριστά κουτιά Αγορές/Πωλήσεις
+            # Drill-down: ΟΛΑ τα τιμολόγια (επιταγές) του έτους αναλυτικά
             if _is_open:
                 _ty_df = df_t2[df_t2["year"] == _yr].copy()
-                _ty_df["month"] = _ty_df["check_date"].dt.month
-                _sm_month = {}
-                if not _df_sales_y.empty:
-                    _smdf = _df_sales_y[_df_sales_y["date"].apply(lambda d: d.year) == _yr].copy()
-                    if not _smdf.empty:
-                        _smdf["m"] = _smdf["date"].apply(lambda d: d.month)
-                        _sm_month = _smdf.groupby("m")["net_sales"].sum().to_dict()
-                _mhtml = ""
-                for _mn in range(1, 13):
-                    _mdf = _ty_df[_ty_df["month"] == _mn]
-                    _mpurch = _mdf["amount"].sum() if not _mdf.empty else 0
-                    _msales = _sm_month.get(_mn, None)
-                    if _mdf.empty and _msales is None:
-                        continue
-                    _mstxt = fmt(_msales) if _msales is not None else "—"
-                    _mptxt = fmt(_mpurch) if _mpurch > 0 else "—"
-                    _mhtml += (
+                _ty_df = _ty_df.sort_values("check_date", ascending=False)
+                _rows_html = ""
+                for _, _tr in _ty_df.iterrows():
+                    _cd = _tr["check_date"]
+                    _cd_s = _cd.strftime("%d/%m/%Y") if hasattr(_cd, "strftime") else str(_cd)
+                    _per = _tr.get("period", "") or "—"
+                    _amt = _tr["amount"]
+                    _rows_html += (
                         '<div style="display:flex;align-items:center;justify-content:space-between;'
-                        'padding:.65rem 1.5rem;margin-left:1.5rem;border-left:2px solid var(--border);'
-                        'background:rgba(247,251,255,.6);border-radius:0 10px 10px 0;margin-bottom:.4rem">'
-                        f'<span style="font-weight:600;color:var(--text)">{MONTHS_GR[_mn-1]}</span>'
-                        f'<div style="display:flex;gap:1.5rem">'
-                        f'<span style="width:150px;text-align:center;padding:.35rem .6rem;border-radius:8px;'
-                        f'background:rgba(0,114,206,.08);font-weight:700;color:#0072CE;font-variant-numeric:tabular-nums">{_mptxt}</span>'
-                        f'<span style="width:150px;text-align:center;padding:.35rem .6rem;border-radius:8px;'
-                        f'background:rgba(14,165,233,.08);font-weight:700;color:#0ea5e9;font-variant-numeric:tabular-nums">{_mstxt}</span>'
-                        f'</div></div>'
+                        'padding:.6rem 1.5rem;margin-left:1.5rem;border-left:2px solid var(--border);'
+                        'background:rgba(247,251,255,.6);border-radius:0 8px 8px 0;margin-bottom:.3rem">'
+                        f'<span style="font-weight:600;color:var(--text);font-size:.84rem;min-width:100px">📄 {_cd_s}</span>'
+                        f'<span style="color:var(--text-mut);font-size:.8rem;flex:1;text-align:center">{_per}</span>'
+                        f'<span style="width:130px;text-align:right;font-weight:800;color:var(--brand);'
+                        f'font-variant-numeric:tabular-nums">{fmt(_amt)}</span>'
+                        f'</div>'
                     )
-                if _mhtml:
-                    st.markdown(_mhtml, unsafe_allow_html=True)
+                if _rows_html:
+                    st.markdown(
+                        f'<div style="margin-bottom:.8rem"><div style="display:flex;justify-content:space-between;'
+                        f'padding:.4rem 1.5rem;margin-left:1.5rem;font-size:.6rem;font-weight:700;letter-spacing:.06em;'
+                        f'text-transform:uppercase;color:var(--text-dim)">'
+                        f'<span style="min-width:100px">Ημ. Επιταγής</span><span style="flex:1;text-align:center">Περίοδος</span>'
+                        f'<span style="width:130px;text-align:right">Ποσό</span></div>{_rows_html}</div>',
+                        unsafe_allow_html=True
+                    )
 
 
         # ── Έλεγχος ποιότητας δεδομένων (διπλά + κενές εβδομάδες) ──
@@ -2081,9 +2077,9 @@ with st.expander("⟳ Χειροκίνητη ενημέρωση δεδομένω
                 st.markdown('<div class="alert alert-error">❌ Λείπει το EMAIL_PASS.</div>', unsafe_allow_html=True)
     with _ec3:
         if st.button("Ενημέρωση Τιμολογήσεων", key="manual_timol", use_container_width=True):
-            if SALES_PW:
+            if INV_PW:
                 with st.spinner("Σύνδεση & ανάγνωση..."):
-                    _saved_t, _errs_t, _total_t = fetch_and_store_timologiseis(SALES_PW, limit=200)
+                    _saved_t, _errs_t, _total_t = fetch_and_store_timologiseis(INV_PW, limit=200)
                 if _errs_t:
                     st.markdown(f'<div class="alert alert-error">❌ {_errs_t[0]}</div>', unsafe_allow_html=True)
                 else:
