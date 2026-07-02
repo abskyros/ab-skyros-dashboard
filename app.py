@@ -2059,8 +2059,10 @@ with st.expander("⟳ Χειροκίνητη ενημέρωση δεδομένω
                     if _saved_s:
                         st.markdown(f'<div class="alert alert-success">✅ {_saved_s} νέες ημέρες από {_n} email.</div>', unsafe_allow_html=True)
                         st.rerun()
+                    elif _n == 0:
+                        st.markdown('<div class="alert alert-info">ℹ️ Δεν βρέθηκε νέο email πωλήσεων ακόμη. Οι πωλήσεις ενημερώνονται αυτόματα κάθε μισή ώρα από τις 20:00 ως τις 02:00.</div>', unsafe_allow_html=True)
                     else:
-                        st.markdown('<div class="alert alert-info">ℹ️ Καμία νέα εγγραφή. (Το OCR τρέχει πλήρως κάθε βράδυ 23:00.)</div>', unsafe_allow_html=True)
+                        st.markdown(f'<div class="alert alert-info">ℹ️ Βρέθηκαν {_n} email αλλά οι ημέρες υπάρχουν ήδη (ή το OCR δεν είναι διαθέσιμο εδώ). Η αυτόματη ενημέρωση τρέχει κάθε βράδυ.</div>', unsafe_allow_html=True)
             else:
                 st.markdown('<div class="alert alert-error">❌ Λείπει το SALES_EMAIL_PASS.</div>', unsafe_allow_html=True)
     with _ec2:

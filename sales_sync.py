@@ -124,7 +124,10 @@ def main():
     added = 0
     with MailBox("imap.gmail.com").login(SALES_EMAIL_USER, SALES_PW) as mb:
         for msg in mb.fetch(limit=EMAIL_SCAN_LIMIT, reverse=True, mark_seen=False):
-            mdate = msg.date.date() if msg.date else None
+            _md = msg.date
+            if _md and hasattr(_md, "tzinfo") and _md.tzinfo:
+                _md = _md.replace(tzinfo=None)
+            mdate = _md.date() if _md else None
             if mdate and mdate < cutoff:
                 break
             if SALES_EMAIL_SENDER.lower() not in (msg.from_ or "").lower():
@@ -137,7 +140,7 @@ def main():
                 if rec["date"] and rec["net_sales"] is not None:
                     d_str = rec["date"].isoformat()
                     if d_str in existing:
-                        break
+                        continue
                     existing.add(d_str)
                     ws.append_row([
                         d_str,
