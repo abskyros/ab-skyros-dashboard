@@ -29,7 +29,7 @@ SCOPES = ["https://www.googleapis.com/auth/spreadsheets",
 INVOICES_EMAIL_USER   = "abf.skyros@gmail.com"
 INVOICES_EMAIL_SENDER = "Notifications@WeDoConnect.com"
 TIMOL_EMAIL_USER      = "ftoulisgm@gmail.com"
-TIMOL_EMAIL_SENDER    = "noreply@ab.gr"
+TIMOL_EMAIL_SENDER    = "fr.georgios.manos.ftoylis@ab.gr"
 TIMOL_SUBJECT_KW      = "ΤΙΜΟΛΟΓΗΣΕΙΣ"
 
 INV_LIMIT   = 60
