@@ -11,8 +11,23 @@ import plotly.express as px
 import io, re
 from datetime import datetime, date, timedelta
 from imap_tools import MailBox, AND
-from pdf2image import convert_from_bytes
-import pytesseract
+
+# ΣΗΜΑΝΤΙΚΟ: pdf2image/pytesseract ΔΕΝ γίνονται import εδώ.
+# Χρειάζονται system libs (poppler/tesseract) που ΔΕΝ υπάρχουν στο Streamlit Cloud
+# και το import τους προκαλεί crash (segmentation fault).
+# Το OCR τρέχει μόνο στο GitHub Actions (sales_sync.py). Εδώ φορτώνεται lazy, μόνο αν χρειαστεί.
+_OCR_OK = None
+def _load_ocr():
+    """Φορτώνει OCR μόνο όταν χρειάζεται. Επιστρέφει (convert_from_bytes, pytesseract) ή (None, None)."""
+    global _OCR_OK
+    try:
+        from pdf2image import convert_from_bytes as _cfb
+        import pytesseract as _pt
+        _OCR_OK = True
+        return _cfb, _pt
+    except Exception:
+        _OCR_OK = False
+        return None, None
 
 from gsheets_helper import (
     load_sales as _raw_load_sales, merge_sales,
@@ -632,6 +647,10 @@ def deep_scan_invoices(pw, limit=2000):
 
 def extract_sales_from_pdf(pdf_bytes):
     r = {"date": None, "net_sales": None, "customers": None, "avg_basket": None}
+    # Lazy load OCR — δεν υπάρχει στο Streamlit Cloud, μόνο σε GitHub Actions/τοπικά.
+    convert_from_bytes, pytesseract = _load_ocr()
+    if convert_from_bytes is None or pytesseract is None:
+        return r
     try:
         images = convert_from_bytes(pdf_bytes, dpi=180, first_page=1, last_page=1)
         if not images:
@@ -1126,7 +1145,7 @@ def _render_sales_fix(df_s):
     with _f3:
         _new_bsk = st.number_input("ΜΟ Καλαθιού (€)", min_value=0.0, value=_cur_bsk, step=0.01, format="%.2f", key="fix_bsk")
     st.markdown('<div class="btn-primary">', unsafe_allow_html=True)
-    if st.button("💾 Αποθήκευση διόρθωσης", key="save_fix", use_container_width=True):
+    if st.button("💾 Αποθήκευση διόρθωσης", key="save_fix", width='stretch'):
         _ns = _new_net if _new_net != _cur_net else None
         _nc = _new_cus if _new_cus != _cur_cus else None
         _nb = _new_bsk if _new_bsk != _cur_bsk else None
@@ -1162,7 +1181,7 @@ def _render_sales_add(df_s):
     with _af3:
         _add_bsk = st.number_input("ΜΟ Καλαθιού (€)", min_value=0.0, value=0.0, step=0.01, format="%.2f", key="add_bsk")
     st.markdown('<div class="btn-primary">', unsafe_allow_html=True)
-    if st.button("➕ Προσθήκη ημέρας", key="save_add", use_container_width=True, disabled=_exists):
+    if st.button("➕ Προσθήκη ημέρας", key="save_add", width='stretch', disabled=_exists):
         if _add_net <= 0:
             st.markdown('<div class="alert alert-warn">⚠️ Βάλε έγκυρη τιμή στις Καθαρές Πωλήσεις.</div>', unsafe_allow_html=True)
         else:
@@ -1182,7 +1201,7 @@ def _render_sales_add(df_s):
 
 def _render_sales_check():
     st.caption("Ελέγχει για διπλές ημερομηνίες ή χαμένες μέρες στις πωλήσεις.")
-    if st.button("Εκτέλεση ελέγχου", key="run_sales_check", use_container_width=True):
+    if st.button("Εκτέλεση ελέγχου", key="run_sales_check", width='stretch'):
         st.session_state["sales_check_done"] = True
     if st.session_state.get("sales_check_done"):
         with st.spinner("Έλεγχος..."):
@@ -1200,7 +1219,7 @@ def _render_sales_check():
                     with _bc1:
                         st.markdown(f'<div style="padding:.4rem 0">Γραμμή {_e["row"]}: <b>{fmt(_e["net_sales"])}</b></div>', unsafe_allow_html=True)
                     with _bc2:
-                        if st.button("🗑 Διαγραφή", key=f"del_sales_{_e['row']}", use_container_width=True):
+                        if st.button("🗑 Διαγραφή", key=f"del_sales_{_e['row']}", width='stretch'):
                             _ok, _msg = delete_sheet_row("sales", _e["row"])
                             if _ok:
                                 _raw_load_sales.clear()
@@ -1542,7 +1561,7 @@ elif page == "Πωλήσεις":
                 st.dataframe(disp.rename(columns={"date":"ΗΜΕΡΟΜΗΝΙΑ","net_sales":"ΠΩΛΗΣΕΙΣ","customers":"ΠΕΛΑΤΕΣ","avg_basket":"ΜΟ ΚΑΛΑΘΙΟΥ"}).style.format({
                     "ΠΩΛΗΣΕΙΣ": lambda v: fmt(v), "ΜΟ ΚΑΛΑΘΙΟΥ": lambda v: fmt(v) if pd.notna(v) else "—",
                     "ΠΕΛΑΤΕΣ": lambda v: f"{int(v)}" if pd.notna(v) else "—"}),
-                    use_container_width=True, hide_index=True)
+                    width='stretch', hide_index=True)
 
     with t_yr:
         _yrs = sorted({(d.year if hasattr(d, "year") else d.year) for d in df_s["date"]}, reverse=True)
@@ -1605,7 +1624,7 @@ elif page == "Παραστατικά":
     # ── Εργαλεία διαχείρισης (κάτω από τον τίτλο) ──
     with st.expander("🛠 Εργαλεία διαχείρισης (έλεγχος διπλών & κενών)"):
         st.caption("Ελέγχει για πανομοιότυπες εγγραφές (ίδια ημερομηνία+τύπος+αξία) ή χαμένες μέρες.")
-        if st.button("Εκτέλεση ελέγχου", key="run_inv_check", use_container_width=True):
+        if st.button("Εκτέλεση ελέγχου", key="run_inv_check", width='stretch'):
             st.session_state["inv_check_done"] = True
         if st.session_state.get("inv_check_done"):
             with st.spinner("Έλεγχος..."):
@@ -1624,7 +1643,7 @@ elif page == "Παραστατικά":
                         with _ic1:
                             st.markdown(f'<div style="padding:.4rem 0">Διπλή στη γραμμή {_ri}</div>', unsafe_allow_html=True)
                         with _ic2:
-                            if st.button("🗑 Διαγραφή", key=f"del_inv_{_ri}", use_container_width=True):
+                            if st.button("🗑 Διαγραφή", key=f"del_inv_{_ri}", width='stretch'):
                                 _ok, _msg = delete_sheet_row("invoices", _ri)
                                 if _ok:
                                     _raw_load_invoices.clear()
@@ -1663,7 +1682,7 @@ elif page == "Παραστατικά":
                 disp = w_df.copy(); disp["date"] = disp["date"].dt.strftime("%d/%m/%Y")
                 disp = disp.sort_values("date", ascending=False)
                 st.dataframe(disp.rename(columns={"date":"ΗΜΕΡΟΜΗΝΙΑ","type":"ΤΥΠΟΣ","value":"ΑΞΙΑ"}).style.format({"ΑΞΙΑ": lambda v: fmt(v)}),
-                    use_container_width=True, hide_index=True)
+                    width='stretch', hide_index=True)
             else:
                 st.markdown('<div class="alert alert-info">ℹ️ Δεν υπάρχουν εγγραφές για αυτή την εβδομάδα.</div>', unsafe_allow_html=True)
 
@@ -1833,7 +1852,7 @@ elif page == "Τιμολογήσεις":
         st.markdown("<div style='height:1rem'></div>", unsafe_allow_html=True)
         with st.expander("🔍 Έλεγχος δεδομένων (διπλά & κενά)"):
             st.caption("Ελέγχει για διπλές ημερομηνίες επιταγής ή χαμένες εβδομάδες.")
-            if st.button("Εκτέλεση ελέγχου", key="run_timol_check", use_container_width=True):
+            if st.button("Εκτέλεση ελέγχου", key="run_timol_check", width='stretch'):
                 st.session_state["timol_check_done"] = True
             if st.session_state.get("timol_check_done"):
                 with st.spinner("Έλεγχος..."):
@@ -1851,7 +1870,7 @@ elif page == "Τιμολογήσεις":
                             with _tbc1:
                                 st.markdown(f'<div style="padding:.4rem 0">Γραμμή {_e["row"]}: <b>{fmt(_e["amount"])}</b></div>', unsafe_allow_html=True)
                             with _tbc2:
-                                if st.button("🗑 Διαγραφή", key=f"del_timol_{_e['row']}", use_container_width=True):
+                                if st.button("🗑 Διαγραφή", key=f"del_timol_{_e['row']}", width='stretch'):
                                     _ok, _msg = delete_sheet_row("timologiseis", _e["row"])
                                     if _ok:
                                         load_timologiseis.clear()
@@ -2040,7 +2059,7 @@ with st.expander("⟳ Χειροκίνητη ενημέρωση δεδομένω
                "Πατήστε εδώ μόνο αν θέλετε άμεση ενημέρωση τώρα.")
     _ec1, _ec2, _ec3 = st.columns(3)
     with _ec1:
-        if st.button("Ενημέρωση Πωλήσεων", key="manual_sales", use_container_width=True):
+        if st.button("Ενημέρωση Πωλήσεων", key="manual_sales", width='stretch'):
             if SALES_PW:
                 with st.spinner("Σύνδεση & ανάγνωση (OCR)..."):
                     _ex = _raw_load_sales()
@@ -2066,7 +2085,7 @@ with st.expander("⟳ Χειροκίνητη ενημέρωση δεδομένω
             else:
                 st.markdown('<div class="alert alert-error">❌ Λείπει το SALES_EMAIL_PASS.</div>', unsafe_allow_html=True)
     with _ec2:
-        if st.button("Ενημέρωση Παραστατικών", key="manual_inv", use_container_width=True):
+        if st.button("Ενημέρωση Παραστατικών", key="manual_inv", width='stretch'):
             if INV_PW:
                 with st.spinner("Σύνδεση & αποθήκευση..."):
                     _saved, _errs, _total = fetch_and_store_invoices(INV_PW, limit=60)
@@ -2078,7 +2097,7 @@ with st.expander("⟳ Χειροκίνητη ενημέρωση δεδομένω
             else:
                 st.markdown('<div class="alert alert-error">❌ Λείπει το EMAIL_PASS.</div>', unsafe_allow_html=True)
     with _ec3:
-        if st.button("Ενημέρωση Τιμολογήσεων", key="manual_timol", use_container_width=True):
+        if st.button("Ενημέρωση Τιμολογήσεων", key="manual_timol", width='stretch'):
             if INV_PW:
                 with st.spinner("Σύνδεση & ανάγνωση..."):
                     _saved_t, _errs_t, _total_t = fetch_and_store_timologiseis(INV_PW, limit=200)
