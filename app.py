@@ -6,8 +6,6 @@ app.py — ΑΒ Σκύρος Dashboard
 
 import streamlit as st
 import pandas as pd
-import plotly.graph_objects as go
-import plotly.express as px
 import io, re
 from datetime import datetime, date, timedelta
 from imap_tools import MailBox, AND
@@ -814,96 +812,6 @@ def prev_week_range(sw):
     return sw - timedelta(days=7), sw - timedelta(days=1)
 
 # ── PLOTLY THEME ──────────────────────────────────────────────────────────────
-def _title_color():
-    return "#0a2540"
-
-def _plot_layout():
-    grid, line, txt = "#d8e6f4", "#d8e6f4", "#5a7290"
-    return dict(
-        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(family="Inter", color=txt, size=11),
-        margin=dict(l=0, r=0, t=30, b=0),
-        xaxis=dict(gridcolor=grid, linecolor=line, tickcolor=line),
-        yaxis=dict(gridcolor=grid, linecolor=line, tickcolor=line),
-        legend=dict(bgcolor="rgba(0,0,0,0)", bordercolor=line),
-        hoverlabel=dict(bgcolor="#ffffff", bordercolor=line, font_color="#0a2540"),
-    )
-
-# Backward compat
-PLOT_LAYOUT = _plot_layout()
-
-def sales_line_chart(df, title="Πωλήσεις"):
-    df = df.sort_values("date")
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=df["date"], y=df["net_sales"],
-        mode="lines+markers",
-        name="Πωλήσεις",
-        line=dict(color="#3fb950", width=2.5),
-        marker=dict(size=6, color="#3fb950"),
-        fill="tozeroy",
-        fillcolor="rgba(63,185,80,0.07)",
-        hovertemplate="<b>%{x}</b><br>%{y:,.2f}€<extra></extra>",
-    ))
-    if "customers" in df.columns:
-        fig.add_trace(go.Scatter(
-            x=df["date"], y=df["customers"],
-            mode="lines",
-            name="Πελάτες",
-            line=dict(color="#58a6ff", width=1.8, dash="dot"),
-            yaxis="y2",
-            hovertemplate="<b>%{x}</b><br>%{y} πελάτες<extra></extra>",
-        ))
-        fig.update_layout(
-            yaxis2=dict(overlaying="y", side="right", gridcolor="rgba(0,0,0,0)",
-                        tickcolor="#30363d", tickfont=dict(color="#58a6ff", size=10)),
-        )
-    fig.update_layout(**_plot_layout(), title=dict(text=title, font=dict(size=13, color=_title_color())), height=280)
-    return fig
-
-def basket_bar_chart(df):
-    df = df.sort_values("date")
-    fig = go.Figure(go.Bar(
-        x=df["date"], y=df["avg_basket"],
-        marker_color="#bc8cff",
-        hovertemplate="<b>%{x}</b><br>%{y:,.2f}€<extra></extra>",
-    ))
-    fig.update_layout(**_plot_layout(), title=dict(text="ΜΟ Καλαθιού", font=dict(size=13, color=_title_color())), height=220)
-    return fig
-
-def monthly_bar_chart(df_monthly):
-    fig = go.Figure()
-    fig.add_trace(go.Bar(
-        x=df_monthly["label"], y=df_monthly["net_sales"],
-        marker_color="#238636",
-        hovertemplate="<b>%{x}</b><br>%{y:,.2f}€<extra></extra>",
-        name="Πωλήσεις",
-    ))
-    fig.update_layout(**_plot_layout(), title=dict(text="Μηνιαίες Πωλήσεις", font=dict(size=13, color=_title_color())), height=260)
-    return fig
-
-def invoices_donut(inv_total, crd_total):
-    fig = go.Figure(go.Pie(
-        labels=["Τιμολόγια", "Πιστωτικά"],
-        values=[inv_total, crd_total],
-        hole=.65,
-        marker_colors=["#238636", "#da3633"],
-        textinfo="percent",
-        hovertemplate="<b>%{label}</b><br>%{value:,.2f}€<extra></extra>",
-    ))
-    fig.update_layout(
-        **_plot_layout(),
-        showlegend=True,
-        height=220,
-        annotations=[dict(text=f"{fmt(inv_total-crd_total)}", x=.5, y=.5,
-                          font=dict(size=14, color=_title_color(), family="Inter"), showarrow=False)],
-    )
-    return fig
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# SIDEBAR NAVIGATION (desktop) + light theme
-# ══════════════════════════════════════════════════════════════════════════════
 PAGES = ["Επισκόπηση", "Πωλήσεις", "Παραστατικά", "Τιμολογήσεις", "Μήνας"]
 PAGE_ICONS = {"Επισκόπηση": "🏠", "Πωλήσεις": "📈", "Παραστατικά": "🧾", "Τιμολογήσεις": "💳", "Μήνας": "📅"}
 
