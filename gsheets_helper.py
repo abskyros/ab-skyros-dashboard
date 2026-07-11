@@ -91,6 +91,12 @@ def load_sales() -> pd.DataFrame:
         df = df.dropna(subset=["date", "net_sales"])
         df = df[df["net_sales"] > 0]
         df = df.sort_values("date", ascending=False).reset_index(drop=True)
+        # Μείωση μνήμης: float32 αντί float64 (μισή μνήμη) — αρκετή ακρίβεια για ευρώ
+        for _c in ("net_sales", "avg_basket"):
+            if _c in df.columns:
+                df[_c] = df[_c].astype("float32")
+        if "customers" in df.columns:
+            df["customers"] = df["customers"].astype("float32")
         return df
     except Exception as e:
         st.warning(f"⚠️ Σφάλμα φόρτωσης πωλήσεων: {e}")

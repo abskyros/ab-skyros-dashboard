@@ -1941,111 +1941,106 @@ elif page == "Μήνας":
         _sub = _df_sales_m[_mask]
         return _sub["net_sales"].sum() if not _sub.empty else None
 
-    # Επικεφαλίδες (9 στήλες)
-    st.markdown(
-        '<div style="display:grid;grid-template-columns:.95fr 1.15fr .85fr .9fr .9fr .9fr .85fr .9fr .9fr;gap:.4rem;'
-        'padding:.5rem .7rem;font-size:.56rem;font-weight:700;letter-spacing:.03em;text-transform:uppercase;'
-        'color:var(--text-dim);border-bottom:1.5px solid var(--border)">'
-        '<span>Ημ. Επιταγής</span><span>Περίοδος</span><span style="text-align:right">Ποσό</span>'
-        '<span style="text-align:right">Πωλ. Περιόδου</span><span style="text-align:right">Πέρσι Τιμολ.</span>'
-        '<span style="text-align:right">Πέρσι Πωλ.</span><span>Αρ. Επιταγής</span>'
-        '<span>Έξοδα Μήνα</span><span style="text-align:right">Διαφορά</span>'
-        '</div>',
-        unsafe_allow_html=True
-    )
-
-    _sum_amount = 0.0
-    _sum_sales = 0.0
-    _sum_expenses = 0.0
-    _sum_diff = 0.0
+    # ── ΕΛΑΦΡΥΣ πίνακας με data_editor (ΕΝΑ widget αντί για εκατοντάδες) ──
+    # ΣΗΜΑΝΤΙΚΟ: το παλιό loop με st.columns/st.text_input ανά γραμμή έσκαγε τη μνήμη
+    # στο Streamlit Cloud (segmentation fault) όταν εμφανίζονταν πολλές εβδομάδες.
+    _tbl_rows = []
+    _sum_amount = _sum_sales = _sum_expenses = _sum_diff = 0.0
 
     for _idx, _trow in _month_df.iterrows():
         _cd = _trow["check_date"]
         _cd_date = _cd.date() if hasattr(_cd, "date") else _cd
-        _period = _trow.get("period", "")
-        _amount = _trow["amount"]
+        _amount = float(_trow["amount"])
         _row_num = int(_trow["_row"]) if "_row" in _trow and pd.notna(_trow["_row"]) else None
-        _chk_num = _trow.get("check_number", "") if "check_number" in _trow else ""
-        _exp_val = _trow.get("expenses", "") if "expenses" in _trow else ""
+        _chk_num = str(_trow.get("check_number", "") or "")
+        _exp_val = str(_trow.get("expenses", "") or "")
 
         # Πωλήσεις περιόδου = 7 μέρες πριν την ημ. επιταγής
-        _pe = _cd_date - timedelta(days=1)
-        _ps = _cd_date - timedelta(days=7)
-        _sales_period = _sales_range_m(_ps, _pe)
+        _sales_period = _sales_range_m(_cd_date - timedelta(days=7), _cd_date - timedelta(days=1))
 
-        # Πέρσι: επιταγή 364 μέρες πριν
+        # Πέρσι: επιταγή ~364 μέρες πριν + πωλήσεις της περσινής περιόδου
         _ly_cd = _cd_date - timedelta(days=364)
         _ly_amount = None
-        _ly_window = df_t[df_t["check_date"].apply(lambda x: abs(((x.date() if hasattr(x,"date") else x) - _ly_cd).days) <= 3)]
-        if not _ly_window.empty:
-            _ly_amount = _ly_window.iloc[0]["amount"]
-        # Πέρσι πωλήσεις = 7 μέρες πριν την περσινή επιταγή
-        _ly_pe = _ly_cd - timedelta(days=1)
-        _ly_ps = _ly_cd - timedelta(days=7)
-        _ly_sales = _sales_range_m(_ly_ps, _ly_pe)
+        _ly_win = df_t[df_t["check_date"].apply(
+            lambda x: abs(((x.date() if hasattr(x, "date") else x) - _ly_cd).days) <= 3)]
+        if not _ly_win.empty:
+            _ly_amount = float(_ly_win.iloc[0]["amount"])
+        _ly_sales = _sales_range_m(_ly_cd - timedelta(days=7), _ly_cd - timedelta(days=1))
 
-        # Έξοδα (parse)
         try:
             _exp_num = float(str(_exp_val).replace("€", "").replace(",", ".").strip()) if _exp_val else 0.0
         except Exception:
             _exp_num = 0.0
 
-        # Διαφορά = Πωλήσεις περιόδου − Ποσό − Έξοδα
-        _diff = None
-        if _sales_period is not None:
-            _diff = _sales_period - _amount - _exp_num
-        _diff_color = "#1aa260" if (_diff is not None and _diff >= 0) else "#E2231A"
+        _diff = (_sales_period - _amount - _exp_num) if _sales_period is not None else None
 
-        # Αθροίσματα
         _sum_amount += _amount
         if _sales_period is not None: _sum_sales += _sales_period
         _sum_expenses += _exp_num
         if _diff is not None: _sum_diff += _diff
 
-        _c1, _c2, _c3, _c4, _c5, _c6, _c7, _c8, _c9 = st.columns([.95, 1.15, .85, .9, .9, .9, .85, .9, .9])
-        with _c1:
-            st.markdown(f'<div style="padding-top:.5rem;font-weight:600;font-size:.76rem">{_cd_date.strftime("%d/%m/%Y")}</div>', unsafe_allow_html=True)
-        with _c2:
-            st.markdown(f'<div style="padding-top:.5rem;font-size:.72rem;color:var(--text-mut)">{_period or "—"}</div>', unsafe_allow_html=True)
-        with _c3:
-            st.markdown(f'<div style="padding-top:.5rem;text-align:right;font-weight:700;font-size:.76rem">{fmt(_amount)}</div>', unsafe_allow_html=True)
-        with _c4:
-            _sp_txt = fmt(_sales_period) if _sales_period is not None else "—"
-            st.markdown(f'<div style="padding-top:.5rem;text-align:right;font-weight:700;color:var(--brand);font-size:.76rem">{_sp_txt}</div>', unsafe_allow_html=True)
-        with _c5:
-            _ly_txt = fmt(_ly_amount) if _ly_amount is not None else "—"
-            st.markdown(f'<div style="padding-top:.5rem;text-align:right;color:var(--violet);font-size:.76rem">{_ly_txt}</div>', unsafe_allow_html=True)
-        with _c6:
-            _lys_txt = fmt(_ly_sales) if _ly_sales is not None else "—"
-            st.markdown(f'<div style="padding-top:.5rem;text-align:right;color:#0ea5e9;font-size:.76rem">{_lys_txt}</div>', unsafe_allow_html=True)
-        with _c7:
-            _new_chk = st.text_input("αρ", value=_chk_num, key=f"mchk_{_row_num}_{_idx}", label_visibility="collapsed", placeholder="—")
-            if _new_chk != _chk_num and _row_num:
-                _ok, _msg = update_timologiseis_check_number(_row_num, _new_chk)
-                if _ok:
-                    load_timologiseis.clear(); st.rerun()
-        with _c8:
-            _new_exp = st.text_input("εξ", value=_exp_val, key=f"mexp_{_row_num}_{_idx}", label_visibility="collapsed", placeholder="0")
-            if _new_exp != _exp_val and _row_num:
-                _ok, _msg = update_timologiseis_expenses(_row_num, _new_exp)
-                if _ok:
-                    load_timologiseis.clear(); st.rerun()
-        with _c9:
-            _diff_txt = fmt(_diff) if _diff is not None else "—"
-            st.markdown(f'<div style="padding-top:.5rem;text-align:right;font-weight:700;color:{_diff_color};font-size:.76rem">{_diff_txt}</div>', unsafe_allow_html=True)
+        _tbl_rows.append({
+            "_row": _row_num,
+            "Ημ. Επιταγής": _cd_date.strftime("%d/%m/%Y"),
+            "Περίοδος": _trow.get("period", "") or "—",
+            "Ποσό": _amount,
+            "Πωλ. Περιόδου": _sales_period,
+            "Πέρσι Τιμολ.": _ly_amount,
+            "Πέρσι Πωλ.": _ly_sales,
+            "Αρ. Επιταγής": _chk_num,
+            "Έξοδα Μήνα": _exp_val,
+            "Διαφορά": _diff,
+        })
 
-    # Σύνολα μήνα
-    _tot_color = "#1aa260" if _sum_diff >= 0 else "#E2231A"
+    _tbl = pd.DataFrame(_tbl_rows)
+    _orig = _tbl.copy()
+
+    _edited = st.data_editor(
+        _tbl.drop(columns=["_row"]),
+        width='stretch', hide_index=True, key="month_editor",
+        column_config={
+            "Ποσό":          st.column_config.NumberColumn(format="%.2f €", disabled=True),
+            "Πωλ. Περιόδου": st.column_config.NumberColumn(format="%.2f €", disabled=True),
+            "Πέρσι Τιμολ.":  st.column_config.NumberColumn(format="%.2f €", disabled=True),
+            "Πέρσι Πωλ.":    st.column_config.NumberColumn(format="%.2f €", disabled=True),
+            "Διαφορά":       st.column_config.NumberColumn(format="%.2f €", disabled=True),
+            "Ημ. Επιταγής":  st.column_config.TextColumn(disabled=True),
+            "Περίοδος":      st.column_config.TextColumn(disabled=True),
+            "Αρ. Επιταγής":  st.column_config.TextColumn(help="Συμπλήρωσε τον αριθμό επιταγής"),
+            "Έξοδα Μήνα":    st.column_config.TextColumn(help="Συμπλήρωσε τα έξοδα (π.χ. 1250.50)"),
+        },
+    )
+
+    # Αποθήκευση αλλαγών (μόνο ό,τι άλλαξε)
+    if _edited is not None and not _edited.equals(_orig.drop(columns=["_row"])):
+        _changed = 0
+        for _i in range(len(_orig)):
+            _rn = _orig.iloc[_i]["_row"]
+            if not _rn:
+                continue
+            _new_chk = str(_edited.iloc[_i]["Αρ. Επιταγής"] or "")
+            _new_exp = str(_edited.iloc[_i]["Έξοδα Μήνα"] or "")
+            if _new_chk != str(_orig.iloc[_i]["Αρ. Επιταγής"] or ""):
+                update_timologiseis_check_number(_rn, _new_chk); _changed += 1
+            if _new_exp != str(_orig.iloc[_i]["Έξοδα Μήνα"] or ""):
+                update_timologiseis_expenses(_rn, _new_exp); _changed += 1
+        if _changed:
+            load_timologiseis.clear()
+            st.rerun()
+
+    # Σύνολα
+    _tot_color = "#17a34a" if _sum_diff >= 0 else "#df1b41"
     st.markdown(
-        '<div style="display:grid;grid-template-columns:.95fr 1.15fr .85fr .9fr .9fr .9fr .85fr .9fr .9fr;gap:.4rem;'
-        'padding:.8rem .7rem;margin-top:.5rem;border-top:2px solid var(--brand);font-weight:800;font-size:.8rem">'
-        '<span>ΣΥΝΟΛΟ</span><span></span>'
-        f'<span style="text-align:right">{fmt(_sum_amount)}</span>'
-        f'<span style="text-align:right;color:var(--brand)">{fmt(_sum_sales)}</span>'
-        '<span></span><span></span><span></span>'
-        f'<span style="text-align:right">{fmt(_sum_expenses)}</span>'
-        f'<span style="text-align:right;color:{_tot_color}">{fmt(_sum_diff)}</span>'
-        '</div>',
+        f'<div style="display:flex;justify-content:space-between;align-items:center;padding:.9rem 1.2rem;'
+        f'margin-top:.6rem;background:var(--bg-card);border:1px solid var(--border);border-radius:12px;'
+        f'box-shadow:var(--shadow)">'
+        f'<span style="font-weight:800;font-size:.9rem">ΣΥΝΟΛΟ</span>'
+        f'<div style="display:flex;gap:2rem;font-size:.85rem;font-weight:700">'
+        f'<span>Ποσό: {fmt(_sum_amount)}</span>'
+        f'<span style="color:var(--brand)">Πωλήσεις: {fmt(_sum_sales)}</span>'
+        f'<span>Έξοδα: {fmt(_sum_expenses)}</span>'
+        f'<span style="color:{_tot_color}">Διαφορά: {fmt(_sum_diff)}</span>'
+        f'</div></div>',
         unsafe_allow_html=True
     )
 
