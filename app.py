@@ -35,51 +35,14 @@ from gsheets_helper import (
     check_sales_quality, check_timologiseis_quality, check_invoices_quality, delete_sheet_row,
 )
 
-# ── PATCH ΓΙΑ ΔΙΟΡΘΩΣΗ ΔΕΔΟΜΕΝΩΝ (Ασφαλής Μετατροπή & Αφαίρεση Διπλών) ─────────
-def _clean_numeric(x):
-    if pd.isna(x): return 0.0
-    if isinstance(x, (int, float)): return float(x)
-    s = str(x).replace("€", "").replace(" ", "").strip()
-    # Αν υπάρχει και τελεία και κόμμα, π.χ. "1.500,50"
-    if "." in s and "," in s:
-        s = s.replace(".", "").replace(",", ".")
-    # Αν υπάρχει μόνο κόμμα, π.χ. "1500,50"
-    elif "," in s:
-        s = s.replace(",", ".")
-    try:
-        return float(s)
-    except:
-        return 0.0
-
-def load_sales():
-    df = _raw_load_sales()
-    if df is not None and not df.empty:
-        df = df.copy()
-        if "net_sales" in df.columns:
-            df["net_sales"] = df["net_sales"].apply(_clean_numeric)
-        if "avg_basket" in df.columns:
-            df["avg_basket"] = df["avg_basket"].apply(_clean_numeric)
-        # Αφαίρεση διπλοεγγραφών ανά ημερομηνία για καθαρή εικόνα
-        if "date" in df.columns:
-            df = df.drop_duplicates(subset=["date"])
-    return df
-
-if hasattr(_raw_load_sales, "clear"):
-    load_sales.clear = _raw_load_sales.clear
-
-def load_invoices():
-    df = _raw_load_invoices()
-    if df is not None and not df.empty:
-        df = df.copy()
-        # Invoices: το Google Sheet αποθηκεύει x100 (σε λεπτά) — ίδια λογική με πωλήσεις
-        if "value" in df.columns:
-            df["value"] = df["value"].apply(_clean_numeric)
-        if "date" in df.columns and "type" in df.columns and "value" in df.columns:
-            df = df.drop_duplicates(subset=["date", "type", "value"])
-    return df
-
-if hasattr(_raw_load_invoices, "clear"):
-    load_invoices.clear = _raw_load_invoices.clear
+# ── ΦΟΡΤΩΣΗ ΔΕΔΟΜΕΝΩΝ ─────────────────────────────────────────────────────────
+# ΣΗΜΑΝΤΙΚΟ: Το gsheets_helper κάνει ΗΔΗ όλη τη μετατροπή (x100 → ευρώ),
+# την αφαίρεση διπλών και τη μείωση μνήμης (float32).
+# Το παλιό wrapper με .copy() + .apply() ανά κελί ΔΕΝ είχε cache και ξανάτρεχε
+# σε ΚΑΘΕ rerun — με 10.000+ παραστατικά έσκαγε τη μνήμη (segmentation fault).
+# Χρησιμοποιούμε απευθείας τις cached συναρτήσεις.
+load_sales = _raw_load_sales
+load_invoices = _raw_load_invoices
 # ──────────────────────────────────────────────────────────────────────────────
 
 # ── CONFIG ────────────────────────────────────────────────────────────────────
@@ -812,8 +775,57 @@ def prev_week_range(sw):
     return sw - timedelta(days=7), sw - timedelta(days=1)
 
 # ── PLOTLY THEME ──────────────────────────────────────────────────────────────
-PAGES = ["Επισκόπηση", "Πωλήσεις", "Παραστατικά", "Τιμολογήσεις", "Μήνας"]
+# ══════════════════════════════════════════════════════════════════════════════
+# 🔧 ΔΙΑΚΟΠΤΗΣ ΣΕΛΙΔΩΝ — ΒΗΜΑ ΒΗΜΑ
+# ══════════════════════════════════════════════════════════════════════════════
+# Πρόσθεσε ΜΙΑ σελίδα τη φορά για να βρούμε ποια σκάει.
+#
+#   ΒΗΜΑ 1: ENABLED_PAGES = ["Επισκόπηση"]
+#   ΒΗΜΑ 2: ENABLED_PAGES = ["Επισκόπηση", "Πωλήσεις"]
+#   ΒΗΜΑ 3: ENABLED_PAGES = ["Επισκόπηση", "Πωλήσεις", "Παραστατικά"]
+#   ΒΗΜΑ 4: + "Τιμολογήσεις"
+#   ΒΗΜΑ 5: + "Μήνας"
+#
+# Μόλις σκάσει σε κάποιο βήμα → βρήκαμε τον ένοχο!
+# Όταν τελειώσουμε, βάλε ENABLED_PAGES = ALL_PAGES για να ενεργοποιηθούν όλες.
+# ══════════════════════════════════════════════════════════════════════════════
+ALL_PAGES = ["Επισκόπηση", "Πωλήσεις", "Παραστατικά", "Τιμολογήσεις", "Μήνας"]
+
+ENABLED_PAGES = ["Επισκόπηση"]          # ← ΑΛΛΑΞΕ ΜΟΝΟ ΑΥΤΗ ΤΗ ΓΡΑΜΜΗ
+
+# Δείχνει τη μνήμη στην οθόνη (βοηθάει να δούμε πού εκτοξεύεται)
+SHOW_MEMORY = True
+
+PAGES = ENABLED_PAGES
 PAGE_ICONS = {"Επισκόπηση": "🏠", "Πωλήσεις": "📈", "Παραστατικά": "🧾", "Τιμολογήσεις": "💳", "Μήνας": "📅"}
+
+
+def _mem_mb():
+    """Τρέχουσα μνήμη της διεργασίας σε MB."""
+    try:
+        with open("/proc/self/status") as f:
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    return int(line.split()[1]) / 1024
+    except Exception:
+        pass
+    return 0.0
+
+
+def _mem_badge(label=""):
+    """Εμφανίζει τη μνήμη στην οθόνη."""
+    if not SHOW_MEMORY:
+        return
+    m = _mem_mb()
+    _color = "#17a34a" if m < 400 else ("#e08c0c" if m < 800 else "#df1b41")
+    st.markdown(
+        f'<div style="position:fixed;bottom:10px;right:10px;z-index:999999;'
+        f'background:#fff;border:2px solid {_color};border-radius:10px;'
+        f'padding:.5rem .9rem;font-family:monospace;font-size:.8rem;font-weight:700;'
+        f'color:{_color};box-shadow:0 4px 14px rgba(0,0,0,.15)">'
+        f'🧠 {m:.0f} MB {label}</div>',
+        unsafe_allow_html=True
+    )
 
 # Διάβασε τρέχουσα σελίδα από το URL (?page=...) — δουλεύει σε desktop & mobile
 _qp_page = st.query_params.get("page", "Επισκόπηση")
@@ -1142,6 +1154,16 @@ def _render_sales_check():
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE: ΕΠΙΣΚΟΠΗΣΗ (Overview) — 3 κάρτες, χωρίς γραφήματα
 # ══════════════════════════════════════════════════════════════════════════════
+# ── Δείχνει ποιες σελίδες είναι ενεργές (για τη διάγνωση) ──
+if SHOW_MEMORY:
+    _off = [p for p in ALL_PAGES if p not in ENABLED_PAGES]
+    if _off:
+        st.info(f"🔧 **Λειτουργία διάγνωσης** — Ενεργές: {', '.join(ENABLED_PAGES)}  ·  "
+                f"Ανενεργές: {', '.join(_off)}  ·  Μνήμη τώρα: **{_mem_mb():.0f} MB**")
+    else:
+        st.success(f"✅ Όλες οι σελίδες ενεργές · Μνήμη: **{_mem_mb():.0f} MB**")
+
+
 if page == "Επισκόπηση":
     st.markdown("""
 <div class="page-header">
@@ -1218,8 +1240,8 @@ if page == "Επισκόπηση":
         mask_ov = (df_i["date"] >= pd.Timestamp(sw)) & (df_i["date"] <= pd.Timestamp(ew) + pd.Timedelta(hours=23, minutes=59))
         wi_ov = df_i.loc[mask_ov]
         if not wi_ov.empty:
-            _inv = wi_ov[~wi_ov["type"].str.upper().str.contains("ΠΙΣΤΩΤΙΚΟ", na=False)]["value"].sum()
-            _crd = wi_ov[wi_ov["type"].str.upper().str.contains("ΠΙΣΤΩΤΙΚΟ", na=False)]["value"].sum()
+            _inv = wi_ov.loc[~wi_ov["is_credit"], "value"].sum()
+            _crd = wi_ov.loc[wi_ov["is_credit"], "value"].sum()
             inv_net_ov = _inv - _crd
 
     # Επιταγή που "πέφτει" σε αυτή την εβδομάδα (εβδομάδα πριν την ημ. επιταγής)
@@ -1515,10 +1537,11 @@ elif page == "Πωλήσεις":
                     '</div>'
                 )
             st.markdown(_months_html, unsafe_allow_html=True)
-            _csv = y_df.rename(columns={"date":"ΗΜΕΡΟΜΗΝΙΑ","net_sales":"ΠΩΛΗΣΕΙΣ","customers":"ΠΕΛΑΤΕΣ","avg_basket":"ΜΟ ΚΑΛΑΘΙΟΥ"}).copy()
-            _csv["ΗΜΕΡΟΜΗΝΙΑ"] = _csv["ΗΜΕΡΟΜΗΝΙΑ"].apply(lambda d: d.strftime("%d/%m/%Y"))
-            _csv = _csv.to_csv(index=False).encode("utf-8-sig")
-            st.download_button(f"↓ Λήψη CSV — Έτος {sy}", _csv, f"sales_{sy}.csv", "text/csv", key="sales_dl")
+            if st.checkbox("Ετοίμασε CSV για λήψη", key="sales_csv_prep"):
+                _csv = y_df.rename(columns={"date":"ΗΜΕΡΟΜΗΝΙΑ","net_sales":"ΠΩΛΗΣΕΙΣ","customers":"ΠΕΛΑΤΕΣ","avg_basket":"ΜΟ ΚΑΛΑΘΙΟΥ"}).copy()
+                _csv["ΗΜΕΡΟΜΗΝΙΑ"] = _csv["ΗΜΕΡΟΜΗΝΙΑ"].apply(lambda d: d.strftime("%d/%m/%Y"))
+                _csv = _csv.to_csv(index=False).encode("utf-8-sig")
+                st.download_button(f"↓ Λήψη CSV — Έτος {sy}", _csv, f"sales_{sy}.csv", "text/csv", key="sales_dl")
         else:
             st.markdown('<div class="alert alert-info">ℹ️ Δεν υπάρχουν εγγραφές για αυτό το έτος.</div>', unsafe_allow_html=True)
 
@@ -1580,8 +1603,8 @@ elif page == "Παραστατικά":
             mask = (df_inv["date"] >= pd.Timestamp(sw)) & (df_inv["date"] <= pd.Timestamp(ew) + pd.Timedelta(hours=23, minutes=59))
             w_df = df_inv.loc[mask]
             if not w_df.empty:
-                inv_v = w_df[~w_df["type"].str.upper().str.contains("ΠΙΣΤΩΤΙΚΟ", na=False)]["value"].sum()
-                crd_v = w_df[w_df["type"].str.upper().str.contains("ΠΙΣΤΩΤΙΚΟ", na=False)]["value"].sum()
+                inv_v = w_df.loc[~w_df["is_credit"], "value"].sum()
+                crd_v = w_df.loc[w_df["is_credit"], "value"].sum()
                 st.markdown(f"""
 <div class="kpi-grid kpi-3">
 <div class="kpi-card" style="--accent:#10b981"><div class="glow"></div>
@@ -1596,7 +1619,7 @@ elif page == "Παραστατικά":
                 # ΠΡΟΣΟΧΗ: ΜΗΝ χρησιμοποιείς .style.format() — ο pandas Styler φτιάχνει
                 # τεράστιο HTML στη μνήμη και σκάει το app (10k+ γραμμές παραστατικών).
                 # Μορφοποιούμε ΠΡΙΝ, σε απλά strings.
-                disp = w_df.copy()
+                disp = w_df.drop(columns=["is_credit"], errors="ignore").copy()
                 disp["date"] = disp["date"].dt.strftime("%d/%m/%Y")
                 disp["value"] = disp["value"].map(fmt)
                 disp = disp.sort_values("date", ascending=False)
@@ -1616,8 +1639,8 @@ elif page == "Παραστατικά":
             st.markdown(f'<div class="date-badge">🗓 Έτος {sy}</div>', unsafe_allow_html=True)
             y_df = df_inv[df_inv["date"].dt.year == sy]
             if not y_df.empty:
-                inv_y = y_df[~y_df["type"].str.upper().str.contains("ΠΙΣΤΩΤΙΚΟ", na=False)]["value"].sum()
-                crd_y = y_df[y_df["type"].str.upper().str.contains("ΠΙΣΤΩΤΙΚΟ", na=False)]["value"].sum()
+                inv_y = y_df.loc[~y_df["is_credit"], "value"].sum()
+                crd_y = y_df.loc[y_df["is_credit"], "value"].sum()
                 st.markdown(f"""
 <div class="kpi-grid kpi-3">
 <div class="kpi-card" style="--accent:#0072CE"><div class="glow"></div>
@@ -1635,8 +1658,8 @@ elif page == "Παραστατικά":
                     _mdf = y_df[y_df["date"].dt.month == _mn]
                     if _mdf.empty:
                         continue
-                    _minv = _mdf[~_mdf["type"].str.upper().str.contains("ΠΙΣΤΩΤΙΚΟ", na=False)]["value"].sum()
-                    _mcrd = _mdf[_mdf["type"].str.upper().str.contains("ΠΙΣΤΩΤΙΚΟ", na=False)]["value"].sum()
+                    _minv = _mdf.loc[~_mdf["is_credit"], "value"].sum()
+                    _mcrd = _mdf.loc[_mdf["is_credit"], "value"].sum()
                     _mnet = _minv - _mcrd
                     _months_html += (
                         '<div class="year-row">'
@@ -1645,10 +1668,15 @@ elif page == "Παραστατικά":
                         '</div>'
                     )
                 st.markdown(_months_html, unsafe_allow_html=True)
-                _csv = y_df.rename(columns={"date":"ΗΜΕΡΟΜΗΝΙΑ","type":"ΤΥΠΟΣ","value":"ΑΞΙΑ"}).copy()
-                _csv["ΗΜΕΡΟΜΗΝΙΑ"] = _csv["ΗΜΕΡΟΜΗΝΙΑ"].dt.strftime("%d/%m/%Y")
-                _csv = _csv.to_csv(index=False).encode("utf-8-sig")
-                st.download_button(f"↓ Λήψη CSV — Έτος {sy}", _csv, f"invoices_{sy}.csv", "text/csv", key="inv_dl")
+                # Το CSV χτίζεται ΜΟΝΟ αν το ζητήσει ο χρήστης (αλλιώς τρώει μνήμη
+                # σε κάθε rerun με χιλιάδες γραμμές).
+                if st.checkbox("Ετοίμασε CSV για λήψη", key="inv_csv_prep"):
+                    _csv = y_df.drop(columns=["is_credit"], errors="ignore").rename(
+                        columns={"date": "ΗΜΕΡΟΜΗΝΙΑ", "type": "ΤΥΠΟΣ", "value": "ΑΞΙΑ"}).copy()
+                    _csv["ΗΜΕΡΟΜΗΝΙΑ"] = _csv["ΗΜΕΡΟΜΗΝΙΑ"].dt.strftime("%d/%m/%Y")
+                    _csv = _csv.to_csv(index=False).encode("utf-8-sig")
+                    st.download_button(f"↓ Λήψη CSV — Έτος {sy}", _csv, f"invoices_{sy}.csv",
+                                       "text/csv", key="inv_dl")
             else:
                 st.markdown('<div class="alert alert-info">ℹ️ Δεν υπάρχουν εγγραφές για αυτό το έτος.</div>', unsafe_allow_html=True)
 
@@ -1932,19 +1960,37 @@ elif page == "Μήνας":
         },
     )
 
-    # Αποθήκευση αλλαγών (μόνο ό,τι άλλαξε)
-    if _edited is not None and not _edited.equals(_orig.drop(columns=["_row"])):
+    # ── Αποθήκευση αλλαγών ──
+    # ΠΡΟΣΟΧΗ: ΜΗΝ χρησιμοποιείς _edited.equals(_orig) — το data_editor αλλάζει τους
+    # dtypes (None→NaN κ.λπ.) και το .equals() βγάζει False ακόμα κι όταν δεν άλλαξε
+    # τίποτα → μπαίνει σε ΑΤΕΡΜΟΝΟ ΒΡΟΧΟ st.rerun() και σκάει η εφαρμογή.
+    # Συγκρίνουμε ΜΟΝΟ τις 2 επεξεργάσιμες στήλες, ως καθαρά strings.
+    def _clean_str(v):
+        if v is None:
+            return ""
+        try:
+            if pd.isna(v):
+                return ""
+        except (TypeError, ValueError):
+            pass
+        return str(v).strip()
+
+    if _edited is not None and len(_edited) == len(_orig):
         _changed = 0
         for _i in range(len(_orig)):
             _rn = _orig.iloc[_i]["_row"]
             if not _rn:
                 continue
-            _new_chk = str(_edited.iloc[_i]["Αρ. Επιταγής"] or "")
-            _new_exp = str(_edited.iloc[_i]["Έξοδα Μήνα"] or "")
-            if _new_chk != str(_orig.iloc[_i]["Αρ. Επιταγής"] or ""):
-                update_timologiseis_check_number(_rn, _new_chk); _changed += 1
-            if _new_exp != str(_orig.iloc[_i]["Έξοδα Μήνα"] or ""):
-                update_timologiseis_expenses(_rn, _new_exp); _changed += 1
+            _old_chk = _clean_str(_orig.iloc[_i]["Αρ. Επιταγής"])
+            _new_chk = _clean_str(_edited.iloc[_i]["Αρ. Επιταγής"])
+            _old_exp = _clean_str(_orig.iloc[_i]["Έξοδα Μήνα"])
+            _new_exp = _clean_str(_edited.iloc[_i]["Έξοδα Μήνα"])
+            if _new_chk != _old_chk:
+                update_timologiseis_check_number(_rn, _new_chk)
+                _changed += 1
+            if _new_exp != _old_exp:
+                update_timologiseis_expenses(_rn, _new_exp)
+                _changed += 1
         if _changed:
             load_timologiseis.clear()
             st.rerun()
@@ -1964,6 +2010,11 @@ elif page == "Μήνας":
         f'</div></div>',
         unsafe_allow_html=True
     )
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 🧠 ΜΕΤΡΗΤΗΣ ΜΝΗΜΗΣ — δείχνει πόση RAM τρώει η σελίδα (κάτω δεξιά)
+# ══════════════════════════════════════════════════════════════════════════════
+_mem_badge(f"· {page}")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # ΔΙΑΚΡΙΤΙΚΗ ΕΝΗΜΕΡΩΣΗ (όχι στην κεφαλίδα) — κάτω από το περιεχόμενο
