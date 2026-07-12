@@ -35,51 +35,14 @@ from gsheets_helper import (
     check_sales_quality, check_timologiseis_quality, check_invoices_quality, delete_sheet_row,
 )
 
-# ── PATCH ΓΙΑ ΔΙΟΡΘΩΣΗ ΔΕΔΟΜΕΝΩΝ (Ασφαλής Μετατροπή & Αφαίρεση Διπλών) ─────────
-def _clean_numeric(x):
-    if pd.isna(x): return 0.0
-    if isinstance(x, (int, float)): return float(x)
-    s = str(x).replace("€", "").replace(" ", "").strip()
-    # Αν υπάρχει και τελεία και κόμμα, π.χ. "1.500,50"
-    if "." in s and "," in s:
-        s = s.replace(".", "").replace(",", ".")
-    # Αν υπάρχει μόνο κόμμα, π.χ. "1500,50"
-    elif "," in s:
-        s = s.replace(",", ".")
-    try:
-        return float(s)
-    except:
-        return 0.0
-
-def load_sales():
-    df = _raw_load_sales()
-    if df is not None and not df.empty:
-        df = df.copy()
-        if "net_sales" in df.columns:
-            df["net_sales"] = df["net_sales"].apply(_clean_numeric)
-        if "avg_basket" in df.columns:
-            df["avg_basket"] = df["avg_basket"].apply(_clean_numeric)
-        # Αφαίρεση διπλοεγγραφών ανά ημερομηνία για καθαρή εικόνα
-        if "date" in df.columns:
-            df = df.drop_duplicates(subset=["date"])
-    return df
-
-if hasattr(_raw_load_sales, "clear"):
-    load_sales.clear = _raw_load_sales.clear
-
-def load_invoices():
-    df = _raw_load_invoices()
-    if df is not None and not df.empty:
-        df = df.copy()
-        # Invoices: το Google Sheet αποθηκεύει x100 (σε λεπτά) — ίδια λογική με πωλήσεις
-        if "value" in df.columns:
-            df["value"] = df["value"].apply(_clean_numeric)
-        if "date" in df.columns and "type" in df.columns and "value" in df.columns:
-            df = df.drop_duplicates(subset=["date", "type", "value"])
-    return df
-
-if hasattr(_raw_load_invoices, "clear"):
-    load_invoices.clear = _raw_load_invoices.clear
+# ── ΦΟΡΤΩΣΗ ΔΕΔΟΜΕΝΩΝ ─────────────────────────────────────────────────────────
+# ΣΗΜΑΝΤΙΚΟ: Το gsheets_helper κάνει ΗΔΗ όλη τη μετατροπή (x100 → ευρώ),
+# την αφαίρεση διπλών και τη μείωση μνήμης (float32).
+# Το παλιό wrapper με .copy() + .apply() ανά κελί ΔΕΝ είχε cache και ξανάτρεχε
+# σε ΚΑΘΕ rerun — με 10.000+ παραστατικά έσκαγε τη μνήμη (segmentation fault).
+# Χρησιμοποιούμε απευθείας τις cached συναρτήσεις.
+load_sales = _raw_load_sales
+load_invoices = _raw_load_invoices
 # ──────────────────────────────────────────────────────────────────────────────
 
 # ── CONFIG ────────────────────────────────────────────────────────────────────
