@@ -1,0 +1,46 @@
+name: Daily Sync — AB Skyros
+
+on:
+  schedule:
+    # Κάθε μέρα στις 08:00 πρωί ώρα Ελλάδας (05:00 UTC)
+    - cron: '0 5 * * *'
+  workflow_dispatch:  # Επίσης χειροκίνητα από το GitHub UI
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install system dependencies (Tesseract + Poppler)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y tesseract-ocr tesseract-ocr-ell poppler-utils
+
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          pip install gspread google-auth imap-tools pandas \
+                      pdf2image pytesseract openpyxl
+
+      - name: Write Google service account key
+        run: echo '${{ secrets.GOOGLE_KEY_JSON }}' > ab-skyros-key.json
+
+      - name: Run daily sync
+        env:
+          INV_EMAIL_PASS:   ${{ secrets.EMAIL_PASS }}
+          SALES_EMAIL_PASS: ${{ secrets.SALES_EMAIL_PASS }}
+          GOOGLE_KEY_PATH:  ab-skyros-key.json
+        run: python daily_sync.py
+
+      - name: Cleanup key
+        if: always()
+        run: rm -f ab-skyros-key.json
