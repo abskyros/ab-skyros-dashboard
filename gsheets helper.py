@@ -76,14 +76,27 @@ def _parse_number(x):
 # ══════════════════════════════════════════════════════════════════════════════
 SALES_COLS = ["date", "net_sales", "customers", "avg_basket"]
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, max_entries=1)
 def load_sales() -> pd.DataFrame:
     try:
         ws = _get_sheet("sales")
-        records = ws.get_all_records()
-        if not records:
+        # get_all_values() είναι ΠΟΛΥ πιο ελαφρύ από get_all_records()
+        # (λίστες αντί για dict ανά γραμμή) — κρίσιμο για τη μνήμη στο Streamlit Cloud.
+        vals = ws.get_all_values()
+        if len(vals) < 2:
             return pd.DataFrame(columns=SALES_COLS)
-        df = pd.DataFrame(records)
+        rows = []
+        for r in vals[1:]:
+            if len(r) < 2 or not r[0]:
+                continue
+            rows.append((r[0], r[1],
+                         r[2] if len(r) > 2 else "",
+                         r[3] if len(r) > 3 else ""))
+        del vals
+        if not rows:
+            return pd.DataFrame(columns=SALES_COLS)
+        df = pd.DataFrame(rows, columns=["date", "net_sales", "customers", "avg_basket"])
+        del rows
         df["date"]       = pd.to_datetime(df["date"], errors="coerce")
         df["net_sales"]  = df["net_sales"].apply(_parse_number) / 100.0
         df["customers"]  = pd.to_numeric(df["customers"], errors="coerce")
@@ -91,12 +104,10 @@ def load_sales() -> pd.DataFrame:
         df = df.dropna(subset=["date", "net_sales"])
         df = df[df["net_sales"] > 0]
         df = df.sort_values("date", ascending=False).reset_index(drop=True)
-        # Μείωση μνήμης: float32 αντί float64 (μισή μνήμη) — αρκετή ακρίβεια για ευρώ
-        for _c in ("net_sales", "avg_basket"):
+        # Μείωση μνήμης: float32 αντί float64
+        for _c in ("net_sales", "avg_basket", "customers"):
             if _c in df.columns:
                 df[_c] = df[_c].astype("float32")
-        if "customers" in df.columns:
-            df["customers"] = df["customers"].astype("float32")
         return df
     except Exception as e:
         st.warning(f"⚠️ Σφάλμα φόρτωσης πωλήσεων: {e}")
@@ -174,17 +185,27 @@ def update_sales_value(target_date, net_sales=None, customers=None, avg_basket=N
 # ══════════════════════════════════════════════════════════════════════════════
 INVOICES_COLS = ["date", "type", "value"]
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, max_entries=1)
 def load_invoices() -> pd.DataFrame:
     try:
         ws = _get_sheet("invoices")
-        records = ws.get_all_records()
-        if not records:
+        vals = ws.get_all_values()
+        if len(vals) < 2:
             return pd.DataFrame(columns=INVOICES_COLS)
-        df = pd.DataFrame(records)
-        df.columns = [c.lower() for c in df.columns]
+        rows = []
+        for r in vals[1:]:
+            if len(r) < 3 or not r[0]:
+                continue
+            rows.append((r[0], r[1], r[2]))
+        del vals
+        if not rows:
+            return pd.DataFrame(columns=INVOICES_COLS)
+        df = pd.DataFrame(rows, columns=["date", "type", "value"])
+        del rows
         df["date"]  = pd.to_datetime(df["date"], errors="coerce")
         df["value"] = df["value"].apply(_parse_number) / 100.0
+        df["value"] = df["value"].astype("float32")
+        df["type"]  = df["type"].astype("category")
         df = df.dropna(subset=["date"])
         df = df.sort_values("date", ascending=False).reset_index(drop=True)
         return df
@@ -234,7 +255,7 @@ def merge_invoices(records: list) -> int:
 # ══════════════════════════════════════════════════════════════════════════════
 TIMOL_COLS = ["check_date", "period", "amount"]
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, max_entries=1)
 def load_timologiseis() -> pd.DataFrame:
     try:
         ws = _get_sheet("timologiseis")

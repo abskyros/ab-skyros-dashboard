@@ -1464,18 +1464,12 @@ elif page == "Πωλήσεις":
 </div>
 """, unsafe_allow_html=True)
                 st.markdown('<div class="section-label">Αναλυτικά ανά ημέρα</div>', unsafe_allow_html=True)
-                # Μορφοποίηση ΠΡΙΝ το dataframe (όχι .style.format — τρώει τη μνήμη)
-                disp = w_df.copy()
-                disp["date"] = disp["date"].apply(lambda d: d.strftime("%d/%m/%Y"))
-                disp["net_sales"] = disp["net_sales"].map(fmt)
-                disp["avg_basket"] = disp["avg_basket"].map(lambda v: fmt(v) if pd.notna(v) else "—")
-                disp["customers"] = disp["customers"].map(lambda v: f"{int(v)}" if pd.notna(v) else "—")
+                disp = w_df.copy(); disp["date"] = disp["date"].apply(lambda d: d.strftime("%d/%m/%Y"))
                 disp = disp.sort_values("date", ascending=False)
-                st.dataframe(
-                    disp.rename(columns={"date": "ΗΜΕΡΟΜΗΝΙΑ", "net_sales": "ΠΩΛΗΣΕΙΣ",
-                                         "customers": "ΠΕΛΑΤΕΣ", "avg_basket": "ΜΟ ΚΑΛΑΘΙΟΥ"}),
-                    width='stretch', hide_index=True
-                )
+                st.dataframe(disp.rename(columns={"date":"ΗΜΕΡΟΜΗΝΙΑ","net_sales":"ΠΩΛΗΣΕΙΣ","customers":"ΠΕΛΑΤΕΣ","avg_basket":"ΜΟ ΚΑΛΑΘΙΟΥ"}).style.format({
+                    "ΠΩΛΗΣΕΙΣ": lambda v: fmt(v), "ΜΟ ΚΑΛΑΘΙΟΥ": lambda v: fmt(v) if pd.notna(v) else "—",
+                    "ΠΕΛΑΤΕΣ": lambda v: f"{int(v)}" if pd.notna(v) else "—"}),
+                    width='stretch', hide_index=True)
 
     with t_yr:
         _yrs = sorted({(d.year if hasattr(d, "year") else d.year) for d in df_s["date"]}, reverse=True)
@@ -1593,17 +1587,10 @@ elif page == "Παραστατικά":
 </div>
 """, unsafe_allow_html=True)
                 st.markdown('<div class="section-label">Αναλυτικά</div>', unsafe_allow_html=True)
-                # ΠΡΟΣΟΧΗ: ΜΗΝ χρησιμοποιείς .style.format() — ο pandas Styler φτιάχνει
-                # τεράστιο HTML στη μνήμη και σκάει το app (10k+ γραμμές παραστατικών).
-                # Μορφοποιούμε ΠΡΙΝ, σε απλά strings.
-                disp = w_df.copy()
-                disp["date"] = disp["date"].dt.strftime("%d/%m/%Y")
-                disp["value"] = disp["value"].map(fmt)
+                disp = w_df.copy(); disp["date"] = disp["date"].dt.strftime("%d/%m/%Y")
                 disp = disp.sort_values("date", ascending=False)
-                st.dataframe(
-                    disp.rename(columns={"date": "ΗΜΕΡΟΜΗΝΙΑ", "type": "ΤΥΠΟΣ", "value": "ΑΞΙΑ"}),
-                    width='stretch', hide_index=True
-                )
+                st.dataframe(disp.rename(columns={"date":"ΗΜΕΡΟΜΗΝΙΑ","type":"ΤΥΠΟΣ","value":"ΑΞΙΑ"}).style.format({"ΑΞΙΑ": lambda v: fmt(v)}),
+                    width='stretch', hide_index=True)
             else:
                 st.markdown('<div class="alert alert-info">ℹ️ Δεν υπάρχουν εγγραφές για αυτή την εβδομάδα.</div>', unsafe_allow_html=True)
 
