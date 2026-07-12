@@ -1181,8 +1181,8 @@ if page == "Επισκόπηση":
         mask_ov = (df_i["date"] >= pd.Timestamp(sw)) & (df_i["date"] <= pd.Timestamp(ew) + pd.Timedelta(hours=23, minutes=59))
         wi_ov = df_i.loc[mask_ov]
         if not wi_ov.empty:
-            _inv = wi_ov[~wi_ov["type"].str.upper().str.contains("ΠΙΣΤΩΤΙΚΟ", na=False)]["value"].sum()
-            _crd = wi_ov[wi_ov["type"].str.upper().str.contains("ΠΙΣΤΩΤΙΚΟ", na=False)]["value"].sum()
+            _inv = wi_ov.loc[~wi_ov["is_credit"], "value"].sum()
+            _crd = wi_ov.loc[wi_ov["is_credit"], "value"].sum()
             inv_net_ov = _inv - _crd
 
     # Επιταγή που "πέφτει" σε αυτή την εβδομάδα (εβδομάδα πριν την ημ. επιταγής)
@@ -1478,10 +1478,11 @@ elif page == "Πωλήσεις":
                     '</div>'
                 )
             st.markdown(_months_html, unsafe_allow_html=True)
-            _csv = y_df.rename(columns={"date":"ΗΜΕΡΟΜΗΝΙΑ","net_sales":"ΠΩΛΗΣΕΙΣ","customers":"ΠΕΛΑΤΕΣ","avg_basket":"ΜΟ ΚΑΛΑΘΙΟΥ"}).copy()
-            _csv["ΗΜΕΡΟΜΗΝΙΑ"] = _csv["ΗΜΕΡΟΜΗΝΙΑ"].apply(lambda d: d.strftime("%d/%m/%Y"))
-            _csv = _csv.to_csv(index=False).encode("utf-8-sig")
-            st.download_button(f"↓ Λήψη CSV — Έτος {sy}", _csv, f"sales_{sy}.csv", "text/csv", key="sales_dl")
+            if st.checkbox("Ετοίμασε CSV για λήψη", key="sales_csv_prep"):
+                _csv = y_df.rename(columns={"date":"ΗΜΕΡΟΜΗΝΙΑ","net_sales":"ΠΩΛΗΣΕΙΣ","customers":"ΠΕΛΑΤΕΣ","avg_basket":"ΜΟ ΚΑΛΑΘΙΟΥ"}).copy()
+                _csv["ΗΜΕΡΟΜΗΝΙΑ"] = _csv["ΗΜΕΡΟΜΗΝΙΑ"].apply(lambda d: d.strftime("%d/%m/%Y"))
+                _csv = _csv.to_csv(index=False).encode("utf-8-sig")
+                st.download_button(f"↓ Λήψη CSV — Έτος {sy}", _csv, f"sales_{sy}.csv", "text/csv", key="sales_dl")
         else:
             st.markdown('<div class="alert alert-info">ℹ️ Δεν υπάρχουν εγγραφές για αυτό το έτος.</div>', unsafe_allow_html=True)
 
@@ -1543,8 +1544,8 @@ elif page == "Παραστατικά":
             mask = (df_inv["date"] >= pd.Timestamp(sw)) & (df_inv["date"] <= pd.Timestamp(ew) + pd.Timedelta(hours=23, minutes=59))
             w_df = df_inv.loc[mask]
             if not w_df.empty:
-                inv_v = w_df[~w_df["type"].str.upper().str.contains("ΠΙΣΤΩΤΙΚΟ", na=False)]["value"].sum()
-                crd_v = w_df[w_df["type"].str.upper().str.contains("ΠΙΣΤΩΤΙΚΟ", na=False)]["value"].sum()
+                inv_v = w_df.loc[~w_df["is_credit"], "value"].sum()
+                crd_v = w_df.loc[w_df["is_credit"], "value"].sum()
                 st.markdown(f"""
 <div class="kpi-grid kpi-3">
 <div class="kpi-card" style="--accent:#10b981"><div class="glow"></div>
@@ -1559,7 +1560,7 @@ elif page == "Παραστατικά":
                 # ΠΡΟΣΟΧΗ: ΜΗΝ χρησιμοποιείς .style.format() — ο pandas Styler φτιάχνει
                 # τεράστιο HTML στη μνήμη και σκάει το app (10k+ γραμμές παραστατικών).
                 # Μορφοποιούμε ΠΡΙΝ, σε απλά strings.
-                disp = w_df.copy()
+                disp = w_df.drop(columns=["is_credit"], errors="ignore").copy()
                 disp["date"] = disp["date"].dt.strftime("%d/%m/%Y")
                 disp["value"] = disp["value"].map(fmt)
                 disp = disp.sort_values("date", ascending=False)
@@ -1579,8 +1580,8 @@ elif page == "Παραστατικά":
             st.markdown(f'<div class="date-badge">🗓 Έτος {sy}</div>', unsafe_allow_html=True)
             y_df = df_inv[df_inv["date"].dt.year == sy]
             if not y_df.empty:
-                inv_y = y_df[~y_df["type"].str.upper().str.contains("ΠΙΣΤΩΤΙΚΟ", na=False)]["value"].sum()
-                crd_y = y_df[y_df["type"].str.upper().str.contains("ΠΙΣΤΩΤΙΚΟ", na=False)]["value"].sum()
+                inv_y = y_df.loc[~y_df["is_credit"], "value"].sum()
+                crd_y = y_df.loc[y_df["is_credit"], "value"].sum()
                 st.markdown(f"""
 <div class="kpi-grid kpi-3">
 <div class="kpi-card" style="--accent:#0072CE"><div class="glow"></div>
@@ -1598,8 +1599,8 @@ elif page == "Παραστατικά":
                     _mdf = y_df[y_df["date"].dt.month == _mn]
                     if _mdf.empty:
                         continue
-                    _minv = _mdf[~_mdf["type"].str.upper().str.contains("ΠΙΣΤΩΤΙΚΟ", na=False)]["value"].sum()
-                    _mcrd = _mdf[_mdf["type"].str.upper().str.contains("ΠΙΣΤΩΤΙΚΟ", na=False)]["value"].sum()
+                    _minv = _mdf.loc[~_mdf["is_credit"], "value"].sum()
+                    _mcrd = _mdf.loc[_mdf["is_credit"], "value"].sum()
                     _mnet = _minv - _mcrd
                     _months_html += (
                         '<div class="year-row">'
@@ -1608,10 +1609,15 @@ elif page == "Παραστατικά":
                         '</div>'
                     )
                 st.markdown(_months_html, unsafe_allow_html=True)
-                _csv = y_df.rename(columns={"date":"ΗΜΕΡΟΜΗΝΙΑ","type":"ΤΥΠΟΣ","value":"ΑΞΙΑ"}).copy()
-                _csv["ΗΜΕΡΟΜΗΝΙΑ"] = _csv["ΗΜΕΡΟΜΗΝΙΑ"].dt.strftime("%d/%m/%Y")
-                _csv = _csv.to_csv(index=False).encode("utf-8-sig")
-                st.download_button(f"↓ Λήψη CSV — Έτος {sy}", _csv, f"invoices_{sy}.csv", "text/csv", key="inv_dl")
+                # Το CSV χτίζεται ΜΟΝΟ αν το ζητήσει ο χρήστης (αλλιώς τρώει μνήμη
+                # σε κάθε rerun με χιλιάδες γραμμές).
+                if st.checkbox("Ετοίμασε CSV για λήψη", key="inv_csv_prep"):
+                    _csv = y_df.drop(columns=["is_credit"], errors="ignore").rename(
+                        columns={"date": "ΗΜΕΡΟΜΗΝΙΑ", "type": "ΤΥΠΟΣ", "value": "ΑΞΙΑ"}).copy()
+                    _csv["ΗΜΕΡΟΜΗΝΙΑ"] = _csv["ΗΜΕΡΟΜΗΝΙΑ"].dt.strftime("%d/%m/%Y")
+                    _csv = _csv.to_csv(index=False).encode("utf-8-sig")
+                    st.download_button(f"↓ Λήψη CSV — Έτος {sy}", _csv, f"invoices_{sy}.csv",
+                                       "text/csv", key="inv_dl")
             else:
                 st.markdown('<div class="alert alert-info">ℹ️ Δεν υπάρχουν εγγραφές για αυτό το έτος.</div>', unsafe_allow_html=True)
 
@@ -1895,19 +1901,37 @@ elif page == "Μήνας":
         },
     )
 
-    # Αποθήκευση αλλαγών (μόνο ό,τι άλλαξε)
-    if _edited is not None and not _edited.equals(_orig.drop(columns=["_row"])):
+    # ── Αποθήκευση αλλαγών ──
+    # ΠΡΟΣΟΧΗ: ΜΗΝ χρησιμοποιείς _edited.equals(_orig) — το data_editor αλλάζει τους
+    # dtypes (None→NaN κ.λπ.) και το .equals() βγάζει False ακόμα κι όταν δεν άλλαξε
+    # τίποτα → μπαίνει σε ΑΤΕΡΜΟΝΟ ΒΡΟΧΟ st.rerun() και σκάει η εφαρμογή.
+    # Συγκρίνουμε ΜΟΝΟ τις 2 επεξεργάσιμες στήλες, ως καθαρά strings.
+    def _clean_str(v):
+        if v is None:
+            return ""
+        try:
+            if pd.isna(v):
+                return ""
+        except (TypeError, ValueError):
+            pass
+        return str(v).strip()
+
+    if _edited is not None and len(_edited) == len(_orig):
         _changed = 0
         for _i in range(len(_orig)):
             _rn = _orig.iloc[_i]["_row"]
             if not _rn:
                 continue
-            _new_chk = str(_edited.iloc[_i]["Αρ. Επιταγής"] or "")
-            _new_exp = str(_edited.iloc[_i]["Έξοδα Μήνα"] or "")
-            if _new_chk != str(_orig.iloc[_i]["Αρ. Επιταγής"] or ""):
-                update_timologiseis_check_number(_rn, _new_chk); _changed += 1
-            if _new_exp != str(_orig.iloc[_i]["Έξοδα Μήνα"] or ""):
-                update_timologiseis_expenses(_rn, _new_exp); _changed += 1
+            _old_chk = _clean_str(_orig.iloc[_i]["Αρ. Επιταγής"])
+            _new_chk = _clean_str(_edited.iloc[_i]["Αρ. Επιταγής"])
+            _old_exp = _clean_str(_orig.iloc[_i]["Έξοδα Μήνα"])
+            _new_exp = _clean_str(_edited.iloc[_i]["Έξοδα Μήνα"])
+            if _new_chk != _old_chk:
+                update_timologiseis_check_number(_rn, _new_chk)
+                _changed += 1
+            if _new_exp != _old_exp:
+                update_timologiseis_expenses(_rn, _new_exp)
+                _changed += 1
         if _changed:
             load_timologiseis.clear()
             st.rerun()

@@ -210,9 +210,11 @@ def load_invoices() -> pd.DataFrame:
         df = df.dropna(subset=["date"])
         df = df.drop_duplicates(subset=["date", "type", "value"])
         df = df.sort_values("date", ascending=False).reset_index(drop=True)
-        # Μείωση μνήμης
         df["value"] = df["value"].astype("float32")
-        df["type"]  = df["type"].astype("category")
+        # ΠΡΟΫΠΟΛΟΓΙΣΜΕΝΗ στήλη: True αν είναι πιστωτικό.
+        # Την υπολογίζουμε ΜΙΑ φορά εδώ (μέσα στο cache) ώστε οι σελίδες να μην
+        # καλούν .str.upper()/.str.contains() σε 10.000+ γραμμές σε κάθε rerun.
+        df["is_credit"] = df["type"].str.upper().str.contains("ΠΙΣΤΩΤΙΚΟ", na=False)
         return df
     except Exception as e:
         st.warning(f"⚠️ Σφάλμα φόρτωσης παραστατικών: {e}")
