@@ -68,11 +68,9 @@ def topbar(today: date) -> None:
     html(
         '<div class="topbar">'
         '<div class="brand">'
-        '<div class="brand-mark">ΑΒ</div>'
-        '<div>'
         '<div class="brand-name">ΑΒ Σκύρος</div>'
         '<div class="brand-sub">Πωλήσεις · Παραστατικά · Τιμολογήσεις</div>'
-        '</div></div>'
+        '</div>'
         f'<div class="today-stamp">{stamp}</div>'
         '</div>'
     )

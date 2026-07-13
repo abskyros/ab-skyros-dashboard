@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from core.mail import fetch_invoices, fetch_timologiseis
 from core.sheets import (
     merge_invoices, merge_timologiseis,
-    purge_duplicate_timologiseis,
+    purge_duplicate_invoices, purge_duplicate_timologiseis,
 )
 
 INVOICE_LIMIT = 60
@@ -64,17 +64,22 @@ def main() -> int:
         print(f"  ✓ {saved} νέες (από {len(records)} που βρέθηκαν)" if saved
               else f"  · Καμία νέα ({len(records)} βρέθηκαν, όλες γνωστές)")
 
-    # ── ΚΑΘΑΡΙΣΜΑ ──
-    # ΜΟΝΟ τιμολογήσεις. Τα παραστατικά ΔΕΝ καθαρίζονται αυτόματα: χωρίς αριθμό
-    # παραστατικού δεν ξεχωρίζουμε τη διπλοκαταχώρηση από δύο πραγματικά
-    # τιμολόγια ίδιου ποσού. Βλ. core/sheets.py → purge_duplicate_invoices.
-    print("\n· Καθαρισμός διπλών")
+    # ── ΑΥΤΟΜΑΤΟΣ ΚΑΘΑΡΙΣΜΑΣ ──
+    # Σβήνει ΜΟΝΟ όσα έχουν τον ΙΔΙΟ ΑΡΙΘΜΟ ΠΑΡΑΣΤΑΤΙΚΟΥ. Τα δύο πραγματικά
+    # τιμολόγια ίδιου ποσού (διαφορετικός αριθμός) μένουν άθικτα.
+    print("\n· Καθαρισμός")
+
+    killed, kept, skipped = purge_duplicate_invoices()
+    if killed:
+        print(f"  ✓ Παραστατικά: σβήστηκαν {killed} διπλοκαταχωρήσεις, έμειναν {kept}")
+    else:
+        print(f"  · Παραστατικά: καθαρά ({kept} μοναδικά)")
+    if skipped:
+        print(f"    ({skipped} παλιά χωρίς αριθμό — δεν πειράχτηκαν)")
 
     killed, kept = purge_duplicate_timologiseis()
     print(f"  ✓ Τιμολογήσεις: σβήστηκαν {killed}, έμειναν {kept}" if killed
           else f"  · Τιμολογήσεις: καθαρές ({kept} εγγραφές)")
-
-    print("  · Παραστατικά: παράλειψη (χρειάζεται αριθμός παραστατικού)")
 
     print("\n✓ Ολοκληρώθηκε.")
     return 1 if failed else 0

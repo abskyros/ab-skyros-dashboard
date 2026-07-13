@@ -509,6 +509,369 @@ def diagnose(p: Plan, records: list) -> dict:
     return out
 
 
+def audit(df: pd.DataFrame, records: list, start: date, end: date) -> dict:
+    """
+    ΕΛΕΓΧΟΣ ΥΓΕΙΑΣ: το Sheet συμφωνεί με τα email;
+
+    Γιατί υπάρχει: η παλιά εφαρμογή (my_app.py) διάβαζε ΑΠΕΥΘΕΙΑΣ τα email και
+    έβγαζε 97.091,30 €. Η νέα διαβάζει το Sheet και βγάζει 104.837,62 €.
+
+    Διαφορά 7.746 €. Κάποιος από τους δύο λέει ψέματα — και ξέρουμε ποιος:
+    τα email είναι η ΠΗΓΗ. Το Sheet είναι αντίγραφο. Αν διαφέρουν, το Sheet
+    έχει σκουπίδια.
+
+    Αυτή η συνάρτηση βάζει τα δύο δίπλα-δίπλα, για ΜΙΑ εβδομάδα, και δείχνει
+    ακριβώς ποιες γραμμές περισσεύουν.
+
+    → {"email": {...}, "sheet": {...}, "extra": [...], "missing": [...]}
+    """
+    # ── Η ΑΛΗΘΕΙΑ: τι λένε τα email γι' αυτή την εβδομάδα ──
+    in_range = []
+    for r in records:
+        d = r.get("date")
+        d = d.date() if hasattr(d, "date") else d
+        if d and start <= d <= end:
+            in_range.append(r)
+
+    e_inv = sum(r["value"] for r in in_range if "ΠΙΣΤΩΤΙΚΟ" not in str(r["type"]).upper())
+    e_crd = sum(r["value"] for r in in_range if "ΠΙΣΤΩΤΙΚΟ" in str(r["type"]).upper())
+    e_nums = {str(r.get("number", "")).strip() for r in in_range if r.get("number")}
+
+    # ── ΤΟ ΑΝΤΙΓΡΑΦΟ: τι λέει το Sheet ──
+    if df.empty:
+        sheet_rows = pd.DataFrame(columns=["date", "type", "value", "number", "_row"])
+    else:
+        dts = df["date"].map(lambda x: x.date() if hasattr(x, "date") else x)
+        sheet_rows = df[(dts >= start) & (dts <= end)]
+
+    s_credit = sheet_rows["type"].astype(str).str.upper().str.contains("ΠΙΣΤΩΤΙΚΟ", na=False)
+    s_inv = float(sheet_rows[~s_credit]["value"].sum())
+    s_crd = float(sheet_rows[s_credit]["value"].sum())
+
+    # ── ΟΙ ΓΡΑΜΜΕΣ ΠΟΥ ΠΕΡΙΣΣΕΥΟΥΝ ──
+    #
+    # Ό,τι είναι στο Sheet αλλά ο αριθμός του δεν υπάρχει στα email αυτής της
+    # εβδομάδας. Αυτές είναι που φουσκώνουν τα σύνολα.
+    extra = []
+    seen: set[str] = set()
+
+    for _, r in sheet_rows.iterrows():
+        num = str(r.get("number", "")).strip()
+
+        if not num:
+            # Χωρίς αριθμό → δεν μπορούμε να το ταυτοποιήσουμε. Ύποπτο.
+            extra.append({
+                "row": int(r["_row"]) if pd.notna(r.get("_row")) else 0,
+                "date": r["date"].strftime("%Y-%m-%d") if hasattr(r["date"], "strftime") else str(r["date"])[:10],
+                "type": str(r["type"]),
+                "value": float(r["value"]),
+                "number": "",
+                "why": "χωρίς αριθμό",
+            })
+            continue
+
+        if num in seen:
+            extra.append({
+                "row": int(r["_row"]) if pd.notna(r.get("_row")) else 0,
+                "date": r["date"].strftime("%Y-%m-%d") if hasattr(r["date"], "strftime") else str(r["date"])[:10],
+                "type": str(r["type"]),
+                "value": float(r["value"]),
+                "number": num,
+                "why": "διπλό",
+            })
+            continue
+
+        seen.add(num)
+
+        if num not in e_nums:
+            extra.append({
+                "row": int(r["_row"]) if pd.notna(r.get("_row")) else 0,
+                "date": r["date"].strftime("%Y-%m-%d") if hasattr(r["date"], "strftime") else str(r["date"])[:10],
+                "type": str(r["type"]),
+                "value": float(r["value"]),
+                "number": num,
+                "why": "δεν υπάρχει στα email",
+            })
+
+    # ── ΟΣΑ ΛΕΙΠΟΥΝ ──
+    missing = [
+        {
+            "date": r["date"].strftime("%Y-%m-%d") if hasattr(r["date"], "strftime") else str(r["date"])[:10],
+            "type": str(r["type"]),
+            "value": float(r["value"]),
+            "number": str(r.get("number", "")),
+        }
+        for r in in_range
+        if str(r.get("number", "")).strip() and str(r.get("number", "")).strip() not in seen
+    ]
+
+    extra.sort(key=lambda x: -x["value"])
+
+    return {
+        "email": {"invoices": e_inv, "credits": e_crd, "net": e_inv - e_crd, "count": len(in_range)},
+        "sheet": {"invoices": s_inv, "credits": s_crd, "net": s_inv - s_crd, "count": len(sheet_rows)},
+        "extra": extra,
+        "missing": missing,
+        "extra_value": sum(
+            x["value"] if "ΠΙΣΤΩΤΙΚΟ" not in x["type"].upper() else -x["value"]
+            for x in extra
+        ),
+    }
+
+
+def _as_iso(v) -> str:
+    """
+    Ημερομηνία από το Sheet → "YYYY-MM-DD".
+
+    ┌────────────────────────────────────────────────────────────────────────┐
+    │ ΤΟ BUG ΠΟΥ ΕΦΤΙΑΞΕ ΑΥΤΗ Η ΣΥΝΑΡΤΗΣΗ                                    │
+    │                                                                        │
+    │ Το repair_week συνέκρινε ημερομηνίες ως STRINGS:                       │
+    │                                                                        │
+    │     lo, hi = "2026-07-06", "2026-07-12"                                │
+    │     if not (lo <= day <= hi): continue                                 │
+    │                                                                        │
+    │ Αν το Sheet έδινε "2026-07-10 00:00:00" ή "10/07/2026", η σύγκριση     │
+    │ αποτύγχανε ΣΙΩΠΗΛΑ — καμία γραμμή δεν περνούσε το φίλτρο, και η        │
+    │ επισκευή έλεγε «δεν βρέθηκε τίποτα».                                   │
+    │                                                                        │
+    │ Τώρα κανονικοποιούμε ΠΑΝΤΑ, από όποια μορφή κι αν έρθει.               │
+    └────────────────────────────────────────────────────────────────────────┘
+    """
+    if v is None:
+        return ""
+
+    if hasattr(v, "strftime"):
+        return v.strftime("%Y-%m-%d")
+
+    s = str(v).strip()
+    if not s:
+        return ""
+
+    # Ήδη σωστό (ίσως με ώρα από πίσω)
+    if len(s) >= 10 and s[4] == "-" and s[7] == "-":
+        return s[:10]
+
+    # Ελληνική μορφή: 10/07/2026 ή 10.07.2026
+    for sep in ("/", "."):
+        if sep in s:
+            parts = s.split()[0].split(sep)
+            if len(parts) == 3:
+                try:
+                    d, m, y = int(parts[0]), int(parts[1]), int(parts[2])
+                    if y < 100:
+                        y += 2000
+                    return f"{y:04d}-{m:02d}-{d:02d}"
+                except ValueError:
+                    pass
+
+    # Τελευταία ελπίδα — ας το δοκιμάσει το pandas
+    try:
+        ts = pd.to_datetime(s, errors="coerce", dayfirst=True)
+        if pd.notna(ts):
+            return ts.strftime("%Y-%m-%d")
+    except Exception:
+        pass
+
+    return ""
+
+
+def repair(records: list, start: date | None = None, end: date | None = None) -> dict:
+    """
+    ΕΠΙΣΚΕΥΗ. Μία εβδομάδα, ή ΟΛΑ ΤΑ ΧΡΟΝΙΑ.
+
+        repair(records)                    → όλα, χωρίς όριο
+        repair(records, start, end)        → μόνο αυτό το διάστημα
+
+    Δύο βήματα, με αυτή τη σειρά:
+
+      1. ΓΕΜΙΣΜΑ — κάθε γραμμή χωρίς αριθμό παίρνει τον αριθμό της, από τα email
+      2. ΔΙΑΓΡΑΦΗ — ό,τι απομείνει χωρίς αριθμό ΕΙΝΑΙ διπλό, και σβήνεται
+
+    Η λογική του βήματος 2:
+
+        Η 10/07 έχει 11 τιμολόγια στα email.
+        Το Sheet έχει 30 γραμμές για την 10/07.
+        Οι 11 πρώτες παίρνουν τους 11 αριθμούς.
+        Οι 19 υπόλοιπες ΔΕΝ ΕΧΟΥΝ αριθμό να πάρουν — άρα είναι διπλές.
+
+    Δεν μαντεύουμε. Μετράμε.
+
+    ΚΡΙΣΙΜΟ: αν ένα κουβαδάκι (μέρα+τύπος+ποσό) ΔΕΝ υπάρχει καθόλου στα email,
+    οι γραμμές του ΔΕΝ πειράζονται. Ίσως το email σβήστηκε, ίσως καταχωρήθηκαν
+    με το χέρι. Δεν σβήνουμε ό,τι δεν καταλαβαίνουμε.
+
+    → {"fill": [(row, number)], "delete": [rows], "keep": [rows],
+       "value": float, "scanned": int}
+    """
+    ws = _ws(SHEET_INV)
+    vals = ws.get_all_values()
+
+    if len(vals) < 2:
+        return {"fill": [], "delete": [], "keep": [], "value": 0.0, "scanned": 0}
+
+    lo = start.isoformat() if start else ""
+    hi = end.isoformat() if end else "9999-12-31"
+
+    # ── Ο πίνακας αλήθειας ──
+    truth: dict[tuple, list[str]] = defaultdict(list)
+
+    for r in records:
+        d = r.get("date")
+        d_iso = _as_iso(d)
+        if not d_iso or not (lo <= d_iso <= hi):
+            continue
+
+        num = str(r.get("number", "")).strip()
+        if not num:
+            continue
+
+        key = (d_iso, str(r.get("type", "")).strip().upper(), to_cents(r.get("value", 0)))
+        if num not in truth[key]:
+            truth[key].append(num)
+
+    for k in truth:
+        truth[k].sort()
+
+    # ── Οι γραμμές του Sheet ──
+    buckets: dict[tuple, list[dict]] = defaultdict(list)
+    taken: set[str] = set()
+    scanned = 0
+
+    for i, r in enumerate(vals[1:], start=2):
+        if len(r) < 3 or not r[0]:
+            continue
+
+        day = _as_iso(r[0])
+        if not day or not (lo <= day <= hi):
+            continue
+
+        scanned += 1
+        num = str(r[3]).strip() if len(r) > 3 else ""
+
+        if num:
+            taken.add(num)     # ο αριθμός χρησιμοποιείται ήδη
+            continue
+
+        key = (day, str(r[1]).strip().upper() if len(r) > 1 else "",
+               int(parse_number(r[2])))
+        buckets[key].append({"row": i, "value": parse_number(r[2]) / 100.0})
+
+    # ── Η αντιστοίχιση ──
+    fill, delete, keep = [], [], []
+    deleted_value = 0.0
+
+    for key, rows in buckets.items():
+        available = truth.get(key, [])
+
+        if not available:
+            # Το κουβαδάκι ΔΕΝ υπάρχει στα email. Δεν ξέρουμε τι είναι.
+            keep += [r["row"] for r in rows]
+            continue
+
+        # Οι αριθμοί που δεν τους πήρε άλλη γραμμή
+        free = [n for n in available if n not in taken]
+
+        n = min(len(rows), len(free))
+
+        for j in range(n):
+            fill.append((rows[j]["row"], free[j]))
+            taken.add(free[j])
+
+        # Όσες γραμμές έμειναν χωρίς αριθμό → ΔΙΠΛΕΣ
+        for r in rows[n:]:
+            delete.append(r["row"])
+            deleted_value += r["value"]
+
+    fill.sort()
+    delete.sort()
+
+    return {
+        "fill": fill,
+        "delete": delete,
+        "keep": sorted(keep),
+        "value": round(deleted_value, 2),
+        "scanned": scanned,
+    }
+
+
+# Συμβατότητα με το παλιό όνομα
+def repair_week(records: list, start: date, end: date) -> dict:
+    return repair(records, start, end)
+
+
+def apply_repair(rep: dict, on_progress=None) -> dict:
+    """
+    Εκτελεί την επισκευή: γέμισμα, μετά διαγραφή.
+
+    ΣΕΙΡΑ: πρώτα γεμίζουμε (οι γραμμές είναι σταθερές), μετά σβήνουμε από κάτω
+    προς τα πάνω. Αν το γέμισμα αποτύχει, ΔΕΝ σβήνουμε — θα σβήναμε στα τυφλά.
+    """
+    ws = _ws(SHEET_INV)
+    done = {"filled": 0, "deleted": 0, "errors": [], "complete": False}
+
+    def tick(stage, cur, total):
+        if on_progress:
+            on_progress(stage, cur, total)
+
+    # ── Κεφαλίδα ──
+    try:
+        header = ws.row_values(1)
+        if len(header) < 4 or str(header[3]).strip().lower() != "number":
+            ws.update_cell(1, 4, "number")
+            time.sleep(PAUSE)
+    except Exception as e:
+        done["errors"].append(f"Κεφαλίδα: {e}")
+
+    # ── 1. ΓΕΜΙΣΜΑ ──
+    if rep["fill"]:
+        cells = [{"range": f"D{row}", "values": [[num]]} for row, num in rep["fill"]]
+        batches = [cells[i:i + BATCH_RANGES] for i in range(0, len(cells), BATCH_RANGES)]
+
+        for n, batch in enumerate(batches, 1):
+            tick("Γέμισμα", n, len(batches))
+
+            ok = _write_with_retry(
+                lambda b=batch: ws.batch_update(b, value_input_option="RAW"),
+                "Γέμισμα", done["errors"],
+            )
+            if not ok:
+                done["errors"].append(
+                    "Το γέμισμα δεν ολοκληρώθηκε — η διαγραφή ΔΕΝ εκτελέστηκε. "
+                    "Ξαναδοκίμασε: θα συνεχίσει από εκεί που έμεινε."
+                )
+                return done
+
+            done["filled"] += len(batch)
+            if n < len(batches):
+                time.sleep(PAUSE)
+
+    # ── 2. ΔΙΑΓΡΑΦΗ ──
+    if rep["delete"]:
+        runs = list(reversed(_group_runs(rep["delete"])))
+
+        for n, (start, end) in enumerate(runs, 1):
+            tick("Διαγραφή", n, len(runs))
+
+            ok = _write_with_retry(
+                lambda s=start, e=end: ws.delete_rows(s, e),
+                "Διαγραφή", done["errors"],
+            )
+            if not ok:
+                done["errors"].append(
+                    "Η διαγραφή σταμάτησε. Ξαναδοκίμασε — θα βρει τις υπόλοιπες."
+                )
+                return done
+
+            done["deleted"] += end - start + 1
+            if n < len(runs):
+                time.sleep(PAUSE)
+
+    load_invoices.clear()
+    done["complete"] = not done["errors"]
+    return done
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # ΑΝΤΙΓΡΑΦΟ ΑΣΦΑΛΕΙΑΣ
 # ══════════════════════════════════════════════════════════════════════════════

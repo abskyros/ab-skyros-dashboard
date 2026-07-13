@@ -45,6 +45,53 @@ def fetch_invoices(password: str, limit: int = 60, since: date | None = None) ->
     return records, errors
 
 
+def fetch_all_invoices(
+    password: str,
+    since: date | None = None,
+    on_progress=None,
+) -> tuple[list, list, int]:
+    """
+    ΒΑΘΙΑ ΣΑΡΩΣΗ — κατεβάζει ΟΛΑ τα email παραστατικών, χωρίς όριο.
+
+    → (records, errors, emails_scanned)
+
+    Χρησιμοποιείται μόνο από τον βαθύ έλεγχο (core/backfill.py), για να
+    ανακατασκευάσει τους αριθμούς παραστατικών των παλιών εγγραφών.
+
+    ΔΕΝ βάζουμε limit. Θέλουμε την πλήρη εικόνα — αν χάσουμε έστω ένα email,
+    οι γραμμές του θα φανούν «αταίριαστες» και δεν θα καθαριστούν.
+
+    Το `on_progress(σαρωμένα, εγγραφές)` καλείται κάθε 10 email — για να μη
+    φαίνεται κολλημένη η μπάρα προόδου σε 2 χρόνια αρχείου.
+    """
+    records, errors = [], []
+    scanned = 0
+
+    criteria = AND(from_=INVOICES_EMAIL_SENDER) if since is None else \
+        AND(from_=INVOICES_EMAIL_SENDER, date_gte=since)
+
+    try:
+        with MailBox(IMAP_HOST).login(INVOICES_EMAIL_USER, password) as mb:
+            for msg in mb.fetch(criteria, reverse=True, mark_seen=False, bulk=True):
+                scanned += 1
+
+                for att in msg.attachments:
+                    name = att.filename or ""
+                    if name.lower().endswith((".xlsx", ".xls", ".csv")):
+                        records.extend(parse_invoices(att.payload, name))
+
+                if on_progress and scanned % 10 == 0:
+                    on_progress(scanned, len(records))
+
+    except Exception as e:
+        errors.append(_friendly(e))
+
+    if on_progress:
+        on_progress(scanned, len(records))
+
+    return records, errors, scanned
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # ΤΙΜΟΛΟΓΗΣΕΙΣ
 # ══════════════════════════════════════════════════════════════════════════════
@@ -109,15 +156,35 @@ def fetch_sales(
     since: date | None = None,
     limit: int = 80,
     want: int | None = None,
+    skip_dates: set | None = None,
 ) -> tuple[list, list, int]:
     """
     → (records, errors, emails_seen)
 
-    Σταματάει μόλις βρει `want` εγγραφές — το OCR είναι αργό, δεν έχει νόημα
-    να διαβάσουμε 80 PDF όταν ψάχνουμε τα χθεσινά.
+    ┌────────────────────────────────────────────────────────────────────────┐
+    │ ΓΙΑΤΙ ΥΠΑΡΧΕΙ ΤΟ skip_dates                                            │
+    │                                                                        │
+    │ Το OCR είναι ΑΡΓΟ — 20-30 δευτερόλεπτα ανά PDF.                        │
+    │                                                                        │
+    │ Το job τρέχει κάθε 10 λεπτά, 18:00-02:00 → 54 εκτελέσεις τη νύχτα.     │
+    │ Χωρίς αυτό, κάθε εκτέλεση θα έκανε OCR στα ίδια PDF ξανά και ξανά,     │
+    │ μόνο και μόνο για να τα πετάξει μετά ως διπλά.                         │
+    │                                                                        │
+    │ 54 × 30" = 27 λεπτά OCR κάθε νύχτα, τζάμπα.                            │
+    │                                                                        │
+    │ Τώρα: αν η μέρα του email είναι ήδη στο Sheet, ΔΕΝ ανοίγουμε καν το    │
+    │ PDF. Η εκτέλεση τελειώνει σε δευτερόλεπτα.                             │
+    └────────────────────────────────────────────────────────────────────────┘
+
+    ΤΟ ΚΟΛΠΟ: η ημερομηνία της αναφοράς ΔΕΝ φαίνεται στο θέμα του email — μόνο
+    μέσα στο PDF. Αλλά η αναφορά της Δευτέρας στέλνεται τη Δευτέρα το βράδυ ή
+    την Τρίτη το πρωί. Άρα η ημερομηνία του EMAIL είναι μια πολύ καλή ένδειξη:
+    ελέγχουμε αν η μέρα του email ΚΑΙ η προηγούμενή της είναι ήδη καταχωρημένες.
+    Αν ναι, το PDF δεν έχει τίποτα νέο.
     """
     records, errors = [], []
     seen = 0
+    skipped = 0
 
     try:
         with MailBox(IMAP_HOST).login(SALES_EMAIL_USER, password) as mb:
@@ -139,6 +206,16 @@ def fetch_sales(
                 if not pdfs:
                     continue
 
+                # ── Ο ΕΛΕΓΧΟΣ ΠΡΙΝ ΤΟ OCR ──
+                #
+                # Η αναφορά αφορά τη μέρα του email ή την προηγούμενη. Αν ΚΑΙ ΟΙ
+                # ΔΥΟ υπάρχουν ήδη στο Sheet, το PDF δεν έχει τίποτα νέο.
+                if skip_dates and sent:
+                    candidates = {sent, sent - timedelta(days=1)}
+                    if candidates <= skip_dates:
+                        skipped += 1
+                        continue
+
                 seen += 1
                 for pdf in pdfs:
                     rec = parse_sales_pdf(pdf.payload)
@@ -148,6 +225,9 @@ def fetch_sales(
 
     except Exception as e:
         errors.append(_friendly(e))
+
+    if skipped:
+        print(f"  · {skipped} email παραλείφθηκαν (η μέρα τους υπάρχει ήδη)")
 
     return records, errors, seen
 

@@ -87,9 +87,9 @@ def year_over_year(
         x=weeks, y=now,
         name=label_now,
         mode="lines",
-        line=dict(color=COLOR["ab_red"], width=2.6, shape="spline", smoothing=0.5),
+        line=dict(color=COLOR["blue"], width=2.6, shape="spline", smoothing=0.5),
         fill="tozeroy",
-        fillcolor="rgba(226,35,26,.06)",
+        fillcolor="rgba(59,130,246,.08)",
         hovertemplate=f"%{{y:,.0f}}{suffix}<extra>{label_now}</extra>",
         connectgaps=False,
     ))
@@ -104,7 +104,7 @@ def bars(labels: list[str], values: list[float], *, height: int = 260, color: st
     """Απλό ραβδόγραμμα — για ανάλυση ανά μήνα."""
     fig = go.Figure(go.Bar(
         x=labels, y=values,
-        marker=dict(color=color or COLOR["ab_red"], line=dict(width=0)),
+        marker=dict(color=color or COLOR["blue"], line=dict(width=0)),
         hovertemplate="%{y:,.0f} €<extra>%{x}</extra>",
         width=0.62,
     ))
@@ -132,7 +132,7 @@ def paired_bars(
     ))
     fig.add_trace(go.Bar(
         name=label_now, x=labels, y=now,
-        marker=dict(color=COLOR["ab_red"], line=dict(width=0)),
+        marker=dict(color=COLOR["blue"], line=dict(width=0)),
         hovertemplate="%{y:,.0f} €<extra>" + label_now + "</extra>",
     ))
 
@@ -149,7 +149,7 @@ def daily_week(dates: list, values: list[float], *, height: int = 220) -> None:
 
     labels = [f"{day_name(d, short=True)} {d:%d/%m}" for d in dates]
     colors = [
-        COLOR["ink"] if d.weekday() == 5 else COLOR["ab_red"]
+        COLOR["ink"] if d.weekday() == 5 else COLOR["blue"]
         for d in dates
     ]
 

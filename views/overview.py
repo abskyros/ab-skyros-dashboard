@@ -85,13 +85,29 @@ def _sales(df_s: pd.DataFrame, today: date) -> None:
     if stale:
         y_foot = f"Τελευταία καταχώρηση · {y_foot}"
 
+    # ── ΤΟ ΥΠΟΣΗΜΕΙΩΜΑ ΤΟΥ «ΣΗΜΕΡΑ» ──
+    #
+    # Αν οι πωλήσεις δεν ήρθαν ακόμη, ο χρήστης πρέπει να ξέρει ΓΙΑΤΙ.
+    # «Σε εξέλιξη» στις 23:30 είναι ανησυχητικό — μήπως χάλασε κάτι;
+    #
+    # Λέμε πότε έρχονται και πότε ελέγχουμε. Χωρίς αυτό, ο χρήστης κοιτάει μια
+    # άδεια κάρτα και δεν ξέρει αν φταίει το σύστημα ή απλώς δεν ήρθε το email.
+    if today_now is not None:
+        today_foot = f"Στόχος: {day_name(today_ref, short=True)} {today_ref:%d/%m} πέρσι"
+    elif today_goal:
+        today_foot = (
+            f"Στόχος: {day_name(today_ref, short=True)} {today_ref:%d/%m} πέρσι · "
+            f"Η αναφορά έρχεται το βράδυ"
+        )
+    else:
+        today_foot = "Δεν υπάρχει περσινό για αυτή τη μέρα"
+
     c.grid(
         c.target(
             f"Σήμερα · {day_name(today)} {today:%d/%m}",
             today_now,
             today_goal,
-            foot=f"Στόχος: {day_name(today_ref, short=True)} {today_ref:%d/%m} πέρσι"
-                 if today_goal else "Δεν υπάρχει περσινό για αυτή τη μέρα",
+            foot=today_foot,
             href=c.link("Πωλήσεις"),
         ),
         c.scale(
@@ -101,6 +117,50 @@ def _sales(df_s: pd.DataFrame, today: date) -> None:
             href=c.link("Πωλήσεις"),
         ),
         cols=2,
+    )
+
+    _freshness(df_s, today)
+
+
+def _freshness(df_s: pd.DataFrame, today: date) -> None:
+    """
+    ΠΟΣΟ ΦΡΕΣΚΑ ΕΙΝΑΙ ΤΑ ΔΕΔΟΜΕΝΑ;
+
+    Μια άδεια κάρτα στις 23:30 δεν λέει τίποτα. Είναι φυσιολογικό ή χάλασε κάτι;
+
+    Αυτή η γραμμή απαντάει:
+      • Ποια είναι η τελευταία μέρα που έχουμε
+      • Πόσο πίσω είμαστε
+      • Τι να κάνεις αν κάτι δεν πάει καλά
+    """
+    if df_s.empty:
+        return
+
+    latest = df_s["date"].max()
+    latest = latest.date() if hasattr(latest, "date") else latest
+
+    gap = (today - latest).days
+
+    if gap <= 1:
+        # Φυσιολογικό: η σημερινή αναφορά έρχεται το βράδυ.
+        return
+
+    if gap == 2:
+        c.note(
+            f"Η τελευταία καταχωρημένη μέρα είναι η <b>{latest:%d/%m}</b>. "
+            f"Η χθεσινή αναφορά δεν έχει έρθει ακόμη — αν είναι μετά τις 21:00, "
+            f"δοκίμασε την <b>Ενημέρωση δεδομένων</b> στο κάτω μέρος.",
+            "warn",
+        )
+        return
+
+    c.note(
+        f"⚠️ <b>Οι πωλήσεις είναι {gap} μέρες πίσω.</b><br><br>"
+        f"Τελευταία καταχώρηση: <b>{day_name(latest)} {latest:%d/%m/%Y}</b><br><br>"
+        f"Κάτι δεν πάει καλά με τον αυτόματο συγχρονισμό. Δοκίμασε την "
+        f"<b>Ενημέρωση δεδομένων</b> στο κάτω μέρος της σελίδας — αν αποτύχει, "
+        f"θα σου πει γιατί.",
+        "bad",
     )
 
 
@@ -123,7 +183,7 @@ def _week_and_check(
         check_card = c.stat(
             "Επιταγή αυτή την εβδομάδα",
             float(check["amount"]),
-            accent="var(--ab-red)",
+            accent="var(--navy)",
             foot=f"Πληρωμή {when} — {cd:%d/%m/%Y}",
             href=c.link("Τιμολογήσεις"),
         )

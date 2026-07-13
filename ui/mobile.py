@@ -24,7 +24,7 @@ import streamlit as st
 STATIC = Path(__file__).parent.parent / "static"
 
 APP_NAME = "ΑΒ Σκύρος"
-AB_RED = "#E2231A"
+THEME = "#1E3A8A"
 
 
 def _data_uri(filename: str) -> str | None:
@@ -57,7 +57,7 @@ def _head_html() -> str:
         "start_url": ".",
         "display": "standalone",
         "background_color": "#F6F7F9",
-        "theme_color": AB_RED,
+        "theme_color": THEME,
         "orientation": "portrait",
         "icons": [
             {"src": icons[192], "sizes": "192x192", "type": "image/png"},
@@ -76,7 +76,7 @@ def _head_html() -> str:
 <link rel="apple-touch-icon" sizes="180x180" href="{icons[180]}">
 <link rel="icon" type="image/png" sizes="32x32" href="{icons[32]}">
 
-<meta name="theme-color" content="{AB_RED}">
+<meta name="theme-color" content="{THEME}">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="{APP_NAME}">
