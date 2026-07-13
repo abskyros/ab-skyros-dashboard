@@ -123,7 +123,7 @@ def _week_and_check(
         check_card = c.stat(
             "Επιταγή αυτή την εβδομάδα",
             float(check["amount"]),
-            accent="var(--navy)",
+            accent="var(--ab-red)",
             foot=f"Πληρωμή {when} — {cd:%d/%m/%Y}",
             href=c.link("Τιμολογήσεις"),
         )

@@ -29,29 +29,11 @@ from core.sheets import parse_number
 # ══════════════════════════════════════════════════════════════════════════════
 def parse_invoices(content: bytes, filename: str) -> list[dict]:
     """
-    → [{"date", "type", "value", "number"}, ...]
+    → [{"date", "type", "value"}, ...]
 
-    Το αρχείο του WeDoConnect έχει κεφαλίδα στη γραμμή 6 — από πάνω υπάρχουν
-    στοιχεία αποστολέα/παραλήπτη. Την ψάχνουμε από το περιεχόμενο, όχι από τη θέση.
-
-    Οι στήλες:
-        ΤΥΠΟΣ ΠΑΡΑΣΤΑΤΙΚΟΥ      «ΤΙΜΟΛΟΓΙΟ (ΠΩΛΗΣΗ ΑΓΑΘΩΝ)» / «ΠΙΣΤΩΤΙΚΟ ΤΙΜΟΛΟΓΙΟ»
-        ΣΕΙΡΑ ΠΑΡΑΣΤΑΤΙΚΟΥ      συνήθως κενή — αλλά μέρος της ταυτότητας
-        ΑΡΙΘΜΟΣ ΠΑΡΑΣΤΑΤΙΚΟΥ    π.χ. 9315755320  ← Η ΤΑΥΤΟΤΗΤΑ
-        ΗΜΕΡΟΜΗΝΙΑ ΠΑΡΑΣΤΑΤΙΚΟΥ
-        ΣΥΝΟΛΙΚΗ ΑΞΙΑ
-
-    ┌────────────────────────────────────────────────────────────────────────┐
-    │ ΓΙΑΤΙ Ο ΑΡΙΘΜΟΣ ΕΙΝΑΙ ΤΟ ΠΑΝ                                           │
-    │                                                                        │
-    │ Δύο τιμολόγια των 213,51 € την ίδια μέρα από τον ίδιο προμηθευτή είναι │
-    │ ΦΥΣΙΟΛΟΓΙΚΑ. Έχουν όμως διαφορετικούς αριθμούς.                        │
-    │                                                                        │
-    │   ίδιος αριθμός 2 φορές   → διπλοκαταχώρηση → σβήσε                    │
-    │   άλλος αριθμός           → δύο τιμολόγια   → ΜΗΝ ΤΑ ΑΓΓΙΞΕΙΣ          │
-    │                                                                        │
-    │ Χωρίς τον αριθμό, μια αυτόματη διαγραφή αφαιρεί πραγματικά χρήματα.    │
-    └────────────────────────────────────────────────────────────────────────┘
+    Η κεφαλίδα δεν είναι στην πρώτη γραμμή — το αρχείο έχει λογότυπο και
+    στοιχεία καταστήματος από πάνω. Ψάχνουμε τη γραμμή που έχει ΚΑΙ «ΤΥΠΟΣ»
+    ΚΑΙ «ΗΜΕΡΟΜΗΝΙΑ».
     """
     try:
         df_raw = _read_tabular(content, filename)
@@ -68,62 +50,30 @@ def parse_invoices(content: bytes, filename: str) -> list[dict]:
         df = df.loc[:, ~df.columns.str.contains("NAN|UNNAMED", case=False, na=False)]
         df = df.reset_index(drop=True)
 
-        c_date   = _col(df, "ΗΜΕΡΟΜΗΝΙΑ")
-        c_type   = _col(df, "ΤΥΠΟΣ")
-        c_value  = _col(df, "ΑΞΙΑ", "ΣΥΝΟΛΟ")
-        c_number = _col(df, "ΑΡΙΘΜΟΣ")
-        c_series = _col(df, "ΣΕΙΡΑ")
-
+        c_date  = _col(df, "ΗΜΕΡΟΜΗΝΙΑ")
+        c_type  = _col(df, "ΤΥΠΟΣ")
+        c_value = _col(df, "ΑΞΙΑ", "ΣΥΝΟΛΟ")
         if not (c_date and c_type and c_value):
             return []
 
-        records = []
+        t = df[[c_date, c_type, c_value]].copy()
+        t.columns = ["date", "type", "value"]
 
-        for _, r in df.iterrows():
-            d = pd.to_datetime(r[c_date], errors="coerce")
-            if pd.isna(d):
-                continue
+        t["date"]  = pd.to_datetime(t["date"], errors="coerce")
+        t["type"]  = t["type"].astype(str).str.strip()
+        t["value"] = t["value"].map(parse_number)
 
-            t = str(r[c_type]).strip()
-            if not t or t.lower() == "nan":
-                continue
+        t = t.dropna(subset=["date"])
+        t = t[t["type"].str.lower() != "nan"]
+        t = t[t["type"] != ""]
 
-            number = _clean_number(r[c_number]) if c_number else ""
-            series = _clean_number(r[c_series]) if c_series else ""
-            full = f"{series}-{number}" if series and number else number
-
-            records.append({
-                "date":   d,
-                "type":   t,
-                "value":  parse_number(r[c_value]),
-                "number": full,
-            })
-
-        return records
+        return [
+            {"date": r["date"], "type": r["type"], "value": float(r["value"])}
+            for _, r in t.iterrows()
+        ]
 
     except Exception:
         return []
-
-
-def _clean_number(v) -> str:
-    """
-    Ο αριθμός παραστατικού → καθαρό string.
-
-    Το Excel τον δίνει ως string με κενά ('9080492340 '). Αν όμως το pandas
-    μαντέψει ότι είναι αριθμός, τον δίνει ως float (9080492340.0). Και τα δύο
-    πρέπει να καταλήξουν στο ίδιο: '9080492340'.
-
-    Αλλιώς το ίδιο παραστατικό βγάζει δύο διαφορετικά κλειδιά και ξαναγράφεται
-    — ακριβώς το bug που δημιούργησε τα 496 διπλά.
-    """
-    if v is None or (isinstance(v, float) and pd.isna(v)):
-        return ""
-
-    if isinstance(v, float) and v == int(v):
-        return str(int(v))
-
-    s = str(v).strip()
-    return "" if s.lower() in ("nan", "none", "nat") else s
 
 
 # ══════════════════════════════════════════════════════════════════════════════

@@ -246,98 +246,68 @@ def update_sales(target_date, net_sales=None, customers=None, avg_basket=None) -
 # ══════════════════════════════════════════════════════════════════════════════
 @st.cache_data(ttl=300, max_entries=1, show_spinner=False)
 def load_invoices() -> pd.DataFrame:
-    """
-    → DataFrame[date, type, value, number, _row] — ποσά σε ΕΥΡΩ.
-
-    Η στήλη `number` είναι ο ΑΡΙΘΜΟΣ ΠΑΡΑΣΤΑΤΙΚΟΥ — η μοναδική ταυτότητα.
-    Η `_row` είναι η γραμμή στο Sheet, για διαγραφές.
-
-    ΣΥΜΒΑΤΟΤΗΤΑ: τα παλιά δεδομένα έχουν μόνο 3 στήλες (χωρίς αριθμό).
-    Δεν σπάμε — τα διαβάζουμε με κενό number. Ο έλεγχος ξέρει να τα ξεχωρίζει.
-    """
-    cols = INV_COLS + ["_row"]
+    """→ DataFrame[date, type, value] — ποσά σε ΕΥΡΩ."""
     try:
         vals = _ws(SHEET_INV).get_all_values()
     except Exception as e:
         _warn(f"Δεν φόρτωσαν τα παραστατικά: {e}")
-        return pd.DataFrame(columns=cols)
+        return pd.DataFrame(columns=INV_COLS)
 
     if len(vals) < 2:
-        return pd.DataFrame(columns=cols)
+        return pd.DataFrame(columns=INV_COLS)
 
-    rows = [
-        (r[0], r[1], r[2],
-         r[3] if len(r) > 3 else "",   # number — κενό στα παλιά
-         i)
-        for i, r in enumerate(vals[1:], start=2)
-        if len(r) >= 3 and r[0]
-    ]
+    rows = [(r[0], r[1], r[2]) for r in vals[1:] if len(r) >= 3 and r[0]]
     del vals
     if not rows:
-        return pd.DataFrame(columns=cols)
+        return pd.DataFrame(columns=INV_COLS)
 
-    df = pd.DataFrame(rows, columns=cols)
+    df = pd.DataFrame(rows, columns=INV_COLS)
     del rows
 
-    df["date"]   = pd.to_datetime(df["date"], errors="coerce")
-    df["type"]   = df["type"].astype(str).str.strip()
-    df["value"]  = df["value"].map(from_cents).astype("float32")
-    df["number"] = df["number"].astype(str).str.strip()
+    df["date"]  = pd.to_datetime(df["date"], errors="coerce")
+    df["type"]  = df["type"].astype(str).str.strip()
+    df["value"] = df["value"].map(from_cents).astype("float32")
 
     df = df.dropna(subset=["date"])
     df = df.sort_values("date", ascending=False).reset_index(drop=True)
     return df
 
 
-def _invoice_id(number: str) -> str:
+def _key(d, t, cents: int) -> str:
     """
-    Η ΤΑΥΤΟΤΗΤΑ ενός παραστατικού = ο αριθμός του. Τίποτε άλλο.
+    Το κλειδί διπλότυπου: ημερομηνία | τύπος | αξία σε λεπτά.
 
-    Δεν χρειάζεται ημερομηνία ούτε ποσό. Ο αριθμός 9315755320 είναι μοναδικός
-    στο σύστημα της ΑΒ — αν εμφανιστεί δεύτερη φορά, είναι διπλοκαταχώρηση.
-    """
-    return str(number or "").strip()
+    ΠΡΟΣΟΧΗ — δέχεται ΛΕΠΤΑ, όχι ευρώ. Δεν κάνει μετατροπή.
+    Ο καλών ξέρει τι έχει στα χέρια του και το φέρνει σε λεπτά ΠΡΙΝ.
 
-
-def _legacy_key(d, t, cents: int) -> str:
-    """
-    Εφεδρικό κλειδί, ΜΟΝΟ για τα παλιά δεδομένα που δεν έχουν αριθμό.
-
-    Είναι ασθενές — δεν ξεχωρίζει δύο πραγματικά τιμολόγια ίδιου ποσού. Γι' αυτό
-    χρησιμοποιείται μόνο για να μη ξαναγραφτούν παλιές εγγραφές, ΠΟΤΕ για διαγραφή.
+    Γιατί: το Sheet δίνει "21351" (ήδη λεπτά), ο parser δίνει 213.51 (ευρώ).
+    Αν η ίδια συνάρτηση προσπαθούσε να «μαντέψει», θα έκανε 21351 × 100 = λάθος.
+    Δύο πηγές, δύο μετατροπές, ένα κλειδί.
     """
     d_str = d.strftime("%Y-%m-%d") if hasattr(d, "strftime") else str(d)[:10].strip()
     t_str = str(t or "").strip().upper()
-    return f"~{d_str}|{t_str}|{int(cents)}"
+    return f"{d_str}|{t_str}|{int(cents)}"
 
 
 def _key_from_sheet(row: list) -> str:
-    """Γραμμή Sheet → κλειδί. Αν έχει αριθμό, τον χρησιμοποιεί."""
-    number = row[3] if len(row) > 3 else ""
-    if _invoice_id(number):
-        return _invoice_id(number)
-
-    # Παλιά εγγραφή χωρίς αριθμό → εφεδρικό κλειδί
-    cents = int(parse_number(row[2] if len(row) > 2 else 0))
-    return _legacy_key(row[0], row[1] if len(row) > 1 else "", cents)
+    """Γραμμή του Sheet → κλειδί. Η αξία είναι ΗΔΗ σε λεπτά."""
+    raw = row[2] if len(row) > 2 else "0"
+    cents = int(parse_number(raw))       # "21351" → 21351
+    return _key(row[0], row[1] if len(row) > 1 else "", cents)
 
 
 def _key_from_record(rec: dict) -> str:
-    """Εγγραφή parser → κλειδί."""
-    number = rec.get("number", "")
-    if _invoice_id(number):
-        return _invoice_id(number)
-
-    return _legacy_key(rec.get("date"), rec.get("type", ""), to_cents(rec.get("value", 0)))
+    """Εγγραφή του parser → κλειδί. Η αξία είναι σε ΕΥΡΩ."""
+    cents = to_cents(rec.get("value", 0))  # 213.51 → 21351
+    return _key(rec.get("date"), rec.get("type", ""), cents)
 
 
 def merge_invoices(records: list) -> int:
-    """Προσθέτει μόνο ό,τι δεν υπάρχει. Κλειδί: ο ΑΡΙΘΜΟΣ ΠΑΡΑΣΤΑΤΙΚΟΥ."""
+    """Προσθέτει μόνο ό,τι δεν υπάρχει ήδη. Κλειδί: ημερομηνία + τύπος + αξία."""
     if not records:
         return 0
 
     ws = _ws(SHEET_INV)
-    _ensure_number_column(ws)
 
     existing = {
         _key_from_sheet(r)
@@ -356,12 +326,7 @@ def merge_invoices(records: list) -> int:
         existing.add(key)
 
         d_str = d.strftime("%Y-%m-%d") if hasattr(d, "strftime") else str(d)[:10]
-        new_rows.append([
-            d_str,
-            str(rec.get("type", "")).strip(),
-            to_cents(rec.get("value", 0)),
-            str(rec.get("number", "")).strip(),
-        ])
+        new_rows.append([d_str, str(rec.get("type", "")).strip(), to_cents(rec.get("value", 0))])
 
     if new_rows:
         ws.append_rows(new_rows, value_input_option="RAW")
@@ -370,118 +335,54 @@ def merge_invoices(records: list) -> int:
     return len(new_rows)
 
 
-def _ensure_number_column(ws) -> None:
+def purge_duplicate_invoices() -> tuple[int, int]:
     """
-    Προσθέτει τη στήλη D («number») αν λείπει.
-
-    Το παλιό φύλλο έχει 3 στήλες. Δεν πειράζουμε τα δεδομένα — απλώς
-    προσθέτουμε την κεφαλίδα, ώστε οι νέες εγγραφές να έχουν πού να γράψουν.
-    """
-    try:
-        header = ws.row_values(1)
-        if len(header) < 4 or str(header[3]).strip().lower() != "number":
-            ws.update_cell(1, 4, "number")
-    except Exception:
-        pass
-
-
-def purge_duplicate_invoices() -> tuple[int, int, int]:
-    """
-    Σβήνει ΜΟΝΟ όσα έχουν τον ΙΔΙΟ ΑΡΙΘΜΟ ΠΑΡΑΣΤΑΤΙΚΟΥ. Κρατάει την πρώτη εμφάνιση.
-
-    → (σβήστηκαν, έμειναν, παραλείφθηκαν_χωρίς_αριθμό)
+    ⚠️ ΠΡΟΣΩΡΙΝΑ ΑΝΕΝΕΡΓΟ — δεν σβήνει τίποτα.
 
     ┌────────────────────────────────────────────────────────────────────────┐
-    │ ΤΙ ΣΒΗΝΕΤΑΙ ΚΑΙ ΤΙ ΟΧΙ                                                 │
+    │ ΓΙΑΤΙ ΣΤΑΜΑΤΗΣΕ                                                        │
     │                                                                        │
-    │  ✓ Ίδιος αριθμός 2+ φορές  → διπλοκαταχώρηση. Σβήνεται με ασφάλεια.    │
+    │ Το κλειδί ήταν: ημερομηνία + τύπος + αξία.                             │
     │                                                                        │
-    │  ✗ Ίδιο ποσό, άλλος αριθμός → ΔΥΟ ΠΡΑΓΜΑΤΙΚΑ ΤΙΜΟΛΟΓΙΑ. Μένουν.        │
+    │ Αλλά ΔΥΟ ΠΡΑΓΜΑΤΙΚΑ τιμολόγια των 213,51 € την ίδια μέρα από τον ίδιο  │
+    │ προμηθευτή είναι απολύτως φυσιολογικά. Το κλειδί θα έσβηνε το ένα —    │
+    │ και θα έκλεβε λεφτά από τα βιβλία.                                     │
     │                                                                        │
-    │  ✗ Χωρίς αριθμό (παλιά δεδομένα) → ΔΕΝ ΤΑ ΑΓΓΙΖΟΥΜΕ. Δεν ξέρουμε αν    │
-    │    είναι διπλά ή όχι, και μια λάθος διαγραφή αφαιρεί πραγματικά λεφτά. │
+    │ Η ΜΟΝΗ ασφαλής ταυτοποίηση είναι ο ΑΡΙΘΜΟΣ ΠΑΡΑΣΤΑΤΙΚΟΥ:               │
+    │                                                                        │
+    │   ίδιος αριθμός      → διπλοκαταχώρηση    → σβήσε                      │
+    │   διαφορετικός       → δύο τιμολόγια      → ΜΗΝ ΤΑ ΑΓΓΙΞΕΙΣ            │
+    │                                                                        │
+    │ Το Sheet δεν έχει ακόμη στήλη με τον αριθμό. Μέχρι να μπει, ο          │
+    │ καθαρισμός δεν τρέχει. Καλύτερα 496 διπλά που τα βλέπεις, παρά 200     │
+    │ σβησμένα τιμολόγια που δεν τα βλέπεις.                                 │
     └────────────────────────────────────────────────────────────────────────┘
 
-    ΣΕΙΡΑ ΔΙΑΓΡΑΦΗΣ: από κάτω προς τα πάνω. Αν σβήσεις πρώτα τη γραμμή 100, όλες
-    οι από κάτω μετακινούνται μία θέση πάνω και οι αριθμοί που κρατάς γίνονται
-    λάθος. Ανάποδα, οι πάνω δεν κουνιούνται.
+    → (0, πλήθος γραμμών)
     """
     ws = _ws(SHEET_INV)
     vals = ws.get_all_values()
+    return 0, max(0, len(vals) - 1)
 
-    if len(vals) < 3:
-        return 0, max(0, len(vals) - 1), 0
 
-    seen = set()
-    doomed = []
-    no_number = 0
+def _group_runs(rows: list[int]) -> list[tuple[int, int]]:
+    """[3,4,5,9,10] → [(3,5), (9,10)] — για να μη κάνουμε 500 API calls."""
+    if not rows:
+        return []
 
-    for i, r in enumerate(vals[1:], start=2):
-        if len(r) < 3 or not r[0]:
-            continue
+    rows = sorted(rows)
+    runs = []
+    start = prev = rows[0]
 
-        number = _invoice_id(r[3] if len(r) > 3 else "")
-
-        if not number:
-            no_number += 1     # παλιά εγγραφή — δεν την αγγίζουμε
-            continue
-
-        if number in seen:
-            doomed.append(i)
+    for r in rows[1:]:
+        if r == prev + 1:
+            prev = r
         else:
-            seen.add(number)
+            runs.append((start, prev))
+            start = prev = r
 
-    if not doomed:
-        return 0, len(seen), no_number
-
-    for start, end in reversed(_group_runs(doomed)):
-        ws.delete_rows(start, end)
-
-    load_invoices.clear()
-    return len(doomed), len(seen), no_number
-
-
-def find_double_charges(df: pd.DataFrame) -> list[dict]:
-    """
-    ⚠️ ΔΙΠΛΗ ΧΡΕΩΣΗ — άλλο πράγμα από τη διπλοκαταχώρηση.
-
-    Ψάχνει παραστατικά με ΔΙΑΦΟΡΕΤΙΚΟ αριθμό αλλά ίδια μέρα, τύπο και ποσό.
-
-    Αυτό ΔΕΝ είναι σφάλμα του συστήματος — είναι πιθανό σφάλμα του ΠΡΟΜΗΘΕΥΤΗ:
-    σου έκοψε δύο φορές το ίδιο τιμολόγιο, με δύο διαφορετικούς αριθμούς.
-
-    Δεν σβήνεται ποτέ αυτόματα. Θέλει τηλέφωνο στην ΑΒ.
-
-    → [{"date", "type", "value", "numbers": [...], "rows": [...]}, ...]
-    """
-    if df.empty or "number" not in df.columns:
-        return []
-
-    d = df[df["number"].astype(str).str.strip() != ""].copy()
-    if d.empty:
-        return []
-
-    d["_d"] = d["date"].dt.strftime("%Y-%m-%d")
-    d["_v"] = d["value"].round(2)
-
-    out = []
-    for (dt, tp, v), g in d.groupby(["_d", "type", "_v"]):
-        if len(g) < 2:
-            continue
-        if float(v) == 0:      # τα μηδενικά είναι συνηθισμένα, δεν είναι χρέωση
-            continue
-
-        out.append({
-            "date": dt,
-            "type": tp,
-            "value": float(v),
-            "count": len(g),
-            "numbers": sorted(g["number"].tolist()),
-            "rows": sorted(int(x) for x in g["_row"].tolist()),
-        })
-
-    out.sort(key=lambda x: (x["date"], -x["value"]), reverse=True)
-    return out
+    runs.append((start, prev))
+    return runs
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -679,13 +580,12 @@ def check_quality(sheet: str) -> dict:
     try:
         vals = _ws(sheet).get_all_values()
     except Exception as e:
-        return {"duplicates": [], "gaps": [], "no_number": 0, "error": str(e)}
+        return {"duplicates": [], "gaps": [], "error": str(e)}
 
     if len(vals) < 2:
-        return {"duplicates": [], "gaps": [], "no_number": 0}
+        return {"duplicates": [], "gaps": []}
 
     dups, seen, dates = [], {}, set()
-    no_number = 0     # παλιές εγγραφές χωρίς αριθμό — δεν ελέγχονται
 
     for i, r in enumerate(vals[1:], start=2):
         if not r or not r[0]:
@@ -699,20 +599,13 @@ def check_quality(sheet: str) -> dict:
 
         # Το κλειδί διπλότυπου διαφέρει ανά φύλλο.
         if sheet == SHEET_INV:
-            # Ο ΑΡΙΘΜΟΣ ΠΑΡΑΣΤΑΤΙΚΟΥ είναι η ταυτότητα. Αν λείπει (παλιά εγγραφή),
-            # ΔΕΝ την ελέγχουμε καθόλου — δεν μπορούμε να ξέρουμε αν είναι διπλή.
-            number = str(r[3]).strip() if len(r) > 3 else ""
-            if not number:
-                no_number += 1
-                continue
-            key = number
+            key = f"{d_str}|{r[1] if len(r) > 1 else ''}|{r[2] if len(r) > 2 else ''}"
         else:
             key = d_str
 
         seen.setdefault(key, []).append({
             "row": i,
             "date": d_str,
-            "number": str(r[3]).strip() if sheet == SHEET_INV and len(r) > 3 else "",
             "value": from_cents(r[2] if sheet == SHEET_INV and len(r) > 2
                                 else (r[1] if len(r) > 1 else 0)),
             "type": r[1] if sheet == SHEET_INV and len(r) > 1 else "",
@@ -724,7 +617,6 @@ def check_quality(sheet: str) -> dict:
                 "date": entries[0]["date"],
                 "type": entries[0]["type"],
                 "value": entries[0]["value"],
-                "number": entries[0].get("number", ""),
                 "entries": entries,
             })
 
@@ -753,7 +645,7 @@ def check_quality(sheet: str) -> dict:
                 cur += timedelta(days=1)
 
     dups.sort(key=lambda d: d["date"], reverse=True)
-    return {"duplicates": dups, "gaps": gaps, "no_number": no_number}
+    return {"duplicates": dups, "gaps": gaps}
 
 
 def delete_row(sheet: str, row: int) -> tuple[bool, str]:
@@ -771,32 +663,6 @@ def delete_row(sheet: str, row: int) -> tuple[bool, str]:
 # ══════════════════════════════════════════════════════════════════════════════
 # ΒΟΗΘΗΤΙΚΑ
 # ══════════════════════════════════════════════════════════════════════════════
-def _group_runs(rows: list[int]) -> list[tuple[int, int]]:
-    """
-    [3,4,5,9,10] → [(3,5), (9,10)]
-
-    Ομαδοποιεί συνεχόμενες γραμμές, ώστε να σβήνονται με μία κλήση αντί για
-    πεντακόσιες. Το Sheets API έχει όριο ~60 κλήσεις/λεπτό — χωρίς αυτό, ο
-    καθαρισμός 500 γραμμών θα κρατούσε 8 λεπτά και θα χτυπούσε rate limit.
-    """
-    if not rows:
-        return []
-
-    rows = sorted(set(rows))
-    runs = []
-    start = prev = rows[0]
-
-    for r in rows[1:]:
-        if r == prev + 1:
-            prev = r
-        else:
-            runs.append((start, prev))
-            start = prev = r
-
-    runs.append((start, prev))
-    return runs
-
-
 def _sort_by_date(ws, cols: str = "A:D") -> None:
     """Ταξινομεί το φύλλο κατά ημερομηνία, νεότερη πρώτη."""
     try:
