@@ -15,7 +15,10 @@ from core.config import SHEET_INV
 from core.metrics import (
     week_range, invoice_totals, invoices_in_week, invoices_monthly,
 )
-from core.sheets import check_quality, delete_row
+from core.sheets import (
+    check_quality, delete_row,
+    purge_duplicate_invoices, find_double_charges,
+)
 from ui import components as c
 from ui import charts
 
@@ -30,7 +33,7 @@ def render(df: pd.DataFrame, today: date) -> None:
         )
         return
 
-    _tools()
+    _tools(df)
 
     weekly, yearly = st.tabs(["Εβδομαδιαία", "Ετήσια"])
 
@@ -155,63 +158,150 @@ def _table(week: pd.DataFrame) -> None:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-def _tools() -> None:
+def _tools(df: pd.DataFrame) -> None:
     """
-    Έλεγχος — ΧΩΡΙΣ αυτόματη διαγραφή.
+    ΔΥΟ ΕΛΕΓΧΟΙ, ΔΥΟ ΔΙΑΦΟΡΕΤΙΚΑ ΠΡΟΒΛΗΜΑΤΑ:
 
-    Ο λόγος είναι στο core/sheets.py: χωρίς αριθμό παραστατικού δεν μπορούμε να
-    ξεχωρίσουμε «το ίδιο τιμολόγιο μπήκε 2 φορές» από «δύο διαφορετικά τιμολόγια
-    ίδιου ποσού την ίδια μέρα». Το δεύτερο είναι φυσιολογικό — και μια αυτόματη
-    διαγραφή θα έσβηνε πραγματικά χρήματα από τα βιβλία.
+      1. ΔΙΠΛΟΚΑΤΑΧΩΡΗΣΗ — ίδιος αριθμός παραστατικού 2+ φορές.
+         Σφάλμα ΔΙΚΟ ΜΑΣ. Σβήνεται με ασφάλεια.
+
+      2. ΔΙΠΛΗ ΧΡΕΩΣΗ — διαφορετικοί αριθμοί, ίδιο ποσό & μέρα.
+         Πιθανό σφάλμα ΤΟΥ ΠΡΟΜΗΘΕΥΤΗ. ΔΕΝ σβήνεται — θέλει τηλέφωνο στην ΑΒ.
+
+    Η διάκριση είναι όλη η ουσία. Το πρώτο διορθώνεται με ένα κουμπί. Το δεύτερο
+    είναι λεφτά που ίσως πλήρωσες δύο φορές.
     """
     with st.expander("Έλεγχος δεδομένων"):
-        st.caption("Ψάχνει εγγραφές που μοιάζουν ίδιες και μέρες που λείπουν.")
+        dup_tab, charge_tab = st.tabs(["Διπλοκαταχωρήσεις", "⚠️ Διπλές χρεώσεις"])
 
-        if st.button("Έλεγχος τώρα", key="inv_check", width="stretch"):
-            st.session_state["inv_checked"] = True
+        with dup_tab:
+            _check_duplicates()
 
-        if not st.session_state.get("inv_checked"):
-            return
+        with charge_tab:
+            _check_double_charges(df)
 
-        with st.spinner("Έλεγχος…"):
-            result = check_quality(SHEET_INV)
 
-        dups, gaps = result["duplicates"], result["gaps"]
+# ══════════════════════════════════════════════════════════════════════════════
+def _check_duplicates() -> None:
+    """Ίδιος αριθμός παραστατικού πάνω από μία φορά → δικό μας λάθος."""
+    st.caption(
+        "Ψάχνει παραστατικά με τον **ίδιο αριθμό** καταχωρημένα πάνω από μία φορά. "
+        "Αυτά είναι διπλοκαταχωρήσεις και σβήνονται με ασφάλεια."
+    )
 
-        if not dups and not gaps:
-            c.note("Καθαρά. Καμία ύποπτη εγγραφή, καμία μέρα δεν λείπει.", "ok")
-            return
+    if st.button("Έλεγχος τώρα", key="inv_check", width="stretch"):
+        st.session_state["inv_checked"] = True
 
-        if dups:
-            extra = sum(len(d["entries"]) - 1 for d in dups)
+    if not st.session_state.get("inv_checked"):
+        return
 
-            c.note(
-                f"<b>{len(dups)} ομάδες</b> με ίδια ημερομηνία, τύπο και ποσό "
-                f"— <b>{extra} επιπλέον γραμμές</b>.<br><br>"
-                f"<b>Δεν σβήνονται αυτόματα.</b> Χωρίς τον αριθμό παραστατικού "
-                f"δεν ξέρουμε αν είναι:<br>"
-                f"• το ίδιο τιμολόγιο καταχωρημένο δύο φορές, ή<br>"
-                f"• δύο διαφορετικά τιμολόγια του ίδιου ποσού την ίδια μέρα "
-                f"(απολύτως φυσιολογικό).<br><br>"
-                f"Μια λάθος διαγραφή αφαιρεί πραγματικά χρήματα από τα βιβλία.",
-                "warn",
-            )
+    with st.spinner("Έλεγχος…"):
+        result = check_quality(SHEET_INV)
 
-            with st.expander(f"Δες τις {min(len(dups), 25)} πρώτες", expanded=False):
-                for d in dups[:25]:
-                    rows = ", ".join(f"γρ. {e['row']}" for e in d["entries"])
-                    st.markdown(
-                        f"**{d['date']}** · {d['type']} · {c.eur(d['value'])} "
-                        f"— {len(d['entries'])} φορές ({rows})"
-                    )
-                if len(dups) > 25:
-                    st.caption(f"…και άλλες {len(dups) - 25} ομάδες")
+    dups = result["duplicates"]
+    gaps = result["gaps"]
+    legacy = result.get("no_number", 0)
 
-        if gaps:
-            shown = ", ".join(gaps[:15])
-            more = f" και άλλες {len(gaps) - 15}" if len(gaps) > 15 else ""
-            c.note(
-                f"Λείπουν {len(gaps)} εργάσιμες μέρες: {shown}{more}<br><br>"
-                f"Τρέξε την «Ενημέρωση δεδομένων» στο κάτω μέρος της σελίδας.",
-                "bad",
-            )
+    if legacy:
+        c.note(
+            f"<b>{legacy} παλιές εγγραφές</b> δεν έχουν αριθμό παραστατικού "
+            f"(καταχωρήθηκαν πριν προστεθεί η στήλη).<br><br>"
+            f"Αυτές <b>δεν ελέγχονται και δεν σβήνονται</b> — χωρίς αριθμό δεν "
+            f"ξέρουμε αν είναι διπλές. Θα αντικατασταθούν σταδιακά καθώς έρχονται "
+            f"νέα email.",
+            "info",
+        )
+
+    if not dups:
+        c.note("Καμία διπλοκαταχώρηση. Κάθε αριθμός παραστατικού εμφανίζεται μία φορά.", "ok")
+    else:
+        extra = sum(len(d["entries"]) - 1 for d in dups)
+
+        c.note(
+            f"<b>{len(dups)} παραστατικά</b> καταχωρήθηκαν πάνω από μία φορά "
+            f"— <b>{extra} περιττές γραμμές</b>.<br><br>"
+            f"Ίδιος αριθμός παραστατικού = το ίδιο τιμολόγιο. Σβήνεται με ασφάλεια.",
+            "warn",
+        )
+
+        if st.button(f"Καθάρισε τις {extra} περιττές γραμμές",
+                     key="inv_purge", width="stretch", type="primary"):
+            with st.spinner(f"Διαγραφή {extra} γραμμών…"):
+                killed, kept, skipped = purge_duplicate_invoices()
+
+            msg = f"Σβήστηκαν {killed} γραμμές. Έμειναν {kept} μοναδικά παραστατικά."
+            if skipped:
+                msg += f" ({skipped} παλιές χωρίς αριθμό δεν πειράχτηκαν.)"
+
+            c.note(msg, "ok")
+            st.session_state["inv_checked"] = False
+            st.rerun()
+
+        with st.expander("Δες τα αναλυτικά", expanded=False):
+            for d in dups[:25]:
+                rows = ", ".join(f"γρ. {e['row']}" for e in d["entries"])
+                num = d.get("number", "")
+                st.markdown(
+                    f"**#{num}** · {d['date']} · {c.eur(d['value'])} "
+                    f"— {len(d['entries'])} φορές ({rows})"
+                )
+            if len(dups) > 25:
+                st.caption(f"…και άλλα {len(dups) - 25}")
+
+    if gaps:
+        shown = ", ".join(gaps[:15])
+        more = f" και άλλες {len(gaps) - 15}" if len(gaps) > 15 else ""
+        c.note(f"Λείπουν {len(gaps)} εργάσιμες μέρες: {shown}{more}", "bad")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+def _check_double_charges(df: pd.DataFrame) -> None:
+    """
+    Διαφορετικοί αριθμοί, ίδιο ποσό & μέρα → πιθανή διπλή χρέωση.
+
+    ΔΕΝ ΣΒΗΝΕΤΑΙ ΠΟΤΕ. Δύο τιμολόγια των 213,51 € την ίδια μέρα μπορεί να είναι:
+      • Δύο πραγματικές παραδόσεις (φυσιολογικό)
+      • Το ίδιο τιμολόγιο κομμένο δύο φορές (σου χρέωσαν διπλά)
+
+    Μόνο εσύ ξέρεις ποιο από τα δύο. Το εργαλείο απλώς τα δείχνει.
+    """
+    st.caption(
+        "Ψάχνει παραστατικά με **διαφορετικό αριθμό** αλλά ίδιο ποσό την ίδια μέρα. "
+        "Μπορεί να είναι δύο κανονικές παραδόσεις — ή διπλή χρέωση."
+    )
+
+    if st.button("Έλεγχος τώρα", key="chg_check", width="stretch"):
+        st.session_state["chg_checked"] = True
+
+    if not st.session_state.get("chg_checked"):
+        return
+
+    with st.spinner("Έλεγχος…"):
+        found = find_double_charges(df)
+
+    if not found:
+        c.note("Καμία ύποπτη χρέωση.", "ok")
+        return
+
+    total = sum(f["value"] * (f["count"] - 1) for f in found)
+
+    c.note(
+        f"<b>{len(found)} περιπτώσεις</b> με ίδιο ποσό, ίδια μέρα, "
+        f"αλλά <b>διαφορετικούς αριθμούς</b>.<br><br>"
+        f"Αν είναι διπλές χρεώσεις, μιλάμε για <b>{c.eur(total)}</b>.<br><br>"
+        f"<b>Δεν σβήνονται.</b> Μπορεί να είναι δύο πραγματικές παραδόσεις. "
+        f"Έλεγξε τα δελτία αποστολής — αν είναι λάθος, τηλεφώνησε στην ΑΒ.",
+        "warn",
+    )
+
+    for f in found[:30]:
+        nums = " · ".join(f"#{n}" for n in f["numbers"])
+        st.markdown(
+            f"**{f['date']}** — {f['type'][:30]} · **{c.eur(f['value'])}** × {f['count']}  \
+"
+            f"<span style='color:#64748B;font-size:.8rem'>{nums}</span>",
+            unsafe_allow_html=True,
+        )
+
+    if len(found) > 30:
+        st.caption(f"…και άλλες {len(found) - 30}")

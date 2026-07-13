@@ -7,63 +7,61 @@
 
 :root {
   /* ══════════════════════════════════════════════════════════════════════════
-     ΤΑΥΤΟΤΗΤΑ ΑΒ ΒΑΣΙΛΟΠΟΥΛΟΣ
+     ΧΡΩΜΑΤΑ
 
-     Το κόκκινο της ΑΒ είναι το σήμα κατατεθέν της — αλλά σε ένα οικονομικό
-     εργαλείο το κόκκινο σημαίνει «ζημιά». Αν βάψουμε τα νούμερα κόκκινα, το
-     μαγαζί θα φαίνεται να πάει χάλια κάθε μέρα.
+     Βαθύ navy → φωτεινό μπλε. Επαγγελματικό, ήρεμο, διαβάζεται όλη μέρα.
 
-     Άρα:
-       • Το κόκκινο ΑΒ πάει στην ΤΑΥΤΟΤΗΤΑ — λογότυπο, κεφαλίδα, ενεργό tab.
-       • Τα ΔΕΔΟΜΕΝΑ κρατούν τη σημασία τους — πράσινο ανέβηκε, κόκκινο έπεσε.
-
-     Δύο κόκκινα, δύο δουλειές. Δεν μπερδεύονται ποτέ.
+     ΚΑΝΟΝΑΣ: το μπλε είναι η ΤΑΥΤΟΤΗΤΑ. Πράσινο/κόκκινο είναι η ΠΛΗΡΟΦΟΡΙΑ.
+     Δεν μπερδεύονται ποτέ. Ένα νούμερο δεν βάφεται μπλε επειδή είναι σημαντικό
+     — βάφεται πράσινο αν ανέβηκε, κόκκινο αν έπεσε, μαύρο αν απλώς υπάρχει.
      ══════════════════════════════════════════════════════════════════════════ */
 
   /* Ταυτότητα */
-  --ab-red:      #E2231A;   /* Το κόκκινο της ΑΒ. Μόνο για ταυτότητα. */
-  --ab-red-dark: #B81A12;
-  --ab-red-tint: #FEF2F1;
-  --ab-ink:      #1A1A1A;   /* Το μαύρο του λογότυπου */
+  --navy:        #1E3A8A;   /* Βαθύ — κεφαλίδα, ενεργά */
+  --navy-deep:   #172554;   /* Ακόμα βαθύτερο — gradients */
+  --blue:        #3B82F6;   /* Κύριο */
+  --blue-light:  #60A5FA;   /* Φωτεινό — τονισμοί */
+  --blue-tint:   #EFF6FF;   /* Απαλό φόντο */
+  --blue-soft:   #DBEAFE;
 
   /* Επιφάνειες */
-  --canvas:      #F6F7F9;
+  --canvas:      #F5F7FA;
   --surface:     #FFFFFF;
-  --surface-alt: #FCFCFD;
-  --sunken:      #F1F3F6;
+  --surface-alt: #FBFCFE;
+  --sunken:      #EFF2F7;
 
   /* Μελάνι */
-  --ink:         #1A1A1A;
-  --text:        #16181D;
-  --muted:       #5F6672;
-  --dim:         #9AA1AD;
+  --ink:         #0F172A;
+  --text:        #1E293B;
+  --muted:       #64748B;
+  --dim:         #94A3B8;
 
-  /* Σήμα — για δεδομένα χρησιμοποιούμε ουδέτερο σκούρο, όχι το κόκκινο */
-  --brand:       var(--ab-red);
-  --brand-dark:  var(--ab-red-dark);
-  --brand-tint:  var(--ab-red-tint);
+  /* Συμβατότητα */
+  --brand:       var(--blue);
+  --brand-dark:  var(--navy);
+  --brand-tint:  var(--blue-tint);
 
   /* Δεδομένα — εδώ το χρώμα ΕΙΝΑΙ η πληροφορία */
-  --data:        #1A1A1A;   /* Το κύριο νούμερο. Μαύρο. Ουδέτερο. */
-  --pos:         #0E8A4F;   /* Ανέβηκε */
-  --pos-tint:    #E6F6EE;
-  --neg:         #D0342C;   /* Έπεσε */
-  --neg-tint:    #FDEEED;
-  --warn:        #B25E09;
-  --warn-tint:   #FFF6E9;
+  --data:        #0F172A;   /* Το κύριο νούμερο. Μαύρο. Ουδέτερο. */
+  --pos:         #059669;   /* Ανέβηκε */
+  --pos-tint:    #ECFDF5;
+  --neg:         #DC2626;   /* Έπεσε */
+  --neg-tint:    #FEF2F2;
+  --warn:        #D97706;
+  --warn-tint:   #FFFBEB;
 
   /* Περσινά — γκρι. Μέτρο σύγκρισης, όχι αντίπαλος. */
-  --prev:        #9AA1AD;
-  --prev-tint:   #F1F3F6;
+  --prev:        #94A3B8;
+  --prev-tint:   #F1F5F9;
 
   /* Γραμμές */
-  --line:        #E4E7EC;
-  --line-soft:   #F1F3F6;
+  --line:        #E2E8F0;
+  --line-soft:   #F1F5F9;
 
   /* Βάθος */
-  --lift-1: 0 1px 2px rgba(26,26,26,.04), 0 1px 3px rgba(26,26,26,.05);
-  --lift-2: 0 2px 4px rgba(26,26,26,.04), 0 4px 12px rgba(26,26,26,.07);
-  --lift-3: 0 8px 24px rgba(26,26,26,.09);
+  --lift-1: 0 1px 2px rgba(15,23,42,.04), 0 1px 3px rgba(15,23,42,.06);
+  --lift-2: 0 4px 6px -1px rgba(15,23,42,.07), 0 2px 4px -2px rgba(15,23,42,.05);
+  --lift-3: 0 10px 25px -5px rgba(30,58,138,.15);
 
   --r-sm: 8px;
   --r:    12px;
@@ -100,75 +98,52 @@ html, body, [class*="css"], .stApp {
 }
 
 /* ── ΚΕΦΑΛΙΔΑ ─────────────────────────────────────────────────────────────── */
+/*
+   ΧΩΡΙΣ ΛΟΓΟΤΥΠΟ. Το gradient κάνει τη δουλειά — δίνει ταυτότητα χωρίς εικόνα.
+   Το όνομα, η μέρα, και τίποτα άλλο. Ό,τι δεν βοηθάει, φεύγει.
+*/
 .topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  padding: .8rem 1.1rem;
-  margin-bottom: 1rem;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--r);
-  box-shadow: var(--lift-1);
+  padding: 1.15rem 1.4rem;
+  margin-bottom: 1.1rem;
+  border-radius: var(--r-lg);
 
-  /* Η λεπτή κόκκινη γραμμή στην κορυφή. Ένα άγγιγμα ΑΒ, όχι μπογιά. */
-  border-top: 3px solid var(--ab-red);
-}
-
-.brand {
-  display: flex;
-  align-items: center;
-  gap: .75rem;
-}
-
-/*
-   ΤΟ ΛΟΓΟΤΥΠΟ
-
-   Το πραγματικό λογότυπο της ΑΒ είναι το «ΑΒ» σε λευκό μέσα σε κόκκινο πλαίσιο.
-   Το αναπαράγουμε με τυπογραφία — καθαρό, ελαφρύ, χωρίς εξωτερικά αρχεία που
-   μπορεί να μη φορτώσουν.
-*/
-.brand-mark {
-  width: 38px;
-  height: 38px;
-  display: grid;
-  place-items: center;
-  background: var(--ab-red);
+  background: linear-gradient(120deg, var(--navy) 0%, var(--blue) 100%);
+  box-shadow: var(--lift-3);
   color: #fff;
-  border-radius: 7px;
-  font-family: 'Manrope', sans-serif;
-  font-weight: 800;
-  font-size: .92rem;
-  letter-spacing: -.01em;
-  box-shadow: 0 1px 3px rgba(226,35,26,.28);
-  flex-shrink: 0;
 }
+
+.brand { display: flex; flex-direction: column; gap: .12rem; }
 
 .brand-name {
   font-family: 'Manrope', sans-serif;
   font-weight: 800;
-  font-size: .98rem;
-  color: var(--ab-ink);
+  font-size: 1.28rem;
+  color: #fff;
   line-height: 1.15;
-  letter-spacing: -.015em;
+  letter-spacing: -.025em;
 }
 
 .brand-sub {
-  font-size: .68rem;
-  color: var(--dim);
+  font-size: .74rem;
+  color: rgba(255,255,255,.72);
   font-weight: 500;
-  margin-top: .1rem;
+  letter-spacing: .01em;
 }
 
 .today-stamp {
-  font-size: .72rem;
+  font-size: .76rem;
   font-weight: 600;
-  color: var(--muted);
-  padding: .4rem .75rem;
-  background: var(--sunken);
+  color: #fff;
+  padding: .48rem .9rem;
+  background: rgba(255,255,255,.16);
+  border: 1px solid rgba(255,255,255,.2);
   border-radius: 100px;
   white-space: nowrap;
+  backdrop-filter: blur(8px);
 }
 
 /* ── ΠΛΟΗΓΗΣΗ ─────────────────────────────────────────────────────────────── */
@@ -202,10 +177,10 @@ html, body, [class*="css"], .stApp {
 .nav a:hover { background: var(--sunken); color: var(--text); }
 
 .nav a.on {
-  background: var(--ab-red);
+  background: var(--navy);
   color: #fff;
   font-weight: 700;
-  box-shadow: 0 1px 3px rgba(226,35,26,.25);
+  box-shadow: 0 1px 3px rgba(30,58,138,.28);
 }
 
 /* ── ΤΙΤΛΟΣ ΣΕΛΙΔΑΣ ───────────────────────────────────────────────────────── */
@@ -214,7 +189,7 @@ html, body, [class*="css"], .stApp {
   font-weight: 800;
   font-size: 1.5rem;
   letter-spacing: -.03em;
-  color: var(--ab-ink);
+  color: var(--ink);
   margin: 0 0 .15rem;
 }
 
@@ -330,8 +305,8 @@ a:hover > .scale { box-shadow: var(--lift-2); transform: translateY(-1px); }
   border-radius: 100px;
   transition: width .5s cubic-bezier(.4, 0, .2, 1);
 }
-/* «Φέτος» = ΑΒ κόκκινο (εμείς). «Πέρσι» = γκρι (το μέτρο). */
-.bar-fill.now  { background: var(--ab-red); }
+/* «Φέτος» = μπλε (εμείς). «Πέρσι» = γκρι (το μέτρο). */
+.bar-fill.now  { background: var(--blue); }
 .bar-fill.then { background: var(--prev); }
 
 .bar-val {
@@ -394,7 +369,7 @@ a:hover > .scale { box-shadow: var(--lift-2); transform: translateY(-1px); }
 .stat {
   background: var(--surface);
   border: 1px solid var(--line);
-  border-left: 3px solid var(--accent, var(--ab-red));
+  border-left: 3px solid var(--accent, var(--blue));
   border-radius: var(--r);
   padding: .95rem 1.1rem;
   box-shadow: var(--lift-1);
@@ -449,9 +424,9 @@ a.plain { text-decoration: none; color: inherit; display: block; height: 100%; }
   gap: 1rem;
   padding: 1.05rem 1.25rem;
   margin-bottom: .9rem;
-  background: linear-gradient(135deg, var(--ab-red) 0%, var(--ab-red-dark) 100%);
+  background: linear-gradient(135deg, var(--navy-deep) 0%, var(--navy) 55%, var(--blue) 100%);
   border-radius: var(--r-lg);
-  box-shadow: 0 4px 16px rgba(226,35,26,.22);
+  box-shadow: var(--lift-3);
   color: #fff;
 }
 
@@ -461,7 +436,7 @@ a.plain { text-decoration: none; color: inherit; display: block; height: 100%; }
   font-weight: 700;
   letter-spacing: .09em;
   text-transform: uppercase;
-  color: rgba(255,255,255,.82);
+  color: var(--blue-light);
   margin-bottom: .35rem;
 }
 
@@ -520,8 +495,8 @@ a.plain:hover > .row { border-color: var(--brand); background: var(--surface-alt
   font-size: .82rem;
 }
 /* Αγορές (τι δίνεις) vs πωλήσεις (τι παίρνεις). Δύο διαφορετικά πράγματα. */
-.chip.buy  { color: var(--ab-red); background: var(--ab-red-tint); }
-.chip.sell { color: var(--pos);    background: var(--pos-tint); }
+.chip.buy  { color: var(--navy); background: var(--blue-tint); }
+.chip.sell { color: var(--pos);   background: var(--pos-tint); }
 
 .caret { color: var(--brand); font-weight: 800; margin-right: .45rem; }
 
@@ -621,15 +596,15 @@ a.plain:hover > .row { border-color: var(--brand); background: var(--surface-alt
 /* Το κύριο κουμπί δράσης — κόκκινο ΑΒ. Ξεχωρίζει από τα υπόλοιπα. */
 .stButton > button[kind="primary"],
 button[data-testid="stBaseButton-primary"] {
-  background: var(--ab-red) !important;
-  border-color: var(--ab-red) !important;
+  background: var(--navy) !important;
+  border-color: var(--navy) !important;
   color: #fff !important;
   font-weight: 700 !important;
 }
 .stButton > button[kind="primary"]:hover,
 button[data-testid="stBaseButton-primary"]:hover {
-  background: var(--ab-red-dark) !important;
-  border-color: var(--ab-red-dark) !important;
+  background: var(--navy-deep) !important;
+  border-color: var(--navy-deep) !important;
   color: #fff !important;
 }
 
@@ -734,7 +709,6 @@ button[data-testid="stBaseButton-primary"]:hover {
     border-top-width: 3px;
   }
 
-  .brand-mark { width: 34px; height: 34px; font-size: .85rem; }
   .brand-name { font-size: .9rem; }
   .brand-sub { display: none; }
 
@@ -878,7 +852,7 @@ button[data-testid="stBaseButton-primary"]:hover {
 
   .tabbar a:active { background: var(--sunken); }
 
-  .tabbar a.on { color: var(--ab-red); font-weight: 700; }
+  .tabbar a.on { color: var(--blue); font-weight: 700; }
 
   .tabbar .ico {
     font-size: 1.2rem;
@@ -895,7 +869,7 @@ button[data-testid="stBaseButton-primary"]:hover {
     top: 0;
     width: 26px;
     height: 2px;
-    background: var(--ab-red);
+    background: var(--blue);
     border-radius: 0 0 2px 2px;
   }
 
