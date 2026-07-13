@@ -38,7 +38,7 @@ from ui import mobile
 from views import overview, sales, invoices, timologiseis, month
 
 
-VERSION = "6.0"
+VERSION = "6.4"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -105,8 +105,8 @@ def sync_panel(df_s) -> None:
 
     with st.expander("Ενημέρωση δεδομένων"):
         st.caption(
-            "Παραστατικά και τιμολογήσεις ενημερώνονται κάθε 2 ώρες. "
-            "Πωλήσεις κάθε μισή ώρα, από τις 20:00 ως τις 02:00. "
+            "Παραστατικά και τιμολογήσεις ενημερώνονται **κάθε 2 ώρες**. "
+            "Πωλήσεις **κάθε 10 λεπτά, από τις 21:00** ώσπου να βρεθεί η αναφορά. "
             "Πάτα εδώ μόνο αν τα θέλεις αμέσως."
         )
 
@@ -216,13 +216,53 @@ def _sync_sales(df_s) -> None:
             "Ανανέωσε τη σελίδα σε λίγο.",
             "ok",
         )
-    else:
-        c.note(
-            f"Δεν μπόρεσα να ξεκινήσω τον συγχρονισμό.<br><br>{msg}<br><br>"
-            f"<b>Εναλλακτικά:</b> GitHub → Actions → «Πωλήσεις (OCR)» → "
-            f"Run workflow.",
-            "warn",
+        return
+
+    # ── ΔΕΝ ΕΓΙΝΕ. ΔΩΣΕ ΔΡΟΜΟ, ΟΧΙ ΤΟΙΧΟ. ──
+    #
+    # «Δεν μπόρεσα» χωρίς εναλλακτική είναι άχρηστο μήνυμα. Ο χρήστης θέλει
+    # τις πωλήσεις του — του δίνουμε τον σύνδεσμο που τις φέρνει.
+    repo = _repo_name()
+    link = (
+        f"https://github.com/{repo}/actions/workflows/sales_sync.yml"
+        if repo else "https://github.com"
+    )
+
+    c.note(
+        f"<b>Δεν μπόρεσα να ξεκινήσω τον συγχρονισμό από εδώ.</b><br><br>"
+        f"{msg}<br><br>"
+        f"<b>Κάν' το χειροκίνητα:</b><br>"
+        f'1. Άνοιξε <a href="{link}" target="_blank">το workflow στο GitHub</a><br>'
+        f"2. Πάτα <b>Run workflow</b> → <b>Run workflow</b><br>"
+        f"3. Σε 2-3 λεπτά ανανέωσε αυτή τη σελίδα",
+        "warn",
+    )
+
+    with st.expander("Πώς να λειτουργήσει το κουμπί"):
+        st.markdown(
+            "Το κουμπί χρειάζεται ένα **GitHub token** για να ξεκινήσει το "
+            "workflow από εδώ.\n\n"
+            "**1. Φτιάξε το token**\n\n"
+            "GitHub → Settings → Developer settings → "
+            "**Fine-grained tokens** → Generate new token\n\n"
+            "| Πεδίο | Τιμή |\n"
+            "|---|---|\n"
+            "| Repository access | Only select → `ab-skyros-dashboard` |\n"
+            "| Permissions → **Actions** | **Read and write** |\n\n"
+            "**2. Βάλ' το στα Streamlit secrets**\n\n"
+            "```toml\n"
+            'GITHUB_TOKEN = "github_pat_..."\n'
+            'GITHUB_REPO  = "abskyros/ab-skyros-dashboard"\n'
+            "```\n\n"
+            "Μετά το κουμπί δουλεύει με ένα κλικ."
         )
+
+
+def _repo_name() -> str:
+    try:
+        return st.secrets.get("GITHUB_REPO", "")
+    except Exception:
+        return ""
 
 
 def _sync_invoices() -> None:
@@ -271,9 +311,18 @@ def _sync_timologiseis() -> None:
 
 # ══════════════════════════════════════════════════════════════════════════════
 def footer() -> None:
+    """
+    Η έκδοση και η ώρα Ελλάδας.
+
+    Η έκδοση: για να ξέρεις αμέσως αν ανέβηκε ο νέος κώδικας.
+    Η ώρα: για να επιβεβαιώνεις ότι το σύστημα ξέρει τη σωστή ώρα (θερινή/χειμερινή).
+    """
+    from core.metrics import now_greece
+    now = now_greece()
+
     c.html(
         '<div style="text-align:center;padding:2rem 0 1rem;font-size:.68rem;color:var(--dim)">'
-        f'ΑΒ Σκύρος · v{VERSION}'
+        f'ΑΒ Σκύρος · v{VERSION} · {now:%H:%M} ({now.tzname() or "EET"})'
         '</div>'
     )
 
