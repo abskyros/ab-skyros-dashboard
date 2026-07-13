@@ -20,10 +20,7 @@ from core.sheets import (
     purge_duplicate_invoices, find_double_charges,
 )
 from core.backfill import (
-    plan as backfill_plan,
-    apply as backfill_apply,
-    repair_week, apply_repair,
-    diagnose, audit, snapshot,
+    repair, apply_repair, audit, snapshot,
 )
 from core.mail import fetch_all_invoices
 from ui import components as c
@@ -179,97 +176,20 @@ def _tools(df: pd.DataFrame) -> None:
     είναι λεφτά που ίσως πλήρωσες δύο φορές.
     """
     with st.expander("Έλεγχος δεδομένων"):
-        verify_tab, dup_tab, charge_tab, deep_tab = st.tabs([
-            "✅ Επαλήθευση",
-            "Διπλοκαταχωρήσεις",
+        clean_tab, verify_tab, charge_tab = st.tabs([
+            "🧹 Καθαρισμός (όλα τα χρόνια)",
+            "✅ Επαλήθευση εβδομάδας",
             "⚠️ Διπλές χρεώσεις",
-            "🔍 Βαθύς έλεγχος",
         ])
+
+        with clean_tab:
+            _clean_all()
 
         with verify_tab:
             _verify(df)
 
-        with dup_tab:
-            _check_duplicates()
-
         with charge_tab:
             _check_double_charges(df)
-
-        with deep_tab:
-            _deep_check()
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-def _check_duplicates() -> None:
-    """Ίδιος αριθμός παραστατικού πάνω από μία φορά → δικό μας λάθος."""
-    st.caption(
-        "Ψάχνει παραστατικά με τον **ίδιο αριθμό** καταχωρημένα πάνω από μία φορά. "
-        "Αυτά είναι διπλοκαταχωρήσεις και σβήνονται με ασφάλεια."
-    )
-
-    if st.button("Έλεγχος τώρα", key="inv_check", width="stretch"):
-        st.session_state["inv_checked"] = True
-
-    if not st.session_state.get("inv_checked"):
-        return
-
-    with st.spinner("Έλεγχος…"):
-        result = check_quality(SHEET_INV)
-
-    dups = result["duplicates"]
-    gaps = result["gaps"]
-    legacy = result.get("no_number", 0)
-
-    if legacy:
-        c.note(
-            f"<b>{legacy} παλιές εγγραφές</b> δεν έχουν αριθμό παραστατικού "
-            f"(καταχωρήθηκαν πριν προστεθεί η στήλη).<br><br>"
-            f"Αυτές <b>δεν ελέγχονται και δεν σβήνονται</b> — χωρίς αριθμό δεν "
-            f"ξέρουμε αν είναι διπλές. Θα αντικατασταθούν σταδιακά καθώς έρχονται "
-            f"νέα email.",
-            "info",
-        )
-
-    if not dups:
-        c.note("Καμία διπλοκαταχώρηση. Κάθε αριθμός παραστατικού εμφανίζεται μία φορά.", "ok")
-    else:
-        extra = sum(len(d["entries"]) - 1 for d in dups)
-
-        c.note(
-            f"<b>{len(dups)} παραστατικά</b> καταχωρήθηκαν πάνω από μία φορά "
-            f"— <b>{extra} περιττές γραμμές</b>.<br><br>"
-            f"Ίδιος αριθμός παραστατικού = το ίδιο τιμολόγιο. Σβήνεται με ασφάλεια.",
-            "warn",
-        )
-
-        if st.button(f"Καθάρισε τις {extra} περιττές γραμμές",
-                     key="inv_purge", width="stretch", type="primary"):
-            with st.spinner(f"Διαγραφή {extra} γραμμών…"):
-                killed, kept, skipped = purge_duplicate_invoices()
-
-            msg = f"Σβήστηκαν {killed} γραμμές. Έμειναν {kept} μοναδικά παραστατικά."
-            if skipped:
-                msg += f" ({skipped} παλιές χωρίς αριθμό δεν πειράχτηκαν.)"
-
-            c.note(msg, "ok")
-            st.session_state["inv_checked"] = False
-            st.rerun()
-
-        with st.expander("Δες τα αναλυτικά", expanded=False):
-            for d in dups[:25]:
-                rows = ", ".join(f"γρ. {e['row']}" for e in d["entries"])
-                num = d.get("number", "")
-                st.markdown(
-                    f"**#{num}** · {d['date']} · {c.eur(d['value'])} "
-                    f"— {len(d['entries'])} φορές ({rows})"
-                )
-            if len(dups) > 25:
-                st.caption(f"…και άλλα {len(dups) - 25}")
-
-    if gaps:
-        shown = ", ".join(gaps[:15])
-        more = f" και άλλες {len(gaps) - 15}" if len(gaps) > 15 else ""
-        c.note(f"Λείπουν {len(gaps)} εργάσιμες μέρες: {shown}{more}", "bad")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -326,33 +246,33 @@ def _check_double_charges(df: pd.DataFrame) -> None:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# ΒΑΘΥΣ ΕΛΕΓΧΟΣ
+# ΚΑΘΑΡΙΣΜΟΣ — ΟΛΑ ΤΑ ΧΡΟΝΙΑ, ΜΙΑ ΦΟΡΑ
 # ══════════════════════════════════════════════════════════════════════════════
-def _deep_check() -> None:
+def _clean_all() -> None:
     """
-    Ανακατασκευή αριθμών από τα email — για τα ΠΑΛΙΑ παραστατικά.
+    Η ΜΕΓΑΛΗ ΚΑΘΑΡΙΟΤΗΤΑ.
 
-    Τρία βήματα, με ρητή έγκριση ανάμεσα:
-        1. ΣΑΡΩΣΗ        → διαβάζει όλα τα email, χτίζει το σχέδιο
-        2. ΠΡΟΕΠΙΣΚΟΠΗΣΗ → δείχνει ΑΚΡΙΒΩΣ τι θα γίνει + αντίγραφο ασφαλείας
-        3. ΕΚΤΕΛΕΣΗ      → μόνο αφού το δεις και το εγκρίνεις
+    Τρέχει ΜΙΑ ΦΟΡΑ. Από εδώ και πέρα το data_sync κρατάει το Sheet καθαρό —
+    το κλειδί (αριθμός παραστατικού) δεν αφήνει διπλά να μπουν.
 
-    Τίποτα δεν αγγίζεται στα βήματα 1-2.
-
-    ΕΠΑΝΑΛΗΨΙΜΟ: αν το Google κόψει τη σύνδεση στη μέση (rate limit), ξανατρέχεις
-    και συνεχίζει από εκεί που έμεινε. Το γέμισμα είναι idempotent.
+    Τρία βήματα, με ρητή έγκριση:
+        1. ΣΑΡΩΣΗ  → διαβάζει ΟΛΑ τα email, όλων των ετών
+        2. ΣΧΕΔΙΟ  → δείχνει ακριβώς τι θα γίνει. Δεν αγγίζει τίποτα.
+        3. ΕΚΤΕΛΕΣΗ → γεμίζει αριθμούς, μετά σβήνει τα διπλά
     """
     st.caption(
-        "Ξαναδιαβάζει **όλα** τα email παραστατικών και βρίσκει τον πραγματικό "
-        "αριθμό κάθε παλιάς εγγραφής. Μετά σβήνει όσες αποδεικνύονται διπλές."
+        "Διαβάζει **όλα** τα email παραστατικών, γεμίζει τους αριθμούς, "
+        "και σβήνει **όλες** τις διπλές καταχωρήσεις — όλων των ετών."
     )
 
     c.note(
-        "<b>Πώς δουλεύει:</b><br>"
-        "Αν μια μέρα έχει <b>3 τιμολόγια</b> των 213,51 € στα email, αλλά "
-        "<b>5 γραμμές</b> στο Sheet, τότε οι 2 επιπλέον είναι αποδεδειγμένα διπλές.<br><br>"
-        "Γραμμές που δεν βρίσκονται σε κανένα email <b>δεν πειράζονται</b> — "
-        "δεν ξέρουμε τι είναι, άρα δεν αποφασίζουμε.",
+        "<b>Τρέχει μία φορά.</b><br><br>"
+        "Από εδώ και πέρα το σύστημα κρατάει το Sheet καθαρό μόνο του: "
+        "το κλειδί είναι ο <b>αριθμός παραστατικού</b>, και δεν αφήνει το ίδιο "
+        "τιμολόγιο να μπει δύο φορές.<br><br>"
+        "<b>Η λογική:</b> αν η 10/07 έχει 11 τιμολόγια στα email αλλά 30 γραμμές "
+        "στο Sheet, οι 11 πρώτες παίρνουν τους αριθμούς — οι 19 υπόλοιπες δεν "
+        "έχουν αριθμό να πάρουν, άρα είναι διπλές.",
         "info",
     )
 
@@ -361,13 +281,19 @@ def _deep_check() -> None:
         c.note("Λείπει το EMAIL_PASS από τα secrets.", "bad")
         return
 
+    # ── ΑΠΟΤΕΛΕΣΜΑ ΠΡΟΗΓΟΥΜΕΝΗΣ ΕΚΤΕΛΕΣΗΣ ──
+    done = st.session_state.get("clean_done")
+    if done:
+        _clean_report(done)
+        return
+
     # ── ΒΗΜΑ 1: ΣΑΡΩΣΗ ──
-    if st.button("Ξεκίνα σάρωση", key="deep_scan", width="stretch"):
+    if st.button("Ξεκίνα σάρωση (όλα τα email)", key="cl_scan", width="stretch"):
         bar = st.progress(0.0, text="Σύνδεση στο Gmail…")
 
         def tick(scanned, found):
-            pct = min(0.85, scanned / 400)
-            bar.progress(pct, text=f"{scanned} email · {found} παραστατικά")
+            bar.progress(min(0.8, scanned / 500),
+                         text=f"{scanned} email · {found} παραστατικά")
 
         records, errors, scanned = fetch_all_invoices(pw, on_progress=tick)
 
@@ -377,65 +303,66 @@ def _deep_check() -> None:
             return
 
         bar.progress(0.9, text="Σύγκριση με το Sheet…")
-        p = backfill_plan(records, emails_scanned=scanned)
+        rep = repair(records)          # ΧΩΡΙΣ όρια → όλα τα χρόνια
 
         bar.empty()
-        st.session_state["deep_plan"] = p
-        st.session_state["deep_done"] = None
 
-    # ── ΑΠΟΤΕΛΕΣΜΑ ΠΡΟΗΓΟΥΜΕΝΗΣ ΕΚΤΕΛΕΣΗΣ ──
-    done = st.session_state.get("deep_done")
-    if done:
-        _report(done)
+        st.session_state["clean_plan"] = rep
+        st.session_state["clean_meta"] = {"emails": scanned, "records": len(records)}
+
+    rep = st.session_state.get("clean_plan")
+    if rep is None:
         return
 
-    p = st.session_state.get("deep_plan")
-    if p is None:
-        return
+    meta = st.session_state.get("clean_meta", {})
 
-    # ── ΒΗΜΑ 2: ΠΡΟΕΠΙΣΚΟΠΗΣΗ ──
+    # ── ΒΗΜΑ 2: ΤΟ ΣΧΕΔΙΟ ──
     st.divider()
     c.section("Τι βρέθηκε")
 
     a, b, d = st.columns(3)
-    a.metric("Email", f"{p.emails_scanned:,}".replace(",", "."))
-    b.metric("Παραστατικά στα email", f"{p.records_found:,}".replace(",", "."))
-    d.metric("Γραμμές στο Sheet", f"{p.sheet_rows:,}".replace(",", "."))
+    a.metric("Email", f"{meta.get('emails', 0):,}".replace(",", "."))
+    b.metric("Παραστατικά", f"{meta.get('records', 0):,}".replace(",", "."))
+    d.metric("Γραμμές Sheet", f"{rep['scanned']:,}".replace(",", "."))
 
-    if not p.touched:
-        c.note("Όλα εντάξει. Καμία αλλαγή δεν χρειάζεται.", "ok")
+    if not rep["fill"] and not rep["delete"]:
+        c.note(
+            "Το Sheet είναι ήδη καθαρό. Καμία αλλαγή δεν χρειάζεται.",
+            "ok",
+        )
         return
 
     c.section("Τι θα γίνει")
 
     lines = []
-    if p.fill:
-        lines.append(f"✓ <b>{len(p.fill)}</b> γραμμές θα πάρουν τον αριθμό τους")
-    if p.delete:
+    if rep["fill"]:
+        lines.append(f"✓ <b>{len(rep['fill'])}</b> γραμμές θα πάρουν τον αριθμό τους")
+    if rep["delete"]:
         lines.append(
-            f"🗑 <b>{len(p.delete)}</b> γραμμές θα <b>σβηστούν</b> "
-            f"(αποδεδειγμένα διπλές — αξίας {c.eur(p.deleted_value)})"
+            f"🗑 <b>{len(rep['delete'])}</b> γραμμές θα <b>σβηστούν</b> "
+            f"(αξίας {c.eur(rep['value'])})"
         )
-    if p.add:
-        lines.append(f"+ <b>{len(p.add)}</b> παραστατικά λείπουν και θα προστεθούν")
-    if p.skip:
-        lines.append(f"⊘ <b>{len(p.skip)}</b> γραμμές <b>δεν πειράζονται</b> (δεν βρέθηκαν στα email)")
-    if p.already:
-        lines.append(f"· {p.already} είχαν ήδη αριθμό")
+    if rep["keep"]:
+        lines.append(
+            f"⊘ <b>{len(rep['keep'])}</b> γραμμές <b>δεν πειράζονται</b> "
+            f"(δεν υπάρχουν σε κανένα email)"
+        )
 
-    c.note("<br>".join(lines), "warn" if p.delete else "info")
+    c.note("<br>".join(lines), "warn" if rep["delete"] else "info")
 
-    # Χρόνος — το Google επιτρέπει 60 write/λεπτό, άρα κάνουμε παύσεις.
-    steps = (len(p.fill) + 499) // 500 + len(p.delete) // 20 + (1 if p.add else 0)
-    if steps > 3:
-        st.caption(f"Εκτιμώμενος χρόνος: ~{max(1, steps * 2 // 60 + 1)} λεπτά "
-                   f"(κάνουμε παύσεις για να μη μας κόψει το Google).")
+    after = rep["scanned"] - len(rep["delete"])
+    st.caption(
+        f"Το Sheet θα πάει από **{rep['scanned']:,}** σε **{after:,}** γραμμές."
+        .replace(",", ".")
+    )
 
-    if p.skip:
-        _diagnosis(p)
+    # Χρόνος
+    steps = (len(rep["fill"]) + 499) // 500 + len(rep["delete"]) // 30 + 1
+    if steps > 5:
+        st.caption(f"Εκτιμώμενος χρόνος: ~{max(1, steps * 2 // 60 + 1)} λεπτά.")
 
-    # ── ΑΝΤΙΓΡΑΦΟ ΑΣΦΑΛΕΙΑΣ ──
-    if p.delete:
+    # ── ΑΝΤΙΓΡΑΦΟ ──
+    if rep["delete"]:
         st.divider()
         c.section("Πριν προχωρήσεις")
 
@@ -450,13 +377,14 @@ def _deep_check() -> None:
             snapshot().encode("utf-8-sig"),
             "invoices_backup.csv",
             "text/csv",
-            key="deep_backup",
+            key="cl_backup",
             width="stretch",
         )
 
         confirmed = st.checkbox(
-            f"Κατέβασα το αντίγραφο. Καταλαβαίνω ότι θα σβηστούν {len(p.delete)} γραμμές.",
-            key="deep_confirm",
+            f"Κατέβασα το αντίγραφο. Καταλαβαίνω ότι θα σβηστούν "
+            f"{len(rep['delete'])} γραμμές.",
+            key="cl_confirm",
         )
     else:
         confirmed = True
@@ -464,7 +392,7 @@ def _deep_check() -> None:
     # ── ΒΗΜΑ 3: ΕΚΤΕΛΕΣΗ ──
     st.divider()
 
-    if st.button("Εκτέλεση", key="deep_apply", width="stretch",
+    if st.button("Καθαρισμός", key="cl_apply", width="stretch",
                  type="primary", disabled=not confirmed):
 
         bar = st.progress(0.0, text="Έναρξη…")
@@ -473,61 +401,50 @@ def _deep_check() -> None:
             bar.progress(min(1.0, cur / max(total, 1)),
                          text=f"{stage} — {cur}/{total}")
 
-        result = backfill_apply(p, on_progress=progress)
+        result = apply_repair(rep, on_progress=progress)
         bar.empty()
 
-        # ΚΡΙΣΙΜΟ: ΟΧΙ st.rerun() εδώ.
-        #
-        # Το checkbox «deep_confirm» υπάρχει ήδη στη σελίδα. Το st.rerun() μέσα
-        # στο callback ενός κουμπιού, ενώ το widget είναι ζωντανό, ρίχνει
-        # StreamlitAPIException.
-        #
-        # Αντ' αυτού δείχνουμε το αποτέλεσμα ΕΠΙΤΟΠΟΥ και σβήνουμε το σχέδιο.
-        # Στο επόμενο φυσιολογικό rerun (όταν ο χρήστης πατήσει κάτι), η σελίδα
-        # θα δείξει μόνο την αναφορά.
-        st.session_state["deep_done"] = result
-        st.session_state.pop("deep_plan", None)
+        st.session_state["clean_done"] = result
+        st.session_state.pop("clean_plan", None)
 
-        _report(result)
+        _clean_report(result)
 
 
-def _report(done: dict) -> None:
-    """Το αποτέλεσμα της εκτέλεσης — με ΕΙΛΙΚΡΙΝΗ αριθμητική."""
+def _clean_report(done: dict) -> None:
+    """Το αποτέλεσμα — με ειλικρινή αριθμητική."""
     st.divider()
 
     if done.get("complete"):
         c.note(
             f"<b>Ολοκληρώθηκε.</b><br>"
             f"• {done['filled']} γραμμές πήραν αριθμό<br>"
-            f"• {done['deleted']} διπλές σβήστηκαν<br>"
-            f"• {done['added']} προστέθηκαν<br><br>"
-            f"Πάτα <b>«Νέα σάρωση»</b> για να ελέγξεις αν έμεινε κάτι.",
+            f"• {done['deleted']} διπλές σβήστηκαν<br><br>"
+            f"Πάτα <b>«Νέος έλεγχος»</b> για επαλήθευση — αν όλα πήγαν καλά, "
+            f"θα πει «το Sheet είναι ήδη καθαρό».",
             "ok",
         )
     else:
-        # ΔΕΝ λέμε «ολοκληρώθηκε» όταν δεν ολοκληρώθηκε.
         c.note(
             f"<b>Δεν ολοκληρώθηκε.</b><br>"
-            f"Πέρασαν: {done['filled']} γεμίσματα · {done['deleted']} διαγραφές · "
-            f"{done['added']} προσθήκες<br><br>"
-            f"<b>Ξανατρέξε τη σάρωση</b> — θα συνεχίσει από εκεί που έμεινε. "
-            f"Τίποτα δεν χάθηκε.",
+            f"Πέρασαν: {done['filled']} γεμίσματα · {done['deleted']} διαγραφές<br><br>"
+            f"<b>Τίποτα δεν χάθηκε.</b> Πάτα «Νέος έλεγχος» — θα συνεχίσει "
+            f"από εκεί που έμεινε.",
             "warn",
         )
 
         for e in done.get("errors", []):
-            if "Quota exceeded" in e or "429" in e:
+            if "Quota" in e or "429" in e:
                 c.note(
                     "Το Google έκοψε τη σύνδεση (όριο 60 εγγραφών/λεπτό). "
-                    "Περίμενε ένα λεπτό και ξαναπάτα «Ξεκίνα σάρωση».",
+                    "Περίμενε ένα λεπτό και ξαναδοκίμασε.",
                     "bad",
                 )
                 break
             c.note(e, "bad")
 
-    if st.button("Νέα σάρωση", key="deep_reset", width="stretch"):
-        st.session_state.pop("deep_done", None)
-        st.session_state.pop("deep_plan", None)
+    if st.button("Νέος έλεγχος", key="cl_reset", width="stretch"):
+        st.session_state.pop("clean_done", None)
+        st.session_state.pop("clean_plan", None)
 
 
 def _password() -> str:
@@ -535,285 +452,3 @@ def _password() -> str:
         return st.secrets.get("EMAIL_PASS", "")
     except Exception:
         return ""
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-def _diagnosis(p) -> None:
-    """
-    ΓΙΑΤΙ δεν βρέθηκαν αυτές οι γραμμές;
-
-    Μια λίστα με 2.968 γραμμές δεν βοηθάει κανέναν. Η αιτία βοηθάει.
-    """
-    with st.expander(f"Γιατί {len(p.skip)} γραμμές δεν βρέθηκαν;", expanded=True):
-
-        with st.spinner("Ανάλυση…"):
-            d = diagnose(p, p.records)
-
-        if d["email_from"]:
-            st.caption(
-                f"Τα email καλύπτουν από **{d['email_from']}** έως **{d['email_to']}**."
-            )
-
-        old_rows = d["out_of_range"]
-        wrong = d["amount_mismatch"]
-        unknown = d["unknown_day"]
-
-        # ── 1. ΕΚΤΟΣ ΕΜΒΕΛΕΙΑΣ ──
-        if old_rows:
-            c.note(
-                f"<b>{len(old_rows)} γραμμές είναι παλιότερες από το παλιότερο email.</b><br><br>"
-                f"Το Gmail δεν κρατάει τα πάντα για πάντα. Δεν υπάρχει τρόπος να "
-                f"βρούμε τους αριθμούς τους.<br><br>"
-                f"<b>Μένουν ως έχουν.</b> Δεν είναι απαραίτητα λάθος — απλώς δεν "
-                f"μπορούμε να τις ελέγξουμε.",
-                "info",
-            )
-
-        # ── 2. ΤΟ ΠΟΣΟ ΔΕΝ ΤΑΙΡΙΑΖΕΙ — ΤΟ ΚΑΜΠΑΝΑΚΙ ──
-        if wrong:
-            scaled = [x for x in wrong if x.get("hint")]
-
-            if scaled:
-                c.note(
-                    f"<b>⚠️ {len(scaled)} γραμμές έχουν ΛΑΘΟΣ ΠΟΣΟ.</b><br><br>"
-                    f"Η μέρα και ο τύπος υπάρχουν στα email — αλλά το ποσό στο Sheet "
-                    f"είναι <b>100× λάθος</b>.<br><br>"
-                    f"Αυτό είναι το σφάλμα του παλιού <code>daily_sync.py</code>, που "
-                    f"έγραφε <b>ευρώ αντί για λεπτά</b>. Οι γραμμές αυτές δείχνουν "
-                    f"λάθος νούμερα στα βιβλία σου.",
-                    "bad",
-                )
-
-                st.caption("Δείγμα:")
-                for x in scaled[:8]:
-                    exp = x["expected"][0] / 100 if x["expected"] else 0
-                    st.markdown(
-                        f"γρ. **{x['row']}** · {x['date']} · "
-                        f"Sheet: **{c.eur(x['value'])}** → "
-                        f"Email: **{c.eur(exp)}**  `{x['hint']}`"
-                    )
-                if len(scaled) > 8:
-                    st.caption(f"…και άλλες {len(scaled) - 8}")
-
-            other = [x for x in wrong if not x.get("hint")]
-            if other:
-                c.note(
-                    f"<b>{len(other)} γραμμές έχουν ποσό που δεν υπάρχει στα email.</b><br><br>"
-                    f"Η μέρα και ο τύπος ταιριάζουν, το ποσό όχι — και δεν είναι "
-                    f"σφάλμα ×100. Ίσως διορθώθηκε χειροκίνητα, ίσως το email έχει "
-                    f"διαφορετική έκδοση.",
-                    "warn",
-                )
-                with st.expander(f"Δες τις {len(other)}"):
-                    for x in other[:30]:
-                        exp = ", ".join(c.eur(v / 100) for v in x["expected"])
-                        st.markdown(
-                            f"γρ. {x['row']} · {x['date']} · "
-                            f"Sheet: {c.eur(x['value'])} · Email έχει: {exp}"
-                        )
-
-        # ── 3. ΑΓΝΩΣΤΗ ΜΕΡΑ ──
-        if unknown:
-            c.note(
-                f"<b>{len(unknown)} γραμμές έχουν μέρα/τύπο που δεν υπάρχει σε κανένα email.</b><br><br>"
-                f"Χειροκίνητη καταχώρηση; Σβησμένο email; Δεν ξέρουμε — άρα δεν "
-                f"τις πειράζουμε.",
-                "warn",
-            )
-            with st.expander(f"Δες τις {min(len(unknown), 30)} πρώτες"):
-                for x in unknown[:30]:
-                    st.markdown(
-                        f"γρ. {x['row']} · {x['date']} · {x['type'][:30]} · {c.eur(x['value'])}"
-                    )
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# ΕΠΑΛΗΘΕΥΣΗ — ΤΟ SHEET ΣΥΜΦΩΝΕΙ ΜΕ ΤΑ EMAIL;
-# ══════════════════════════════════════════════════════════════════════════════
-def _verify(df: pd.DataFrame) -> None:
-    """
-    Βάζει το Sheet δίπλα στα email, για μία εβδομάδα.
-
-    ΓΙΑΤΙ ΥΠΑΡΧΕΙ:
-    Τα email είναι η ΠΗΓΗ. Το Sheet είναι αντίγραφο. Αν διαφέρουν, το Sheet
-    έχει σκουπίδια — και τα σύνολά σου είναι λάθος.
-
-    Αυτό το εργαλείο δεν μαντεύει: κατεβάζει τα email αυτής της εβδομάδας,
-    τα αθροίζει, και συγκρίνει. Μετά δείχνει ΑΚΡΙΒΩΣ ποιες γραμμές περισσεύουν.
-    """
-    st.caption(
-        "Συγκρίνει το Sheet με τα **πραγματικά email** μιας εβδομάδας. "
-        "Αν τα σύνολα διαφέρουν, δείχνει ποιες γραμμές φταίνε."
-    )
-
-    pw = _password()
-    if not pw:
-        c.note("Λείπει το EMAIL_PASS από τα secrets.", "bad")
-        return
-
-    col, _ = st.columns([1, 2])
-    with col:
-        picked = st.date_input("Εβδομάδα", date.today(), key="vf_day", format="DD/MM/YYYY")
-
-    start, end = week_range(picked)
-    st.caption(f"Περίοδος: **{start:%d/%m/%Y}** — **{end:%d/%m/%Y}**")
-
-    if not st.button("Σύγκριση με τα email", key="vf_run", width="stretch"):
-        return
-
-    # Κατεβάζουμε ΜΟΝΟ τα email αυτής της περιόδου (+ λίγο περιθώριο,
-    # γιατί το email μπορεί να έρθει μέρες αργότερα).
-    with st.spinner("Διάβασμα email…"):
-        records, errors, scanned = fetch_all_invoices(
-            pw, since=start - pd.Timedelta(days=21).to_pytimedelta()
-        )
-
-    if errors:
-        c.note(errors[0], "bad")
-        return
-
-    a = audit(df, records, start, end)
-
-    e, sh = a["email"], a["sheet"]
-
-    # ── ΤΑ ΣΥΝΟΛΑ, ΔΙΠΛΑ-ΔΙΠΛΑ ──
-    c.section("Σύγκριση")
-
-    same = abs(e["net"] - sh["net"]) < 0.01
-
-    c.html(
-        '<div class="grid g2">'
-        + c.stat("Email (η αλήθεια)", e["net"], accent="var(--pos)",
-                 foot=f"{e['count']} παραστατικά · "
-                      f"Τιμ. {c.eur(e['invoices'])} · Πιστ. {c.eur(e['credits'])}")
-        + c.stat("Sheet", sh["net"],
-                 tone="" if same else "neg",
-                 accent="var(--pos)" if same else "var(--neg)",
-                 foot=f"{sh['count']} γραμμές · "
-                      f"Τιμ. {c.eur(sh['invoices'])} · Πιστ. {c.eur(sh['credits'])}")
-        + '</div>'
-    )
-
-    if same and not a["extra"] and not a["missing"]:
-        c.note("Το Sheet συμφωνεί απόλυτα με τα email.", "ok")
-        return
-
-    diff = sh["net"] - e["net"]
-
-    c.note(
-        f"<b>Διαφορά: {c.eur(diff)}</b><br><br>"
-        f"Το Sheet έχει <b>{sh['count']}</b> γραμμές, τα email <b>{e['count']}</b> "
-        f"παραστατικά.<br>"
-        f"Τα email είναι η πηγή — άρα το Sheet έχει σκουπίδια.",
-        "bad",
-    )
-
-    # ── ΟΙ ΓΡΑΜΜΕΣ ΠΟΥ ΠΕΡΙΣΣΕΥΟΥΝ ──
-    if a["extra"]:
-        c.section(f"{len(a['extra'])} γραμμές περισσεύουν")
-
-        by_why = {}
-        for x in a["extra"]:
-            by_why.setdefault(x["why"], []).append(x)
-
-        for why, rows in sorted(by_why.items(), key=lambda kv: -len(kv[1])):
-            total = sum(r["value"] for r in rows)
-            st.markdown(f"**{len(rows)}** — {why} · σύνολο **{c.eur(total)}**")
-
-        with st.expander("Δες τις πρώτες 30"):
-            for x in a["extra"][:30]:
-                st.markdown(
-                    f"γρ. **{x['row']}** · {x['date']} · {x['type'][:26]} · "
-                    f"**{c.eur(x['value'])}** · "
-                    f"<span style='color:#94A3B8'>{x['number'] or '—'} · {x['why']}</span>",
-                    unsafe_allow_html=True,
-                )
-
-        # ── ΕΠΙΣΚΕΥΗ ──
-        st.divider()
-        c.section("Επισκευή")
-
-        st.caption(
-            "Γεμίζει τους αριθμούς από τα email, και μετά σβήνει ό,τι απομείνει "
-            "χωρίς αριθμό — αυτά είναι αποδεδειγμένα διπλά."
-        )
-
-        with st.spinner("Υπολογισμός…"):
-            rep = repair_week(records, start, end)
-
-        if not rep["fill"] and not rep["delete"]:
-            c.note("Δεν βρέθηκε τίποτα να επισκευαστεί.", "info")
-        else:
-            lines = []
-            if rep["fill"]:
-                lines.append(f"✓ <b>{len(rep['fill'])}</b> γραμμές θα πάρουν τον αριθμό τους")
-            if rep["delete"]:
-                lines.append(
-                    f"🗑 <b>{len(rep['delete'])}</b> γραμμές θα <b>σβηστούν</b> "
-                    f"(αξίας {c.eur(rep['value'])})"
-                )
-            if rep["keep"]:
-                lines.append(
-                    f"⊘ <b>{len(rep['keep'])}</b> γραμμές <b>δεν πειράζονται</b> "
-                    f"(δεν υπάρχουν στα email αυτής της εβδομάδας)"
-                )
-
-            c.note("<br>".join(lines), "warn" if rep["delete"] else "info")
-
-            st.caption(
-                "**Η λογική:** αν η 10/07 έχει 11 τιμολόγια στα email αλλά 30 γραμμές "
-                "στο Sheet, οι 11 πρώτες παίρνουν τους αριθμούς — οι 19 υπόλοιπες "
-                "δεν έχουν αριθμό να πάρουν, άρα είναι διπλές."
-            )
-
-            if rep["delete"]:
-                st.download_button(
-                    "Λήψη αντιγράφου ασφαλείας (CSV)",
-                    snapshot().encode("utf-8-sig"),
-                    f"invoices_backup_{start:%Y%m%d}.csv",
-                    "text/csv",
-                    key="vf_backup",
-                    width="stretch",
-                )
-
-                confirmed = st.checkbox(
-                    f"Κατέβασα το αντίγραφο. Σβήσε τις {len(rep['delete'])} γραμμές.",
-                    key="vf_confirm",
-                )
-            else:
-                confirmed = True
-
-            if st.button("Επισκευή εβδομάδας", key="vf_repair",
-                         width="stretch", type="primary", disabled=not confirmed):
-
-                with st.spinner("Επισκευή…"):
-                    done = apply_repair(rep)
-
-                if done["complete"]:
-                    c.note(
-                        f"<b>Ολοκληρώθηκε.</b><br>"
-                        f"• {done['filled']} γραμμές πήραν αριθμό<br>"
-                        f"• {done['deleted']} διπλές σβήστηκαν<br><br>"
-                        f"Πάτα ξανά <b>«Σύγκριση με τα email»</b> για επαλήθευση.",
-                        "ok",
-                    )
-                else:
-                    c.note(
-                        f"<b>Δεν ολοκληρώθηκε.</b><br>"
-                        f"Πέρασαν: {done['filled']} γεμίσματα, {done['deleted']} διαγραφές.<br>"
-                        f"Ξαναδοκίμασε — θα συνεχίσει από εκεί που έμεινε.",
-                        "warn",
-                    )
-                    for e in done["errors"]:
-                        c.note(e, "bad")
-
-    # ── ΟΣΑ ΛΕΙΠΟΥΝ ──
-    if a["missing"]:
-        c.section(f"{len(a['missing'])} παραστατικά λείπουν από το Sheet")
-        for x in a["missing"][:20]:
-            st.markdown(
-                f"{x['date']} · {x['type'][:26]} · **{c.eur(x['value'])}** · #{x['number']}"
-            )
-        c.note("Τρέξε την «Ενημέρωση δεδομένων» για να προστεθούν.", "info")
-
-
