@@ -22,7 +22,7 @@ from core.sheets import (
 from core.backfill import (
     plan as backfill_plan,
     apply as backfill_apply,
-    diagnose, snapshot,
+    diagnose, audit, snapshot,
 )
 from core.mail import fetch_all_invoices
 from ui import components as c
@@ -178,11 +178,15 @@ def _tools(df: pd.DataFrame) -> None:
     είναι λεφτά που ίσως πλήρωσες δύο φορές.
     """
     with st.expander("Έλεγχος δεδομένων"):
-        dup_tab, charge_tab, deep_tab = st.tabs([
+        verify_tab, dup_tab, charge_tab, deep_tab = st.tabs([
+            "✅ Επαλήθευση",
             "Διπλοκαταχωρήσεις",
             "⚠️ Διπλές χρεώσεις",
             "🔍 Βαθύς έλεγχος",
         ])
+
+        with verify_tab:
+            _verify(df)
 
         with dup_tab:
             _check_duplicates()
@@ -620,3 +624,165 @@ def _diagnosis(p) -> None:
                     st.markdown(
                         f"γρ. {x['row']} · {x['date']} · {x['type'][:30]} · {c.eur(x['value'])}"
                     )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ΕΠΑΛΗΘΕΥΣΗ — ΤΟ SHEET ΣΥΜΦΩΝΕΙ ΜΕ ΤΑ EMAIL;
+# ══════════════════════════════════════════════════════════════════════════════
+def _verify(df: pd.DataFrame) -> None:
+    """
+    Βάζει το Sheet δίπλα στα email, για μία εβδομάδα.
+
+    ΓΙΑΤΙ ΥΠΑΡΧΕΙ:
+    Τα email είναι η ΠΗΓΗ. Το Sheet είναι αντίγραφο. Αν διαφέρουν, το Sheet
+    έχει σκουπίδια — και τα σύνολά σου είναι λάθος.
+
+    Αυτό το εργαλείο δεν μαντεύει: κατεβάζει τα email αυτής της εβδομάδας,
+    τα αθροίζει, και συγκρίνει. Μετά δείχνει ΑΚΡΙΒΩΣ ποιες γραμμές περισσεύουν.
+    """
+    st.caption(
+        "Συγκρίνει το Sheet με τα **πραγματικά email** μιας εβδομάδας. "
+        "Αν τα σύνολα διαφέρουν, δείχνει ποιες γραμμές φταίνε."
+    )
+
+    pw = _password()
+    if not pw:
+        c.note("Λείπει το EMAIL_PASS από τα secrets.", "bad")
+        return
+
+    col, _ = st.columns([1, 2])
+    with col:
+        picked = st.date_input("Εβδομάδα", date.today(), key="vf_day", format="DD/MM/YYYY")
+
+    start, end = week_range(picked)
+    st.caption(f"Περίοδος: **{start:%d/%m/%Y}** — **{end:%d/%m/%Y}**")
+
+    if not st.button("Σύγκριση με τα email", key="vf_run", width="stretch"):
+        return
+
+    # Κατεβάζουμε ΜΟΝΟ τα email αυτής της περιόδου (+ λίγο περιθώριο,
+    # γιατί το email μπορεί να έρθει μέρες αργότερα).
+    with st.spinner("Διάβασμα email…"):
+        records, errors, scanned = fetch_all_invoices(
+            pw, since=start - pd.Timedelta(days=21).to_pytimedelta()
+        )
+
+    if errors:
+        c.note(errors[0], "bad")
+        return
+
+    a = audit(df, records, start, end)
+
+    e, sh = a["email"], a["sheet"]
+
+    # ── ΤΑ ΣΥΝΟΛΑ, ΔΙΠΛΑ-ΔΙΠΛΑ ──
+    c.section("Σύγκριση")
+
+    same = abs(e["net"] - sh["net"]) < 0.01
+
+    c.html(
+        '<div class="grid g2">'
+        + c.stat("Email (η αλήθεια)", e["net"], accent="var(--pos)",
+                 foot=f"{e['count']} παραστατικά · "
+                      f"Τιμ. {c.eur(e['invoices'])} · Πιστ. {c.eur(e['credits'])}")
+        + c.stat("Sheet", sh["net"],
+                 tone="" if same else "neg",
+                 accent="var(--pos)" if same else "var(--neg)",
+                 foot=f"{sh['count']} γραμμές · "
+                      f"Τιμ. {c.eur(sh['invoices'])} · Πιστ. {c.eur(sh['credits'])}")
+        + '</div>'
+    )
+
+    if same and not a["extra"] and not a["missing"]:
+        c.note("Το Sheet συμφωνεί απόλυτα με τα email.", "ok")
+        return
+
+    diff = sh["net"] - e["net"]
+
+    c.note(
+        f"<b>Διαφορά: {c.eur(diff)}</b><br><br>"
+        f"Το Sheet έχει <b>{sh['count']}</b> γραμμές, τα email <b>{e['count']}</b> "
+        f"παραστατικά.<br>"
+        f"Τα email είναι η πηγή — άρα το Sheet έχει σκουπίδια.",
+        "bad",
+    )
+
+    # ── ΟΙ ΓΡΑΜΜΕΣ ΠΟΥ ΠΕΡΙΣΣΕΥΟΥΝ ──
+    if a["extra"]:
+        c.section(f"{len(a['extra'])} γραμμές περισσεύουν")
+
+        by_why = {}
+        for x in a["extra"]:
+            by_why.setdefault(x["why"], []).append(x)
+
+        for why, rows in sorted(by_why.items(), key=lambda kv: -len(kv[1])):
+            total = sum(r["value"] for r in rows)
+            st.markdown(f"**{len(rows)}** — {why} · σύνολο **{c.eur(total)}**")
+
+        with st.expander("Δες τις πρώτες 30"):
+            for x in a["extra"][:30]:
+                st.markdown(
+                    f"γρ. **{x['row']}** · {x['date']} · {x['type'][:26]} · "
+                    f"**{c.eur(x['value'])}** · "
+                    f"<span style='color:#94A3B8'>{x['number'] or '—'} · {x['why']}</span>",
+                    unsafe_allow_html=True,
+                )
+
+        # ── ΤΟ ΚΟΥΜΠΙ ──
+        removable = [x for x in a["extra"] if x["why"] in ("διπλό", "δεν υπάρχει στα email")]
+
+        if removable:
+            st.divider()
+            c.note(
+                f"<b>{len(removable)} γραμμές μπορούν να σβηστούν με ασφάλεια.</b><br><br>"
+                f"Είναι διπλές, ή ο αριθμός τους δεν υπάρχει σε κανένα email αυτής "
+                f"της περιόδου.<br><br>"
+                f"Οι γραμμές <b>χωρίς αριθμό</b> ΔΕΝ σβήνονται — δεν μπορούμε να "
+                f"τις ταυτοποιήσουμε. Τρέξε πρώτα τον <b>Βαθύ έλεγχο</b>.",
+                "warn",
+            )
+
+            if st.button(f"Σβήσε τις {len(removable)} γραμμές",
+                         key="vf_purge", width="stretch", type="primary"):
+                rows = [x["row"] for x in removable if x["row"]]
+
+                with st.spinner(f"Διαγραφή {len(rows)} γραμμών…"):
+                    killed = _purge_rows(rows)
+
+                if killed:
+                    c.note(f"Σβήστηκαν {killed} γραμμές. Ξαναπάτα «Σύγκριση» για έλεγχο.", "ok")
+                else:
+                    c.note("Δεν σβήστηκε τίποτα.", "bad")
+
+    # ── ΟΣΑ ΛΕΙΠΟΥΝ ──
+    if a["missing"]:
+        c.section(f"{len(a['missing'])} παραστατικά λείπουν από το Sheet")
+        for x in a["missing"][:20]:
+            st.markdown(
+                f"{x['date']} · {x['type'][:26]} · **{c.eur(x['value'])}** · #{x['number']}"
+            )
+        c.note("Τρέξε την «Ενημέρωση δεδομένων» για να προστεθούν.", "info")
+
+
+def _purge_rows(rows: list[int]) -> int:
+    """Σβήνει συγκεκριμένες γραμμές, από κάτω προς τα πάνω."""
+    from core.sheets import _ws, _group_runs, load_invoices
+    from core.config import SHEET_INV
+    import time
+
+    if not rows:
+        return 0
+
+    ws = _ws(SHEET_INV)
+    killed = 0
+
+    for start, end in reversed(_group_runs(sorted(rows))):
+        try:
+            ws.delete_rows(start, end)
+            killed += end - start + 1
+            time.sleep(1.2)
+        except Exception:
+            break
+
+    load_invoices.clear()
+    return killed

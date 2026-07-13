@@ -509,6 +509,116 @@ def diagnose(p: Plan, records: list) -> dict:
     return out
 
 
+def audit(df: pd.DataFrame, records: list, start: date, end: date) -> dict:
+    """
+    ΕΛΕΓΧΟΣ ΥΓΕΙΑΣ: το Sheet συμφωνεί με τα email;
+
+    Γιατί υπάρχει: η παλιά εφαρμογή (my_app.py) διάβαζε ΑΠΕΥΘΕΙΑΣ τα email και
+    έβγαζε 97.091,30 €. Η νέα διαβάζει το Sheet και βγάζει 104.837,62 €.
+
+    Διαφορά 7.746 €. Κάποιος από τους δύο λέει ψέματα — και ξέρουμε ποιος:
+    τα email είναι η ΠΗΓΗ. Το Sheet είναι αντίγραφο. Αν διαφέρουν, το Sheet
+    έχει σκουπίδια.
+
+    Αυτή η συνάρτηση βάζει τα δύο δίπλα-δίπλα, για ΜΙΑ εβδομάδα, και δείχνει
+    ακριβώς ποιες γραμμές περισσεύουν.
+
+    → {"email": {...}, "sheet": {...}, "extra": [...], "missing": [...]}
+    """
+    # ── Η ΑΛΗΘΕΙΑ: τι λένε τα email γι' αυτή την εβδομάδα ──
+    in_range = []
+    for r in records:
+        d = r.get("date")
+        d = d.date() if hasattr(d, "date") else d
+        if d and start <= d <= end:
+            in_range.append(r)
+
+    e_inv = sum(r["value"] for r in in_range if "ΠΙΣΤΩΤΙΚΟ" not in str(r["type"]).upper())
+    e_crd = sum(r["value"] for r in in_range if "ΠΙΣΤΩΤΙΚΟ" in str(r["type"]).upper())
+    e_nums = {str(r.get("number", "")).strip() for r in in_range if r.get("number")}
+
+    # ── ΤΟ ΑΝΤΙΓΡΑΦΟ: τι λέει το Sheet ──
+    if df.empty:
+        sheet_rows = pd.DataFrame(columns=["date", "type", "value", "number", "_row"])
+    else:
+        dts = df["date"].map(lambda x: x.date() if hasattr(x, "date") else x)
+        sheet_rows = df[(dts >= start) & (dts <= end)]
+
+    s_credit = sheet_rows["type"].astype(str).str.upper().str.contains("ΠΙΣΤΩΤΙΚΟ", na=False)
+    s_inv = float(sheet_rows[~s_credit]["value"].sum())
+    s_crd = float(sheet_rows[s_credit]["value"].sum())
+
+    # ── ΟΙ ΓΡΑΜΜΕΣ ΠΟΥ ΠΕΡΙΣΣΕΥΟΥΝ ──
+    #
+    # Ό,τι είναι στο Sheet αλλά ο αριθμός του δεν υπάρχει στα email αυτής της
+    # εβδομάδας. Αυτές είναι που φουσκώνουν τα σύνολα.
+    extra = []
+    seen: set[str] = set()
+
+    for _, r in sheet_rows.iterrows():
+        num = str(r.get("number", "")).strip()
+
+        if not num:
+            # Χωρίς αριθμό → δεν μπορούμε να το ταυτοποιήσουμε. Ύποπτο.
+            extra.append({
+                "row": int(r["_row"]) if pd.notna(r.get("_row")) else 0,
+                "date": r["date"].strftime("%Y-%m-%d") if hasattr(r["date"], "strftime") else str(r["date"])[:10],
+                "type": str(r["type"]),
+                "value": float(r["value"]),
+                "number": "",
+                "why": "χωρίς αριθμό",
+            })
+            continue
+
+        if num in seen:
+            extra.append({
+                "row": int(r["_row"]) if pd.notna(r.get("_row")) else 0,
+                "date": r["date"].strftime("%Y-%m-%d") if hasattr(r["date"], "strftime") else str(r["date"])[:10],
+                "type": str(r["type"]),
+                "value": float(r["value"]),
+                "number": num,
+                "why": "διπλό",
+            })
+            continue
+
+        seen.add(num)
+
+        if num not in e_nums:
+            extra.append({
+                "row": int(r["_row"]) if pd.notna(r.get("_row")) else 0,
+                "date": r["date"].strftime("%Y-%m-%d") if hasattr(r["date"], "strftime") else str(r["date"])[:10],
+                "type": str(r["type"]),
+                "value": float(r["value"]),
+                "number": num,
+                "why": "δεν υπάρχει στα email",
+            })
+
+    # ── ΟΣΑ ΛΕΙΠΟΥΝ ──
+    missing = [
+        {
+            "date": r["date"].strftime("%Y-%m-%d") if hasattr(r["date"], "strftime") else str(r["date"])[:10],
+            "type": str(r["type"]),
+            "value": float(r["value"]),
+            "number": str(r.get("number", "")),
+        }
+        for r in in_range
+        if str(r.get("number", "")).strip() and str(r.get("number", "")).strip() not in seen
+    ]
+
+    extra.sort(key=lambda x: -x["value"])
+
+    return {
+        "email": {"invoices": e_inv, "credits": e_crd, "net": e_inv - e_crd, "count": len(in_range)},
+        "sheet": {"invoices": s_inv, "credits": s_crd, "net": s_inv - s_crd, "count": len(sheet_rows)},
+        "extra": extra,
+        "missing": missing,
+        "extra_value": sum(
+            x["value"] if "ΠΙΣΤΩΤΙΚΟ" not in x["type"].upper() else -x["value"]
+            for x in extra
+        ),
+    }
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # ΑΝΤΙΓΡΑΦΟ ΑΣΦΑΛΕΙΑΣ
 # ══════════════════════════════════════════════════════════════════════════════
