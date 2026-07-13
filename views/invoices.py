@@ -19,6 +19,8 @@ from core.sheets import (
     check_quality, delete_row,
     purge_duplicate_invoices, find_double_charges,
 )
+from core.backfill import plan as backfill_plan, apply as backfill_apply, snapshot
+from core.mail import fetch_all_invoices
 from ui import components as c
 from ui import charts
 
@@ -172,13 +174,20 @@ def _tools(df: pd.DataFrame) -> None:
     είναι λεφτά που ίσως πλήρωσες δύο φορές.
     """
     with st.expander("Έλεγχος δεδομένων"):
-        dup_tab, charge_tab = st.tabs(["Διπλοκαταχωρήσεις", "⚠️ Διπλές χρεώσεις"])
+        dup_tab, charge_tab, deep_tab = st.tabs([
+            "Διπλοκαταχωρήσεις",
+            "⚠️ Διπλές χρεώσεις",
+            "🔍 Βαθύς έλεγχος",
+        ])
 
         with dup_tab:
             _check_duplicates()
 
         with charge_tab:
             _check_double_charges(df)
+
+        with deep_tab:
+            _deep_check()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -305,3 +314,176 @@ def _check_double_charges(df: pd.DataFrame) -> None:
 
     if len(found) > 30:
         st.caption(f"…και άλλες {len(found) - 30}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ΒΑΘΥΣ ΕΛΕΓΧΟΣ
+# ══════════════════════════════════════════════════════════════════════════════
+def _deep_check() -> None:
+    """
+    Ανακατασκευή αριθμών από τα email — για τα ΠΑΛΙΑ παραστατικά.
+
+    Τρία βήματα, με ρητή έγκριση ανάμεσα:
+        1. ΣΑΡΩΣΗ    → διαβάζει όλα τα email, χτίζει το σχέδιο
+        2. ΠΡΟΕΠΙΣΚΟΠΗΣΗ → δείχνει ΑΚΡΙΒΩΣ τι θα γίνει + αντίγραφο ασφαλείας
+        3. ΕΚΤΕΛΕΣΗ  → μόνο αφού το δεις και το εγκρίνεις
+
+    Τίποτα δεν αγγίζεται στα βήματα 1-2.
+    """
+    st.caption(
+        "Ξαναδιαβάζει **όλα** τα email παραστατικών και βρίσκει τον πραγματικό "
+        "αριθμό κάθε παλιάς εγγραφής. Μετά σβήνει όσες αποδεικνύονται διπλές."
+    )
+
+    c.note(
+        "<b>Πώς δουλεύει:</b><br>"
+        "Αν μια μέρα έχει <b>3 τιμολόγια</b> των 213,51 € στα email, αλλά "
+        "<b>5 γραμμές</b> στο Sheet, τότε οι 2 επιπλέον είναι αποδεδειγμένα διπλές.<br><br>"
+        "Γραμμές που δεν βρίσκονται σε κανένα email <b>δεν πειράζονται</b> — "
+        "δεν ξέρουμε τι είναι, άρα δεν αποφασίζουμε.",
+        "info",
+    )
+
+    pw = _password()
+    if not pw:
+        c.note("Λείπει το EMAIL_PASS από τα secrets.", "bad")
+        return
+
+    # ── ΒΗΜΑ 1: ΣΑΡΩΣΗ ──
+    if st.button("Ξεκίνα σάρωση", key="deep_scan", width="stretch"):
+        bar = st.progress(0.0, text="Σύνδεση στο Gmail…")
+
+        def tick(scanned, found):
+            # Δεν ξέρουμε πόσα email υπάρχουν — δείχνουμε πρόοδο, όχι ποσοστό.
+            pct = min(0.85, scanned / 400)
+            bar.progress(pct, text=f"{scanned} email · {found} παραστατικά")
+
+        records, errors, scanned = fetch_all_invoices(pw, on_progress=tick)
+
+        if errors:
+            bar.empty()
+            c.note(errors[0], "bad")
+            return
+
+        bar.progress(0.9, text="Σύγκριση με το Sheet…")
+        p = backfill_plan(records, emails_scanned=scanned)
+
+        bar.progress(1.0, text="Έτοιμο")
+        bar.empty()
+
+        st.session_state["deep_plan"] = p
+
+    p = st.session_state.get("deep_plan")
+    if p is None:
+        return
+
+    # ── ΒΗΜΑ 2: ΠΡΟΕΠΙΣΚΟΠΗΣΗ ──
+    st.divider()
+    c.section("Τι βρέθηκε")
+
+    a, b, d = st.columns(3)
+    a.metric("Email", f"{p.emails_scanned:,}".replace(",", "."))
+    b.metric("Παραστατικά στα email", f"{p.records_found:,}".replace(",", "."))
+    d.metric("Γραμμές στο Sheet", f"{p.sheet_rows:,}".replace(",", "."))
+
+    if not p.touched:
+        c.note("Όλα εντάξει. Καμία αλλαγή δεν χρειάζεται.", "ok")
+        return
+
+    c.section("Τι θα γίνει")
+
+    lines = []
+    if p.fill:
+        lines.append(f"✓ <b>{len(p.fill)}</b> γραμμές θα πάρουν τον αριθμό τους")
+    if p.delete:
+        lines.append(
+            f"🗑 <b>{len(p.delete)}</b> γραμμές θα <b>σβηστούν</b> "
+            f"(αποδεδειγμένα διπλές — αξίας {c.eur(p.deleted_value)})"
+        )
+    if p.add:
+        lines.append(f"+ <b>{len(p.add)}</b> παραστατικά λείπουν και θα προστεθούν")
+    if p.skip:
+        lines.append(
+            f"⊘ <b>{len(p.skip)}</b> γραμμές <b>δεν πειράζονται</b> "
+            f"(δεν βρέθηκαν στα email)"
+        )
+    if p.already:
+        lines.append(f"· {p.already} είχαν ήδη αριθμό")
+
+    c.note("<br>".join(lines), "warn" if p.delete else "info")
+
+    if p.skip:
+        with st.expander(f"Δες τις {len(p.skip)} γραμμές που δεν πειράζονται"):
+            st.caption(
+                "Αυτές δεν βρέθηκαν σε κανένα email. Ίσως το email σβήστηκε, "
+                "ίσως καταχωρήθηκαν με το χέρι. Μένουν ως έχουν."
+            )
+            for x in p.skip[:40]:
+                st.markdown(
+                    f"γρ. {x['row']} · {x['date']} · {x['type'][:28]} · {c.eur(x['value'])}"
+                )
+            if len(p.skip) > 40:
+                st.caption(f"…και άλλες {len(p.skip) - 40}")
+
+    # ── ΑΝΤΙΓΡΑΦΟ ΑΣΦΑΛΕΙΑΣ ──
+    if p.delete:
+        st.divider()
+        c.section("Πριν προχωρήσεις")
+
+        c.note(
+            "<b>Κατέβασε αντίγραφο ασφαλείας.</b><br>"
+            "Αν κάτι πάει στραβά, ξαναγράφεις το φύλλο από αυτό το αρχείο.",
+            "bad",
+        )
+
+        st.download_button(
+            "Λήψη αντιγράφου (CSV)",
+            snapshot().encode("utf-8-sig"),
+            "invoices_backup.csv",
+            "text/csv",
+            key="deep_backup",
+            width="stretch",
+        )
+
+        confirmed = st.checkbox(
+            f"Κατέβασα το αντίγραφο. Καταλαβαίνω ότι θα σβηστούν "
+            f"{len(p.delete)} γραμμές.",
+            key="deep_confirm",
+        )
+    else:
+        confirmed = True
+
+    # ── ΒΗΜΑ 3: ΕΚΤΕΛΕΣΗ ──
+    st.divider()
+
+    if st.button(
+        "Εκτέλεση",
+        key="deep_apply",
+        width="stretch",
+        type="primary",
+        disabled=not confirmed,
+    ):
+        with st.spinner("Ενημέρωση Sheet…"):
+            done = backfill_apply(p)
+
+        if done["errors"]:
+            for e in done["errors"]:
+                c.note(e, "bad")
+
+        c.note(
+            f"Ολοκληρώθηκε.<br>"
+            f"• {done['filled']} γραμμές πήραν αριθμό<br>"
+            f"• {done['deleted']} διπλές σβήστηκαν<br>"
+            f"• {done['added']} προστέθηκαν",
+            "ok",
+        )
+
+        st.session_state.pop("deep_plan", None)
+        st.session_state["deep_confirm"] = False
+
+
+def _password() -> str:
+    try:
+        return st.secrets.get("EMAIL_PASS", "")
+    except Exception:
+        return ""

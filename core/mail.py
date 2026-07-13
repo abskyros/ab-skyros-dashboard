@@ -45,6 +45,53 @@ def fetch_invoices(password: str, limit: int = 60, since: date | None = None) ->
     return records, errors
 
 
+def fetch_all_invoices(
+    password: str,
+    since: date | None = None,
+    on_progress=None,
+) -> tuple[list, list, int]:
+    """
+    ΒΑΘΙΑ ΣΑΡΩΣΗ — κατεβάζει ΟΛΑ τα email παραστατικών, χωρίς όριο.
+
+    → (records, errors, emails_scanned)
+
+    Χρησιμοποιείται μόνο από τον βαθύ έλεγχο (core/backfill.py), για να
+    ανακατασκευάσει τους αριθμούς παραστατικών των παλιών εγγραφών.
+
+    ΔΕΝ βάζουμε limit. Θέλουμε την πλήρη εικόνα — αν χάσουμε έστω ένα email,
+    οι γραμμές του θα φανούν «αταίριαστες» και δεν θα καθαριστούν.
+
+    Το `on_progress(σαρωμένα, εγγραφές)` καλείται κάθε 10 email — για να μη
+    φαίνεται κολλημένη η μπάρα προόδου σε 2 χρόνια αρχείου.
+    """
+    records, errors = [], []
+    scanned = 0
+
+    criteria = AND(from_=INVOICES_EMAIL_SENDER) if since is None else \
+        AND(from_=INVOICES_EMAIL_SENDER, date_gte=since)
+
+    try:
+        with MailBox(IMAP_HOST).login(INVOICES_EMAIL_USER, password) as mb:
+            for msg in mb.fetch(criteria, reverse=True, mark_seen=False, bulk=True):
+                scanned += 1
+
+                for att in msg.attachments:
+                    name = att.filename or ""
+                    if name.lower().endswith((".xlsx", ".xls", ".csv")):
+                        records.extend(parse_invoices(att.payload, name))
+
+                if on_progress and scanned % 10 == 0:
+                    on_progress(scanned, len(records))
+
+    except Exception as e:
+        errors.append(_friendly(e))
+
+    if on_progress:
+        on_progress(scanned, len(records))
+
+    return records, errors, scanned
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # ΤΙΜΟΛΟΓΗΣΕΙΣ
 # ══════════════════════════════════════════════════════════════════════════════

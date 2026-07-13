@@ -771,6 +771,32 @@ def delete_row(sheet: str, row: int) -> tuple[bool, str]:
 # ══════════════════════════════════════════════════════════════════════════════
 # ΒΟΗΘΗΤΙΚΑ
 # ══════════════════════════════════════════════════════════════════════════════
+def _group_runs(rows: list[int]) -> list[tuple[int, int]]:
+    """
+    [3,4,5,9,10] → [(3,5), (9,10)]
+
+    Ομαδοποιεί συνεχόμενες γραμμές, ώστε να σβήνονται με μία κλήση αντί για
+    πεντακόσιες. Το Sheets API έχει όριο ~60 κλήσεις/λεπτό — χωρίς αυτό, ο
+    καθαρισμός 500 γραμμών θα κρατούσε 8 λεπτά και θα χτυπούσε rate limit.
+    """
+    if not rows:
+        return []
+
+    rows = sorted(set(rows))
+    runs = []
+    start = prev = rows[0]
+
+    for r in rows[1:]:
+        if r == prev + 1:
+            prev = r
+        else:
+            runs.append((start, prev))
+            start = prev = r
+
+    runs.append((start, prev))
+    return runs
+
+
 def _sort_by_date(ws, cols: str = "A:D") -> None:
     """Ταξινομεί το φύλλο κατά ημερομηνία, νεότερη πρώτη."""
     try:
