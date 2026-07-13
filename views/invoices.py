@@ -19,7 +19,11 @@ from core.sheets import (
     check_quality, delete_row,
     purge_duplicate_invoices, find_double_charges,
 )
-from core.backfill import plan as backfill_plan, apply as backfill_apply, snapshot
+from core.backfill import (
+    plan as backfill_plan,
+    apply as backfill_apply,
+    diagnose, snapshot,
+)
 from core.mail import fetch_all_invoices
 from ui import components as c
 from ui import charts
@@ -423,15 +427,7 @@ def _deep_check() -> None:
                    f"(κάνουμε παύσεις για να μη μας κόψει το Google).")
 
     if p.skip:
-        with st.expander(f"Δες τις {len(p.skip)} γραμμές που δεν πειράζονται"):
-            st.caption(
-                "Δεν βρέθηκαν σε κανένα email. Ίσως το email σβήστηκε, ίσως "
-                "καταχωρήθηκαν με το χέρι. Μένουν ως έχουν."
-            )
-            for x in p.skip[:40]:
-                st.markdown(f"γρ. {x['row']} · {x['date']} · {x['type'][:28]} · {c.eur(x['value'])}")
-            if len(p.skip) > 40:
-                st.caption(f"…και άλλες {len(p.skip) - 40}")
+        _diagnosis(p)
 
     # ── ΑΝΤΙΓΡΑΦΟ ΑΣΦΑΛΕΙΑΣ ──
     if p.delete:
@@ -475,11 +471,19 @@ def _deep_check() -> None:
         result = backfill_apply(p, on_progress=progress)
         bar.empty()
 
-        # ΔΕΝ γράφουμε στο "deep_confirm" — ανήκει σε widget και το Streamlit
-        # πετάει StreamlitAPIException. Καθαρίζουμε μόνο τα δικά μας κλειδιά.
+        # ΚΡΙΣΙΜΟ: ΟΧΙ st.rerun() εδώ.
+        #
+        # Το checkbox «deep_confirm» υπάρχει ήδη στη σελίδα. Το st.rerun() μέσα
+        # στο callback ενός κουμπιού, ενώ το widget είναι ζωντανό, ρίχνει
+        # StreamlitAPIException.
+        #
+        # Αντ' αυτού δείχνουμε το αποτέλεσμα ΕΠΙΤΟΠΟΥ και σβήνουμε το σχέδιο.
+        # Στο επόμενο φυσιολογικό rerun (όταν ο χρήστης πατήσει κάτι), η σελίδα
+        # θα δείξει μόνο την αναφορά.
         st.session_state["deep_done"] = result
         st.session_state.pop("deep_plan", None)
-        st.rerun()
+
+        _report(result)
 
 
 def _report(done: dict) -> None:
@@ -491,7 +495,8 @@ def _report(done: dict) -> None:
             f"<b>Ολοκληρώθηκε.</b><br>"
             f"• {done['filled']} γραμμές πήραν αριθμό<br>"
             f"• {done['deleted']} διπλές σβήστηκαν<br>"
-            f"• {done['added']} προστέθηκαν",
+            f"• {done['added']} προστέθηκαν<br><br>"
+            f"Πάτα <b>«Νέα σάρωση»</b> για να ελέγξεις αν έμεινε κάτι.",
             "ok",
         )
     else:
@@ -517,7 +522,7 @@ def _report(done: dict) -> None:
 
     if st.button("Νέα σάρωση", key="deep_reset", width="stretch"):
         st.session_state.pop("deep_done", None)
-        st.rerun()
+        st.session_state.pop("deep_plan", None)
 
 
 def _password() -> str:
@@ -525,3 +530,93 @@ def _password() -> str:
         return st.secrets.get("EMAIL_PASS", "")
     except Exception:
         return ""
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+def _diagnosis(p) -> None:
+    """
+    ΓΙΑΤΙ δεν βρέθηκαν αυτές οι γραμμές;
+
+    Μια λίστα με 2.968 γραμμές δεν βοηθάει κανέναν. Η αιτία βοηθάει.
+    """
+    with st.expander(f"Γιατί {len(p.skip)} γραμμές δεν βρέθηκαν;", expanded=True):
+
+        with st.spinner("Ανάλυση…"):
+            d = diagnose(p, p.records)
+
+        if d["email_from"]:
+            st.caption(
+                f"Τα email καλύπτουν από **{d['email_from']}** έως **{d['email_to']}**."
+            )
+
+        old_rows = d["out_of_range"]
+        wrong = d["amount_mismatch"]
+        unknown = d["unknown_day"]
+
+        # ── 1. ΕΚΤΟΣ ΕΜΒΕΛΕΙΑΣ ──
+        if old_rows:
+            c.note(
+                f"<b>{len(old_rows)} γραμμές είναι παλιότερες από το παλιότερο email.</b><br><br>"
+                f"Το Gmail δεν κρατάει τα πάντα για πάντα. Δεν υπάρχει τρόπος να "
+                f"βρούμε τους αριθμούς τους.<br><br>"
+                f"<b>Μένουν ως έχουν.</b> Δεν είναι απαραίτητα λάθος — απλώς δεν "
+                f"μπορούμε να τις ελέγξουμε.",
+                "info",
+            )
+
+        # ── 2. ΤΟ ΠΟΣΟ ΔΕΝ ΤΑΙΡΙΑΖΕΙ — ΤΟ ΚΑΜΠΑΝΑΚΙ ──
+        if wrong:
+            scaled = [x for x in wrong if x.get("hint")]
+
+            if scaled:
+                c.note(
+                    f"<b>⚠️ {len(scaled)} γραμμές έχουν ΛΑΘΟΣ ΠΟΣΟ.</b><br><br>"
+                    f"Η μέρα και ο τύπος υπάρχουν στα email — αλλά το ποσό στο Sheet "
+                    f"είναι <b>100× λάθος</b>.<br><br>"
+                    f"Αυτό είναι το σφάλμα του παλιού <code>daily_sync.py</code>, που "
+                    f"έγραφε <b>ευρώ αντί για λεπτά</b>. Οι γραμμές αυτές δείχνουν "
+                    f"λάθος νούμερα στα βιβλία σου.",
+                    "bad",
+                )
+
+                st.caption("Δείγμα:")
+                for x in scaled[:8]:
+                    exp = x["expected"][0] / 100 if x["expected"] else 0
+                    st.markdown(
+                        f"γρ. **{x['row']}** · {x['date']} · "
+                        f"Sheet: **{c.eur(x['value'])}** → "
+                        f"Email: **{c.eur(exp)}**  `{x['hint']}`"
+                    )
+                if len(scaled) > 8:
+                    st.caption(f"…και άλλες {len(scaled) - 8}")
+
+            other = [x for x in wrong if not x.get("hint")]
+            if other:
+                c.note(
+                    f"<b>{len(other)} γραμμές έχουν ποσό που δεν υπάρχει στα email.</b><br><br>"
+                    f"Η μέρα και ο τύπος ταιριάζουν, το ποσό όχι — και δεν είναι "
+                    f"σφάλμα ×100. Ίσως διορθώθηκε χειροκίνητα, ίσως το email έχει "
+                    f"διαφορετική έκδοση.",
+                    "warn",
+                )
+                with st.expander(f"Δες τις {len(other)}"):
+                    for x in other[:30]:
+                        exp = ", ".join(c.eur(v / 100) for v in x["expected"])
+                        st.markdown(
+                            f"γρ. {x['row']} · {x['date']} · "
+                            f"Sheet: {c.eur(x['value'])} · Email έχει: {exp}"
+                        )
+
+        # ── 3. ΑΓΝΩΣΤΗ ΜΕΡΑ ──
+        if unknown:
+            c.note(
+                f"<b>{len(unknown)} γραμμές έχουν μέρα/τύπο που δεν υπάρχει σε κανένα email.</b><br><br>"
+                f"Χειροκίνητη καταχώρηση; Σβησμένο email; Δεν ξέρουμε — άρα δεν "
+                f"τις πειράζουμε.",
+                "warn",
+            )
+            with st.expander(f"Δες τις {min(len(unknown), 30)} πρώτες"):
+                for x in unknown[:30]:
+                    st.markdown(
+                        f"γρ. {x['row']} · {x['date']} · {x['type'][:30]} · {c.eur(x['value'])}"
+                    )

@@ -70,6 +70,10 @@ class Plan:
     records_found:  int = 0
     sheet_rows:     int = 0
 
+    # Κρατάμε τα records ώστε η διάγνωση να τρέχει χωρίς νέα σάρωση των email.
+    # Είναι λίγα MB — πολύ φθηνότερο από 446 email ξανά.
+    records: list = field(default_factory=list, repr=False)
+
     @property
     def touched(self) -> bool:
         return bool(self.fill or self.delete or self.add)
@@ -140,6 +144,7 @@ def plan(records: list, emails_scanned: int = 0) -> Plan:
     p = Plan()
     p.emails_scanned = emails_scanned
     p.records_found = len(records)
+    p.records = records
 
     truth = build_truth(records)
 
@@ -392,6 +397,116 @@ def apply(p: Plan, on_progress=None) -> dict:
     load_invoices.clear()
     done["complete"] = not done["errors"]
     return done
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ΔΙΑΓΝΩΣΗ — ΓΙΑΤΙ ΔΕΝ ΒΡΕΘΗΚΑΝ;
+# ══════════════════════════════════════════════════════════════════════════════
+def diagnose(p: Plan, records: list) -> dict:
+    """
+    Οι γραμμές που δεν ταίριαξαν — ΓΙΑΤΙ;
+
+    Η διάκριση έχει σημασία, γιατί οδηγεί σε διαφορετική ενέργεια:
+
+      1. ΕΚΤΟΣ ΕΜΒΕΛΕΙΑΣ
+         Η γραμμή είναι παλιότερη από το παλιότερο email. Το Gmail δεν κρατάει
+         τα πάντα για πάντα.
+         → Δεν μπορούμε να κάνουμε τίποτα. Μένουν.
+
+      2. ⚠️ ΤΟ ΠΟΣΟ ΔΕΝ ΤΑΙΡΙΑΖΕΙ
+         Η μέρα και ο τύπος υπάρχουν στα email — αλλά με άλλο ποσό.
+
+         ΑΥΤΟ ΕΙΝΑΙ ΚΑΜΠΑΝΑΚΙ. Σημαίνει ότι το ποσό γράφτηκε ΛΑΘΟΣ στο Sheet.
+         Ο πιο πιθανός ένοχος: το παλιό daily_sync.py που έγραφε ΕΥΡΩ αντί για
+         ΛΕΠΤΑ. Αυτές οι γραμμές δείχνουν 100× λάθος νούμερα στα βιβλία σου.
+
+         Το ελέγχουμε ρητά: αν το ποσό×100 ή ποσό÷100 υπάρχει στα email, τότε
+         έχουμε την απόδειξη.
+
+      3. Η ΜΕΡΑ ΔΕΝ ΥΠΑΡΧΕΙ ΚΑΘΟΛΟΥ
+         Χειροκίνητη καταχώρηση; Σβησμένο email;
+
+    → {"out_of_range", "amount_mismatch", "unknown_day", "email_from", "email_to"}
+    """
+    empty = {
+        "out_of_range": [], "amount_mismatch": [], "unknown_day": [],
+        "email_from": None, "email_to": None,
+    }
+
+    if not p.skip:
+        return empty
+
+    # Η χρονική εμβέλεια των email
+    dates = [
+        r["date"].strftime("%Y-%m-%d") if hasattr(r.get("date"), "strftime")
+        else str(r.get("date", ""))[:10]
+        for r in records if r.get("date") is not None
+    ]
+    if not dates:
+        return {**empty, "out_of_range": list(p.skip)}
+
+    lo, hi = min(dates), max(dates)
+
+    # Ποια ποσά υπάρχουν στα email, ανά (μέρα, τύπος)
+    known: dict[tuple, set[int]] = defaultdict(set)
+    for r in records:
+        d = r.get("date")
+        d_str = d.strftime("%Y-%m-%d") if hasattr(d, "strftime") else str(d)[:10]
+        known[(d_str, str(r.get("type", "")).strip().upper())].add(
+            to_cents(r.get("value", 0))
+        )
+
+    out = {**empty, "email_from": lo, "email_to": hi}
+
+    for row in p.skip:
+        day = row["date"]
+
+        if day < lo or day > hi:
+            out["out_of_range"].append(row)
+            continue
+
+        amounts = known.get((day, row["type"]))
+
+        if not amounts:
+            out["unknown_day"].append(row)
+            continue
+
+        # Η μέρα+τύπος υπάρχει, αλλά ΟΧΙ με αυτό το ποσό.
+        #
+        # Ψάχνουμε ρητά το σφάλμα ευρώ/λεπτά του παλιού daily_sync.py:
+        #
+        #   Σωστό:  1547,73 € → 154773 λεπτά
+        #   Λάθος:  1547,73 € → γράφτηκε "1547.73" → διαβάστηκε 1547 λεπτά
+        #
+        # Δεν είναι ΑΚΡΙΒΩΣ ×100 — τα δεκαδικά χάθηκαν στη στρογγυλοποίηση.
+        # Άρα ψάχνουμε ποσό στα email που πέφτει στο διάστημα:
+        #
+        #   [ποσό_sheet × 100,  ποσό_sheet × 100 + 99]
+        #
+        # Το 1547 → [154700, 154799], και το 154773 πέφτει μέσα. ✓
+        cents = to_cents(row["value"])
+
+        hint = ""
+        expected = sorted(amounts)[:3]
+
+        if cents > 0:
+            lo_x100 = cents * 100
+            hi_x100 = lo_x100 + 99
+
+            match = next((a for a in amounts if lo_x100 <= a <= hi_x100), None)
+            if match is not None:
+                hint = "×100"
+                expected = [match]
+            elif cents >= 100 and (cents // 100) in amounts:
+                hint = "÷100"
+                expected = [cents // 100]
+
+        r = dict(row)
+        r["hint"] = hint
+        r["expected"] = expected
+        out["amount_mismatch"].append(r)
+
+    return out
 
 
 # ══════════════════════════════════════════════════════════════════════════════

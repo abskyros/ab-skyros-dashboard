@@ -38,7 +38,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core.mail import fetch_all_invoices
-from core.backfill import plan, apply, snapshot
+from core.backfill import plan, apply, diagnose, snapshot
 
 
 def main() -> int:
@@ -114,12 +114,34 @@ def main() -> int:
 
     if p.skip:
         print(f"\n  ⊘ ΔΕΝ ΠΕΙΡΑΖΟΝΤΑΙ — {len(p.skip)} γραμμές")
-        print(f"      Δεν βρέθηκαν σε κανένα email. Ίσως το email σβήστηκε,")
-        print(f"      ίσως καταχωρήθηκαν με το χέρι. Μένουν ως έχουν.")
-        for x in p.skip[:5]:
-            print(f"      γρ. {x['row']:5d}  {x['date']}  {x['type'][:24]:24s}  {x['value']:>10,.2f} €")
-        if len(p.skip) > 5:
-            print(f"      … και άλλες {len(p.skip) - 5}")
+
+        d = diagnose(p, records)
+
+        if d["email_from"]:
+            print(f"      Τα email καλύπτουν: {d['email_from']} → {d['email_to']}")
+
+        if d["out_of_range"]:
+            print(f"\n      · {len(d['out_of_range'])} είναι ΠΑΛΙΟΤΕΡΕΣ από το παλιότερο email")
+            print(f"        Δεν μπορούμε να βρούμε τους αριθμούς τους. Μένουν.")
+
+        scaled = [x for x in d["amount_mismatch"] if x.get("hint")]
+        if scaled:
+            print(f"\n      ⚠️  {len(scaled)} έχουν ΛΑΘΟΣ ΠΟΣΟ (100× σφάλμα)")
+            print(f"        Το παλιό daily_sync.py έγραφε ευρώ αντί για λεπτά.")
+            print(f"        Αυτές οι γραμμές δείχνουν λάθος νούμερα στα βιβλία!")
+            for x in scaled[:5]:
+                exp = x["expected"][0] / 100 if x["expected"] else 0
+                print(f"          γρ. {x['row']:5d}  {x['date']}  "
+                      f"Sheet: {x['value']:>10,.2f} €  →  Email: {exp:>10,.2f} €  [{x['hint']}]")
+            if len(scaled) > 5:
+                print(f"          … και άλλες {len(scaled) - 5}")
+
+        other = [x for x in d["amount_mismatch"] if not x.get("hint")]
+        if other:
+            print(f"\n      · {len(other)} έχουν ποσό που δεν υπάρχει στα email")
+
+        if d["unknown_day"]:
+            print(f"\n      · {len(d['unknown_day'])} έχουν μέρα/τύπο άγνωστο στα email")
 
     print("\n" + "─" * 64)
 
