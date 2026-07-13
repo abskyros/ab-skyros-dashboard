@@ -1,0 +1,5 @@
+# GitHub Actions μόνο — εκεί εγκαθιστούμε tesseract & poppler στο workflow.
+-r requirements.txt
+pdf2image==1.17.0
+pytesseract==0.3.13
+pillow==11.0.0
