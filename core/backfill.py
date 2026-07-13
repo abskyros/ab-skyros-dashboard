@@ -619,6 +619,175 @@ def audit(df: pd.DataFrame, records: list, start: date, end: date) -> dict:
     }
 
 
+def repair_week(records: list, start: date, end: date) -> dict:
+    """
+    ΣΤΟΧΕΥΜΕΝΗ ΕΠΙΣΚΕΥΗ ΜΙΑΣ ΕΒΔΟΜΑΔΑΣ.
+
+    Γιατί υπάρχει: ο γενικός βαθύς έλεγχος σαρώνει 2 χρόνια και αφήνει πίσω
+    γραμμές που δεν ταίριαξαν. Αλλά για ΜΙΑ εβδομάδα, τα email είναι εκεί, η
+    αντιστοίχιση είναι βέβαιη, και μπορούμε να τελειώσουμε τη δουλειά.
+
+    Δύο βήματα, με αυτή τη σειρά:
+
+      1. ΓΕΜΙΣΜΑ — κάθε γραμμή χωρίς αριθμό παίρνει τον αριθμό της, από τα email
+      2. ΔΙΑΓΡΑΦΗ — ό,τι απομείνει χωρίς αριθμό ΕΙΝΑΙ διπλό, και σβήνεται
+
+    Η λογική του βήματος 2:
+
+        Η 10/07 έχει 11 τιμολόγια στα email.
+        Το Sheet έχει 30 γραμμές για την 10/07.
+        Οι 11 πρώτες παίρνουν τους 11 αριθμούς.
+        Οι 19 υπόλοιπες ΔΕΝ ΕΧΟΥΝ αριθμό να πάρουν — άρα είναι διπλές.
+
+    Δεν μαντεύουμε. Μετράμε.
+
+    ΚΡΙΣΙΜΟ: αν ένα κουβαδάκι (μέρα+τύπος+ποσό) ΔΕΝ υπάρχει καθόλου στα email,
+    οι γραμμές του ΔΕΝ πειράζονται. Ίσως το email καθυστέρησε, ίσως κάτι άλλο.
+    Δεν σβήνουμε ό,τι δεν καταλαβαίνουμε.
+
+    → {"fill": [(row, number)], "delete": [rows], "keep": [rows], "value": float}
+    """
+    ws = _ws(SHEET_INV)
+    vals = ws.get_all_values()
+
+    if len(vals) < 2:
+        return {"fill": [], "delete": [], "keep": [], "value": 0.0}
+
+    # ── Ο πίνακας αλήθειας, ΜΟΝΟ γι' αυτή την εβδομάδα ──
+    truth: dict[tuple, list[str]] = defaultdict(list)
+    for r in records:
+        d = r.get("date")
+        d = d.date() if hasattr(d, "date") else d
+        if not d or not (start <= d <= end):
+            continue
+
+        num = str(r.get("number", "")).strip()
+        if not num:
+            continue
+
+        key = _bucket(d, r.get("type"), r.get("value", 0))
+        if num not in truth[key]:
+            truth[key].append(num)
+
+    for k in truth:
+        truth[k].sort()
+
+    # ── Οι γραμμές του Sheet, μέσα στην εβδομάδα ──
+    lo, hi = start.isoformat(), end.isoformat()
+
+    buckets: dict[tuple, list[dict]] = defaultdict(list)
+    taken: set[str] = set()
+
+    for i, r in enumerate(vals[1:], start=2):
+        if len(r) < 3 or not r[0]:
+            continue
+
+        day = str(r[0]).strip()
+        if not (lo <= day <= hi):
+            continue
+
+        num = str(r[3]).strip() if len(r) > 3 else ""
+
+        if num:
+            taken.add(num)     # ο αριθμός χρησιμοποιείται ήδη
+            continue
+
+        key = (day, str(r[1]).strip().upper() if len(r) > 1 else "",
+               int(parse_number(r[2])))
+        buckets[key].append({"row": i, "value": parse_number(r[2]) / 100.0})
+
+    # ── Η αντιστοίχιση ──
+    fill, delete, keep = [], [], []
+    deleted_value = 0.0
+
+    for key, rows in buckets.items():
+        # Οι αριθμοί που είναι ΔΙΑΘΕΣΙΜΟΙ (δεν τους πήρε άλλη γραμμή)
+        free = [n for n in truth.get(key, []) if n not in taken]
+
+        if not truth.get(key):
+            # Το κουβαδάκι ΔΕΝ υπάρχει στα email. Δεν ξέρουμε τι είναι.
+            keep += [r["row"] for r in rows]
+            continue
+
+        n = min(len(rows), len(free))
+
+        for j in range(n):
+            fill.append((rows[j]["row"], free[j]))
+            taken.add(free[j])
+
+        # Όσες γραμμές έμειναν χωρίς αριθμό → ΔΙΠΛΕΣ
+        for r in rows[n:]:
+            delete.append(r["row"])
+            deleted_value += r["value"]
+
+    fill.sort()
+    delete.sort()
+
+    return {
+        "fill": fill,
+        "delete": delete,
+        "keep": sorted(keep),
+        "value": round(deleted_value, 2),
+    }
+
+
+def apply_repair(rep: dict) -> dict:
+    """
+    Εκτελεί την επισκευή: γέμισμα, μετά διαγραφή.
+
+    ΣΕΙΡΑ: πρώτα γεμίζουμε (οι γραμμές είναι σταθερές), μετά σβήνουμε από κάτω
+    προς τα πάνω. Αν το γέμισμα αποτύχει, ΔΕΝ σβήνουμε — θα σβήναμε στα τυφλά.
+    """
+    ws = _ws(SHEET_INV)
+    done = {"filled": 0, "deleted": 0, "errors": [], "complete": False}
+
+    # ── Κεφαλίδα ──
+    try:
+        header = ws.row_values(1)
+        if len(header) < 4 or str(header[3]).strip().lower() != "number":
+            ws.update_cell(1, 4, "number")
+            time.sleep(PAUSE)
+    except Exception as e:
+        done["errors"].append(f"Κεφαλίδα: {e}")
+
+    # ── 1. ΓΕΜΙΣΜΑ ──
+    if rep["fill"]:
+        cells = [{"range": f"D{row}", "values": [[num]]} for row, num in rep["fill"]]
+
+        for i in range(0, len(cells), BATCH_RANGES):
+            batch = cells[i:i + BATCH_RANGES]
+
+            ok = _write_with_retry(
+                lambda b=batch: ws.batch_update(b, value_input_option="RAW"),
+                "Γέμισμα", done["errors"],
+            )
+            if not ok:
+                done["errors"].append(
+                    "Το γέμισμα δεν ολοκληρώθηκε — η διαγραφή ΔΕΝ εκτελέστηκε."
+                )
+                return done
+
+            done["filled"] += len(batch)
+            time.sleep(PAUSE)
+
+    # ── 2. ΔΙΑΓΡΑΦΗ ──
+    if rep["delete"]:
+        for start, end in reversed(_group_runs(rep["delete"])):
+            ok = _write_with_retry(
+                lambda s=start, e=end: ws.delete_rows(s, e),
+                "Διαγραφή", done["errors"],
+            )
+            if not ok:
+                return done
+
+            done["deleted"] += end - start + 1
+            time.sleep(PAUSE)
+
+    load_invoices.clear()
+    done["complete"] = not done["errors"]
+    return done
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # ΑΝΤΙΓΡΑΦΟ ΑΣΦΑΛΕΙΑΣ
 # ══════════════════════════════════════════════════════════════════════════════

@@ -22,6 +22,7 @@ from core.sheets import (
 from core.backfill import (
     plan as backfill_plan,
     apply as backfill_apply,
+    repair_week, apply_repair,
     diagnose, audit, snapshot,
 )
 from core.mail import fetch_all_invoices
@@ -728,31 +729,83 @@ def _verify(df: pd.DataFrame) -> None:
                     unsafe_allow_html=True,
                 )
 
-        # ── ΤΟ ΚΟΥΜΠΙ ──
-        removable = [x for x in a["extra"] if x["why"] in ("διπλό", "δεν υπάρχει στα email")]
+        # ── ΕΠΙΣΚΕΥΗ ──
+        st.divider()
+        c.section("Επισκευή")
 
-        if removable:
-            st.divider()
-            c.note(
-                f"<b>{len(removable)} γραμμές μπορούν να σβηστούν με ασφάλεια.</b><br><br>"
-                f"Είναι διπλές, ή ο αριθμός τους δεν υπάρχει σε κανένα email αυτής "
-                f"της περιόδου.<br><br>"
-                f"Οι γραμμές <b>χωρίς αριθμό</b> ΔΕΝ σβήνονται — δεν μπορούμε να "
-                f"τις ταυτοποιήσουμε. Τρέξε πρώτα τον <b>Βαθύ έλεγχο</b>.",
-                "warn",
+        st.caption(
+            "Γεμίζει τους αριθμούς από τα email, και μετά σβήνει ό,τι απομείνει "
+            "χωρίς αριθμό — αυτά είναι αποδεδειγμένα διπλά."
+        )
+
+        with st.spinner("Υπολογισμός…"):
+            rep = repair_week(records, start, end)
+
+        if not rep["fill"] and not rep["delete"]:
+            c.note("Δεν βρέθηκε τίποτα να επισκευαστεί.", "info")
+        else:
+            lines = []
+            if rep["fill"]:
+                lines.append(f"✓ <b>{len(rep['fill'])}</b> γραμμές θα πάρουν τον αριθμό τους")
+            if rep["delete"]:
+                lines.append(
+                    f"🗑 <b>{len(rep['delete'])}</b> γραμμές θα <b>σβηστούν</b> "
+                    f"(αξίας {c.eur(rep['value'])})"
+                )
+            if rep["keep"]:
+                lines.append(
+                    f"⊘ <b>{len(rep['keep'])}</b> γραμμές <b>δεν πειράζονται</b> "
+                    f"(δεν υπάρχουν στα email αυτής της εβδομάδας)"
+                )
+
+            c.note("<br>".join(lines), "warn" if rep["delete"] else "info")
+
+            st.caption(
+                "**Η λογική:** αν η 10/07 έχει 11 τιμολόγια στα email αλλά 30 γραμμές "
+                "στο Sheet, οι 11 πρώτες παίρνουν τους αριθμούς — οι 19 υπόλοιπες "
+                "δεν έχουν αριθμό να πάρουν, άρα είναι διπλές."
             )
 
-            if st.button(f"Σβήσε τις {len(removable)} γραμμές",
-                         key="vf_purge", width="stretch", type="primary"):
-                rows = [x["row"] for x in removable if x["row"]]
+            if rep["delete"]:
+                st.download_button(
+                    "Λήψη αντιγράφου ασφαλείας (CSV)",
+                    snapshot().encode("utf-8-sig"),
+                    f"invoices_backup_{start:%Y%m%d}.csv",
+                    "text/csv",
+                    key="vf_backup",
+                    width="stretch",
+                )
 
-                with st.spinner(f"Διαγραφή {len(rows)} γραμμών…"):
-                    killed = _purge_rows(rows)
+                confirmed = st.checkbox(
+                    f"Κατέβασα το αντίγραφο. Σβήσε τις {len(rep['delete'])} γραμμές.",
+                    key="vf_confirm",
+                )
+            else:
+                confirmed = True
 
-                if killed:
-                    c.note(f"Σβήστηκαν {killed} γραμμές. Ξαναπάτα «Σύγκριση» για έλεγχο.", "ok")
+            if st.button("Επισκευή εβδομάδας", key="vf_repair",
+                         width="stretch", type="primary", disabled=not confirmed):
+
+                with st.spinner("Επισκευή…"):
+                    done = apply_repair(rep)
+
+                if done["complete"]:
+                    c.note(
+                        f"<b>Ολοκληρώθηκε.</b><br>"
+                        f"• {done['filled']} γραμμές πήραν αριθμό<br>"
+                        f"• {done['deleted']} διπλές σβήστηκαν<br><br>"
+                        f"Πάτα ξανά <b>«Σύγκριση με τα email»</b> για επαλήθευση.",
+                        "ok",
+                    )
                 else:
-                    c.note("Δεν σβήστηκε τίποτα.", "bad")
+                    c.note(
+                        f"<b>Δεν ολοκληρώθηκε.</b><br>"
+                        f"Πέρασαν: {done['filled']} γεμίσματα, {done['deleted']} διαγραφές.<br>"
+                        f"Ξαναδοκίμασε — θα συνεχίσει από εκεί που έμεινε.",
+                        "warn",
+                    )
+                    for e in done["errors"]:
+                        c.note(e, "bad")
 
     # ── ΟΣΑ ΛΕΙΠΟΥΝ ──
     if a["missing"]:
@@ -764,25 +817,3 @@ def _verify(df: pd.DataFrame) -> None:
         c.note("Τρέξε την «Ενημέρωση δεδομένων» για να προστεθούν.", "info")
 
 
-def _purge_rows(rows: list[int]) -> int:
-    """Σβήνει συγκεκριμένες γραμμές, από κάτω προς τα πάνω."""
-    from core.sheets import _ws, _group_runs, load_invoices
-    from core.config import SHEET_INV
-    import time
-
-    if not rows:
-        return 0
-
-    ws = _ws(SHEET_INV)
-    killed = 0
-
-    for start, end in reversed(_group_runs(sorted(rows))):
-        try:
-            ws.delete_rows(start, end)
-            killed += end - start + 1
-            time.sleep(1.2)
-        except Exception:
-            break
-
-    load_invoices.clear()
-    return killed
