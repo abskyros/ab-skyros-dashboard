@@ -46,23 +46,47 @@ def main() -> int:
     print(f"▶ Πωλήσεις — {datetime.now():%Y-%m-%d %H:%M}")
 
     known = load_sales()
-    print(f"  Ήδη καταχωρημένες: {len(known)} ημέρες")
+
+    # Οι μέρες που ΗΔΗ έχουμε. Περνιούνται στο fetch_sales ώστε να ΜΗΝ κάνει OCR
+    # σε PDF που δεν έχουν τίποτα νέο.
+    #
+    # Το job τρέχει κάθε 10 λεπτά, 18:00-02:00 → 54 φορές τη νύχτα. Χωρίς αυτό,
+    # θα έκανε OCR στα ίδια PDF 54 φορές. Με αυτό, μόλις βρεθεί η μέρα, οι
+    # υπόλοιπες εκτελέσεις τελειώνουν σε δευτερόλεπτα.
+    have = set()
+    if not known.empty:
+        have = {
+            d.date() if hasattr(d, "date") else d
+            for d in known["date"]
+        }
+
+    print(f"  Ήδη καταχωρημένες: {len(have)} ημέρες")
+
+    yesterday = date.today() - timedelta(days=1)
+    if yesterday in have:
+        print(f"  ✓ Η χθεσινή ({yesterday:%d/%m}) υπάρχει ήδη.")
 
     since = date.today() - timedelta(days=LOOKBACK_DAYS)
-    records, errors, seen = fetch_sales(password, since=since, limit=EMAIL_LIMIT)
+    records, errors, seen = fetch_sales(
+        password, since=since, limit=EMAIL_LIMIT, skip_dates=have
+    )
 
     if errors:
         print(f"✗ {errors[0]}")
         return 1
+
+    if seen == 0:
+        print("\n· Κανένα νέο email. Τίποτα να κάνω.")
+        return 0
 
     saved = merge_sales(records)
 
     if saved:
         for r in records:
             print(f"  + {r['date']:%Y-%m-%d}  {r['net_sales']:,.2f} €")
-        print(f"\n✓ {saved} νέες ημέρες (σαρώθηκαν {seen} email).")
+        print(f"\n✓ {saved} νέες ημέρες (OCR σε {seen} PDF).")
     else:
-        print(f"\n· Καμία νέα ημέρα (σαρώθηκαν {seen} email).")
+        print(f"\n· Καμία νέα ημέρα (OCR σε {seen} PDF, όλες γνωστές).")
 
     return 0
 

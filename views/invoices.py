@@ -6,7 +6,7 @@ views/invoices.py — Παραστατικά.
 είδηση — δεν πρέπει να κρύβεται μέσα σε ένα άθροισμα.
 """
 
-from datetime import date
+from datetime import date, timedelta
 
 import pandas as pd
 import streamlit as st
@@ -190,6 +190,113 @@ def _tools(df: pd.DataFrame) -> None:
 
         with charge_tab:
             _check_double_charges(df)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
+# ΕΠΑΛΗΘΕΥΣΗ — ΤΟ SHEET ΣΥΜΦΩΝΕΙ ΜΕ ΤΑ EMAIL;
+# ══════════════════════════════════════════════════════════════════════════════
+def _verify(df: pd.DataFrame) -> None:
+    """
+    Βάζει το Sheet δίπλα στα email, για μία εβδομάδα.
+
+    Τα email είναι η ΠΗΓΗ. Το Sheet είναι αντίγραφο. Αν διαφέρουν, το Sheet έχει
+    σκουπίδια — και τα σύνολά σου είναι λάθος.
+
+    Χρήσιμο ΜΕΤΑ τον καθαρισμό: επιβεβαιώνει ότι όλα πήγαν καλά.
+    """
+    st.caption(
+        "Συγκρίνει το Sheet με τα **πραγματικά email** μιας εβδομάδας. "
+        "Αν τα σύνολα διαφέρουν, δείχνει ποιες γραμμές φταίνε."
+    )
+
+    pw = _password()
+    if not pw:
+        c.note("Λείπει το EMAIL_PASS από τα secrets.", "bad")
+        return
+
+    col, _ = st.columns([1, 2])
+    with col:
+        picked = st.date_input("Εβδομάδα", date.today(), key="vf_day", format="DD/MM/YYYY")
+
+    start, end = week_range(picked)
+    st.caption(f"Περίοδος: **{start:%d/%m/%Y}** — **{end:%d/%m/%Y}**")
+
+    if not st.button("Σύγκριση με τα email", key="vf_run", width="stretch"):
+        return
+
+    # Κατεβάζουμε τα email της περιόδου, με περιθώριο 3 εβδομάδων πίσω —
+    # το email μπορεί να έρθει μέρες μετά την ημερομηνία του παραστατικού.
+    with st.spinner("Διάβασμα email…"):
+        records, errors, scanned = fetch_all_invoices(
+            pw, since=start - timedelta(days=21)
+        )
+
+    if errors:
+        c.note(errors[0], "bad")
+        return
+
+    a = audit(df, records, start, end)
+    e, sh = a["email"], a["sheet"]
+
+    c.section("Σύγκριση")
+
+    same = abs(e["net"] - sh["net"]) < 0.01
+
+    c.html(
+        '<div class="grid g2">'
+        + c.stat("Email (η αλήθεια)", e["net"], accent="var(--pos)",
+                 foot=f"{e['count']} παραστατικά · "
+                      f"Τιμ. {c.eur(e['invoices'])} · Πιστ. {c.eur(e['credits'])}")
+        + c.stat("Sheet", sh["net"],
+                 tone="" if same else "neg",
+                 accent="var(--pos)" if same else "var(--neg)",
+                 foot=f"{sh['count']} γραμμές · "
+                      f"Τιμ. {c.eur(sh['invoices'])} · Πιστ. {c.eur(sh['credits'])}")
+        + '</div>'
+    )
+
+    if same and not a["extra"] and not a["missing"]:
+        c.note("Το Sheet συμφωνεί απόλυτα με τα email.", "ok")
+        return
+
+    diff = sh["net"] - e["net"]
+
+    c.note(
+        f"<b>Διαφορά: {c.eur(diff)}</b><br><br>"
+        f"Το Sheet έχει <b>{sh['count']}</b> γραμμές, τα email <b>{e['count']}</b> "
+        f"παραστατικά.<br><br>"
+        f"Τρέξε τον <b>🧹 Καθαρισμό</b> για να διορθωθεί.",
+        "bad",
+    )
+
+    if a["extra"]:
+        c.section(f"{len(a['extra'])} γραμμές περισσεύουν")
+
+        by_why = {}
+        for x in a["extra"]:
+            by_why.setdefault(x["why"], []).append(x)
+
+        for why, rows in sorted(by_why.items(), key=lambda kv: -len(kv[1])):
+            total = sum(r["value"] for r in rows)
+            st.markdown(f"**{len(rows)}** — {why} · σύνολο **{c.eur(total)}**")
+
+        with st.expander("Δες τις πρώτες 30"):
+            for x in a["extra"][:30]:
+                st.markdown(
+                    f"γρ. **{x['row']}** · {x['date']} · {x['type'][:26]} · "
+                    f"**{c.eur(x['value'])}** · "
+                    f"<span style='color:#94A3B8'>{x['number'] or '—'} · {x['why']}</span>",
+                    unsafe_allow_html=True,
+                )
+
+    if a["missing"]:
+        c.section(f"{len(a['missing'])} παραστατικά λείπουν")
+        for x in a["missing"][:20]:
+            st.markdown(
+                f"{x['date']} · {x['type'][:26]} · **{c.eur(x['value'])}** · #{x['number']}"
+            )
+        c.note("Τρέξε την «Ενημέρωση δεδομένων» για να προστεθούν.", "info")
 
 
 # ══════════════════════════════════════════════════════════════════════════════

@@ -156,15 +156,35 @@ def fetch_sales(
     since: date | None = None,
     limit: int = 80,
     want: int | None = None,
+    skip_dates: set | None = None,
 ) -> tuple[list, list, int]:
     """
     → (records, errors, emails_seen)
 
-    Σταματάει μόλις βρει `want` εγγραφές — το OCR είναι αργό, δεν έχει νόημα
-    να διαβάσουμε 80 PDF όταν ψάχνουμε τα χθεσινά.
+    ┌────────────────────────────────────────────────────────────────────────┐
+    │ ΓΙΑΤΙ ΥΠΑΡΧΕΙ ΤΟ skip_dates                                            │
+    │                                                                        │
+    │ Το OCR είναι ΑΡΓΟ — 20-30 δευτερόλεπτα ανά PDF.                        │
+    │                                                                        │
+    │ Το job τρέχει κάθε 10 λεπτά, 18:00-02:00 → 54 εκτελέσεις τη νύχτα.     │
+    │ Χωρίς αυτό, κάθε εκτέλεση θα έκανε OCR στα ίδια PDF ξανά και ξανά,     │
+    │ μόνο και μόνο για να τα πετάξει μετά ως διπλά.                         │
+    │                                                                        │
+    │ 54 × 30" = 27 λεπτά OCR κάθε νύχτα, τζάμπα.                            │
+    │                                                                        │
+    │ Τώρα: αν η μέρα του email είναι ήδη στο Sheet, ΔΕΝ ανοίγουμε καν το    │
+    │ PDF. Η εκτέλεση τελειώνει σε δευτερόλεπτα.                             │
+    └────────────────────────────────────────────────────────────────────────┘
+
+    ΤΟ ΚΟΛΠΟ: η ημερομηνία της αναφοράς ΔΕΝ φαίνεται στο θέμα του email — μόνο
+    μέσα στο PDF. Αλλά η αναφορά της Δευτέρας στέλνεται τη Δευτέρα το βράδυ ή
+    την Τρίτη το πρωί. Άρα η ημερομηνία του EMAIL είναι μια πολύ καλή ένδειξη:
+    ελέγχουμε αν η μέρα του email ΚΑΙ η προηγούμενή της είναι ήδη καταχωρημένες.
+    Αν ναι, το PDF δεν έχει τίποτα νέο.
     """
     records, errors = [], []
     seen = 0
+    skipped = 0
 
     try:
         with MailBox(IMAP_HOST).login(SALES_EMAIL_USER, password) as mb:
@@ -186,6 +206,16 @@ def fetch_sales(
                 if not pdfs:
                     continue
 
+                # ── Ο ΕΛΕΓΧΟΣ ΠΡΙΝ ΤΟ OCR ──
+                #
+                # Η αναφορά αφορά τη μέρα του email ή την προηγούμενη. Αν ΚΑΙ ΟΙ
+                # ΔΥΟ υπάρχουν ήδη στο Sheet, το PDF δεν έχει τίποτα νέο.
+                if skip_dates and sent:
+                    candidates = {sent, sent - timedelta(days=1)}
+                    if candidates <= skip_dates:
+                        skipped += 1
+                        continue
+
                 seen += 1
                 for pdf in pdfs:
                     rec = parse_sales_pdf(pdf.payload)
@@ -195,6 +225,9 @@ def fetch_sales(
 
     except Exception as e:
         errors.append(_friendly(e))
+
+    if skipped:
+        print(f"  · {skipped} email παραλείφθηκαν (η μέρα τους υπάρχει ήδη)")
 
     return records, errors, seen
 
