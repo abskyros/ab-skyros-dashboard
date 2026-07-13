@@ -12,3 +12,4 @@ gspread==6.1.4
 google-auth==2.35.0
 imap-tools==1.7.4
 openpyxl==3.1.5
+requests==2.32.3

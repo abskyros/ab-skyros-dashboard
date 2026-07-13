@@ -30,6 +30,7 @@ from core.sheets import (
 )
 from core.mail import fetch_sales, fetch_invoices, fetch_timologiseis
 from core.parsers import ocr_available
+from core.github import trigger_workflow, last_run, available as gh_available
 
 from ui import components as c
 from ui import mobile
@@ -109,58 +110,119 @@ def sync_panel(df_s) -> None:
             "Πάτα εδώ μόνο αν τα θέλεις αμέσως."
         )
 
+        _workflow_status()
+
         a, b, d = st.columns(3)
 
         with a:
-            if st.button("Πωλήσεις", key="sync_sales", width='stretch'):
+            if st.button("Πωλήσεις", key="sync_sales", width="stretch"):
                 _sync_sales(df_s)
 
         with b:
-            if st.button("Παραστατικά", key="sync_inv", width='stretch'):
+            if st.button("Παραστατικά", key="sync_inv", width="stretch"):
                 _sync_invoices()
 
         with d:
-            if st.button("Τιμολογήσεις", key="sync_timol", width='stretch'):
+            if st.button("Τιμολογήσεις", key="sync_timol", width="stretch"):
                 _sync_timologiseis()
 
 
-def _sync_sales(df_s) -> None:
-    if not SALES_PW:
-        c.note("Λείπει το SALES_EMAIL_PASS από τα secrets.", "bad")
+def _workflow_status() -> None:
+    """
+    Η ΚΑΤΑΣΤΑΣΗ ΤΟΥ ΑΥΤΟΜΑΤΟΥ ΣΥΓΧΡΟΝΙΣΜΟΥ.
+
+    Χωρίς αυτό, όταν κάτι χαλάσει, ο χρήστης κοιτάει μια άδεια κάρτα και δεν
+    ξέρει αν φταίει το σύστημα ή απλώς δεν ήρθε το email.
+
+    Ένα σιωπηλό σφάλμα είναι χειρότερο από ένα θορυβώδες.
+    """
+    if not gh_available():
         return
 
-    if not ocr_available():
+    run = last_run("sales_sync.yml")
+    if not run:
+        return
+
+    status = run.get("status")
+    result = run.get("conclusion")
+
+    if status in ("queued", "in_progress"):
+        c.note("Ο συγχρονισμός πωλήσεων τρέχει τώρα. Ανανέωσε σε 1-2 λεπτά.", "info")
+
+    elif result == "failure":
+        url = run.get("url", "")
         c.note(
-            "Το OCR δεν είναι διαθέσιμο εδώ — χρειάζεται tesseract και poppler, "
-            "που δεν υπάρχουν στο Streamlit Cloud. "
-            "Οι πωλήσεις ενημερώνονται αυτόματα κάθε βράδυ μέσω GitHub Actions.",
-            "info",
+            f"⚠️ <b>Ο τελευταίος αυτόματος συγχρονισμός πωλήσεων ΑΠΕΤΥΧΕ.</b><br><br>"
+            f"Γι' αυτό δεν ενημερώνονται οι πωλήσεις. "
+            f'<a href="{url}" target="_blank">Δες το σφάλμα στο GitHub</a>.',
+            "bad",
         )
-        return
 
-    # Ξεκινάμε λίγο πριν την τελευταία αποθηκευμένη μέρα, για να πιάσουμε τυχόν κενά.
-    since = None
+
+def _sync_sales(df_s) -> None:
+    """
+    ┌────────────────────────────────────────────────────────────────────────┐
+    │ ΓΙΑΤΙ ΔΕΝ ΤΡΕΧΕΙ ΤΟ OCR ΕΔΩ                                            │
+    │                                                                        │
+    │ Το Streamlit Cloud ΔΕΝ έχει tesseract και poppler. Είναι system libs,  │
+    │ όχι python packages — δεν εγκαθίστανται με pip.                        │
+    │                                                                        │
+    │ Το παλιό κουμπί έλεγε «το OCR δεν είναι διαθέσιμο» και σταματούσε.     │
+    │ Άχρηστο: όταν το GitHub Action αποτύχει, ο χρήστης δεν είχε ΚΑΝΕΝΑΝ    │
+    │ τρόπο να το διορθώσει.                                                 │
+    │                                                                        │
+    │ Τώρα το κουμπί ΞΕΚΙΝΑΕΙ το GitHub Action — εκεί το OCR δουλεύει.       │
+    └────────────────────────────────────────────────────────────────────────┘
+    """
+    latest = None
     if not df_s.empty:
-        latest = df_s["date"].max()
-        latest = latest.date() if hasattr(latest, "date") else latest
-        since = latest - timedelta(days=4)
+        d = df_s["date"].max()
+        latest = d.date() if hasattr(d, "date") else d
 
-    with st.spinner("Διάβασμα email και OCR…"):
-        records, errors, seen = fetch_sales(SALES_PW, since=since, limit=120, want=60)
+    if latest:
+        gap = (date.today() - latest).days
+        st.caption(f"Τελευταία καταχώρηση: **{latest:%d/%m/%Y}** ({gap} μέρες πίσω)"
+                   if gap > 1 else f"Τελευταία καταχώρηση: **{latest:%d/%m/%Y}**")
 
-    if errors:
-        c.note(errors[0], "bad")
+    # ── ΤΟΠΙΚΟ OCR (αν κάποιος τρέχει την εφαρμογή στον υπολογιστή του) ──
+    if ocr_available():
+        since = (latest - timedelta(days=4)) if latest else None
+
+        with st.spinner("Διάβασμα email και OCR…"):
+            records, errors, seen = fetch_sales(SALES_PW, since=since, limit=120, want=60)
+
+        if errors:
+            c.note(errors[0], "bad")
+            return
+
+        saved = merge_sales(records)
+
+        if saved:
+            c.note(f"{saved} νέες ημέρες από {seen} email.", "ok")
+            st.rerun()
+        elif seen == 0:
+            c.note("Δεν έχει έρθει νέο email πωλήσεων ακόμη.", "info")
+        else:
+            c.note(f"Βρέθηκαν {seen} email, αλλά οι ημέρες υπάρχουν ήδη.", "info")
         return
 
-    saved = merge_sales(records)
+    # ── STREAMLIT CLOUD: ξεκινάμε το GitHub Action ──
+    ok, msg = trigger_workflow("sales_sync.yml")
 
-    if saved:
-        c.note(f"{saved} νέες ημέρες από {seen} email.", "ok")
-        st.rerun()
-    elif seen == 0:
-        c.note("Δεν έχει έρθει νέο email πωλήσεων ακόμη.", "info")
+    if ok:
+        c.note(
+            "<b>Ξεκίνησε ο συγχρονισμός πωλήσεων.</b><br><br>"
+            "Τρέχει στο GitHub (εκεί υπάρχει το OCR). Θα πάρει 1-3 λεπτά.<br>"
+            "Ανανέωσε τη σελίδα σε λίγο.",
+            "ok",
+        )
     else:
-        c.note(f"Βρέθηκαν {seen} email, αλλά οι ημέρες υπάρχουν ήδη.", "info")
+        c.note(
+            f"Δεν μπόρεσα να ξεκινήσω τον συγχρονισμό.<br><br>{msg}<br><br>"
+            f"<b>Εναλλακτικά:</b> GitHub → Actions → «Πωλήσεις (OCR)» → "
+            f"Run workflow.",
+            "warn",
+        )
 
 
 def _sync_invoices() -> None:
