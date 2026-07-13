@@ -1,13 +1,27 @@
 """
 views/overview.py — Η πρώτη οθόνη.
 
-Απαντά σε τρία πράγματα, με αυτή τη σειρά:
-  1. Πώς πήγε χθες σε σχέση με πέρσι;
-  2. Πώς πάει η εβδομάδα ως τώρα;
-  3. Τι πρέπει να πληρώσω και τι τιμολόγησα;
+Τέσσερις κάρτες, δύο ερωτήσεις:
 
-Το «πάντα τρέχουσα εβδομάδα» είναι σκόπιμο. Κάθε Δευτέρα μηδενίζει μόνο του —
-δεν χρειάζεται να διαλέξεις τίποτα για να δεις τη δουλειά σου.
+  ┌─────────────────────┬─────────────────────┐
+  │  ΣΗΜΕΡΑ             │  ΧΘΕΣ               │   Πού πάω;  Πού έφτασα;
+  │  ο στόχος           │  το αποτέλεσμα      │
+  ├─────────────────────┼─────────────────────┤
+  │  ΕΒΔΟΜΑΔΑ ΩΣ ΤΩΡΑ   │  ΕΠΙΤΑΓΗ            │   Πώς πάει;  Τι χρωστάω;
+  └─────────────────────┴─────────────────────┘
+
+ΓΙΑΤΙ ΔΥΟ ΚΑΡΤΕΣ ΓΙΑ ΤΙΣ ΠΩΛΗΣΕΙΣ:
+
+Η αναφορά της ημέρας έρχεται με email το βράδυ. Άρα το «σήμερα» είναι 0 μέχρι
+τις 21:00 — αλλά αυτό ΔΕΝ σημαίνει ότι είναι άχρηστο. Το περσινό νούμερο της
+ίδιας μέρας είναι ο στόχος σου: «σήμερα πρέπει να πιάσω 21.000».
+
+Και το «χθες» δίνει το τελευταίο πραγματικό αποτέλεσμα, με τη σύγκριση.
+
+Στόχος και αποτέλεσμα. Δύο διαφορετικές ερωτήσεις, δύο κάρτες.
+
+Η εβδομάδα είναι ΠΑΝΤΑ η τρέχουσα. Κάθε Δευτέρα μηδενίζει μόνη της — δεν
+χρειάζεται να διαλέξεις τίποτα για να δεις τη δουλειά σου.
 """
 
 from datetime import date, timedelta
@@ -35,44 +49,55 @@ def render(df_s: pd.DataFrame, df_i: pd.DataFrame, df_t: pd.DataFrame, today: da
         )
         return
 
-    _headline(df_s, today)
-    _secondary(df_i, df_t, today, week_start)
+    _sales(df_s, today)
+    _week_and_check(df_s, df_i, df_t, today)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-def _headline(df_s: pd.DataFrame, today: date) -> None:
-    """
-    Χθες και εβδομάδα-ως-τώρα.
+def _sales(df_s: pd.DataFrame, today: date) -> None:
+    """Σήμερα (στόχος) και χθες (αποτέλεσμα)."""
 
-    Δείχνουμε ΧΘΕΣ, όχι σήμερα: η αναφορά της ημέρας έρχεται το βράδυ, οπότε το
-    «σήμερα» είναι σχεδόν πάντα άδειο μέχρι τις 21:00. Ένα μεγάλο μηδενικό στην
-    κορυφή κάθε πρωί δεν βοηθάει κανέναν.
-    """
+    # ── ΣΗΜΕΡΑ ──
+    # Συνήθως None μέχρι το βράδυ. Ο στόχος είναι το περσινό της ίδιας μέρας.
+    today_now = sales_on(df_s, today)
+    today_ref = last_year(today)
+    today_goal = sales_on(df_s, today_ref)
+
+    # ── ΧΘΕΣ ──
     yesterday = today - timedelta(days=1)
     y_now = sales_on(df_s, yesterday)
 
-    # Αν το χθεσινό δεν έχει έρθει ακόμη, γυρνάμε στην τελευταία μέρα με δεδομένα.
+    # Αν το χθεσινό δεν ήρθε ακόμη, πάμε στην τελευταία μέρα που έχουμε.
+    # Έτσι η κάρτα δείχνει πάντα ένα πραγματικό νούμερο, όχι κενό.
+    stale = False
     if y_now is None and not df_s.empty:
         latest = df_s["date"].max()
-        yesterday = latest.date() if hasattr(latest, "date") else latest
-        y_now = sales_on(df_s, yesterday)
+        latest = latest.date() if hasattr(latest, "date") else latest
+        if latest < yesterday:
+            yesterday = latest
+            y_now = sales_on(df_s, yesterday)
+            stale = True
 
     y_ref = last_year(yesterday)
     y_then = sales_on(df_s, y_ref)
 
-    wtd = week_to_date(df_s, today)
+    y_foot = f"Πέρσι {day_name(y_ref, short=True)} {y_ref:%d/%m}"
+    if stale:
+        y_foot = f"Τελευταία καταχώρηση · {y_foot}"
 
     c.grid(
-        c.scale(
-            f"{day_name(yesterday)} {yesterday:%d/%m}",
-            y_now, y_then,
-            foot=f"Πέρσι {day_name(y_ref)} {y_ref:%d/%m} — ίδια μέρα εβδομάδας",
+        c.target(
+            f"Σήμερα · {day_name(today)} {today:%d/%m}",
+            today_now,
+            today_goal,
+            foot=f"Στόχος: {day_name(today_ref, short=True)} {today_ref:%d/%m} πέρσι"
+                 if today_goal else "Δεν υπάρχει περσινό για αυτή τη μέρα",
             href=c.link("Πωλήσεις"),
         ),
         c.scale(
-            f"Εβδομάδα ως τώρα · {wtd['label']}",
-            wtd["current"], wtd["previous"],
-            foot=f"{wtd['days_elapsed']} ημέρες vs οι ίδιες {wtd['days_elapsed']} πέρσι",
+            f"Χθες · {day_name(yesterday)} {yesterday:%d/%m}",
+            y_now, y_then,
+            foot=y_foot,
             href=c.link("Πωλήσεις"),
         ),
         cols=2,
@@ -80,20 +105,26 @@ def _headline(df_s: pd.DataFrame, today: date) -> None:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-def _secondary(df_i: pd.DataFrame, df_t: pd.DataFrame, today: date, week_start: date) -> None:
-    """Τιμολόγια της εβδομάδας + η επιταγή που πέφτει τώρα."""
-    inv_net = invoice_totals(invoices_in_week(df_i, today))["net"]
+def _week_and_check(
+    df_s: pd.DataFrame, df_i: pd.DataFrame, df_t: pd.DataFrame, today: date
+) -> None:
+    """Η εβδομάδα ως τώρα, και η επιταγή που πέφτει."""
+
+    wtd = week_to_date(df_s, today)
 
     check = check_this_week(df_t, today)
-
     if check is not None:
         cd = check["check_date"]
         cd = cd.date() if hasattr(cd, "date") else cd
+        days = (cd - today).days
+
+        when = "σήμερα" if days == 0 else ("αύριο" if days == 1 else f"σε {days} ημέρες")
+
         check_card = c.stat(
             "Επιταγή αυτή την εβδομάδα",
             float(check["amount"]),
-            accent="var(--ink)",
-            foot=f"Πληρωμή {cd:%d/%m/%Y}",
+            accent="var(--ab-red)",
+            foot=f"Πληρωμή {when} — {cd:%d/%m/%Y}",
             href=c.link("Τιμολογήσεις"),
         )
     else:
@@ -106,17 +137,27 @@ def _secondary(df_i: pd.DataFrame, df_t: pd.DataFrame, today: date, week_start: 
         )
 
     c.grid(
-        c.stat(
-            "Τιμολόγια — καθαρό",
-            inv_net,
-            tone="pos" if inv_net >= 0 else "neg",
-            accent="var(--brand)",
-            foot="Τιμολόγια μείον πιστωτικά, τρέχουσα εβδομάδα",
-            href=c.link("Παραστατικά"),
+        c.scale(
+            f"Εβδομάδα ως τώρα · {wtd['label']}",
+            wtd["current"], wtd["previous"],
+            foot=f"{wtd['days_elapsed']} ημέρες vs οι ίδιες {wtd['days_elapsed']} πέρσι",
+            href=c.link("Πωλήσεις"),
         ),
         check_card,
         cols=2,
     )
 
+    # Τα τιμολόγια είναι δευτερεύοντα — μία σειρά, χωρίς σύγκριση.
+    inv_net = invoice_totals(invoices_in_week(df_i, today))["net"]
 
-# ══════════════════════════════════════════════════════════════════════════════
+    c.grid(
+        c.stat(
+            "Τιμολόγια — καθαρό",
+            inv_net,
+            tone="pos" if inv_net >= 0 else "neg",
+            accent="var(--ink)",
+            foot="Τιμολόγια μείον πιστωτικά, τρέχουσα εβδομάδα",
+            href=c.link("Παραστατικά"),
+        ),
+        cols=1,
+    )

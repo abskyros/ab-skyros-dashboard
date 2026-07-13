@@ -184,6 +184,76 @@ def scale(
     return f'<a href="{href}" target="_self" class="plain">{body}</a>' if href else body
 
 
+def target(
+    label: str,
+    now: float | None,
+    goal: float | None,
+    *,
+    foot: str = "",
+    href: str | None = None,
+) -> str:
+    """
+    Η ΚΑΡΤΑ ΣΤΟΧΟΥ — για τη σημερινή μέρα, που δεν έχει τελειώσει.
+
+    Διαφέρει από τη ζυγαριά. Η ζυγαριά συγκρίνει δύο ΤΕΛΕΙΩΜΕΝΑ νούμερα.
+    Εδώ το ένα νούμερο δεν υπάρχει ακόμα — η μέρα τρέχει.
+
+    Άρα δεν δείχνουμε «↓ 100%» (που θα ήταν και σωστό και άχρηστο). Δείχνουμε:
+      • Πόσο έχεις κάνει ως τώρα (συνήθως 0 μέχρι το βράδυ)
+      • Τι έκανες την ίδια μέρα πέρσι — ΑΥΤΟΣ είναι ο στόχος
+      • Πόσο έχεις φτάσει, ως ποσοστό
+
+    Η αναφορά πωλήσεων έρχεται με email το βράδυ. Μέχρι τότε η κάρτα λέει
+    «να τι πρέπει να πιάσεις σήμερα».
+    """
+    n = 0.0 if now is None or pd.isna(now) else float(now)
+    g = None if goal is None or pd.isna(goal) else float(goal)
+
+    done = (n / g * 100) if (g and g > 0) else None
+    pending = n == 0
+
+    if g is None:
+        badge = '<span class="scale-delta flat">— χωρίς πέρσι</span>'
+    elif pending:
+        badge = '<span class="scale-delta flat">Σε εξέλιξη</span>'
+    elif done is not None and done >= 100:
+        badge = f'<span class="scale-delta up">✓ {done:.0f}% του στόχου</span>'
+    else:
+        badge = f'<span class="scale-delta flat">{done:.0f}% του στόχου</span>'
+
+    w_now = min(100, done) if done else 0
+
+    value = (
+        f'<div class="kpi-now pending">Σε εξέλιξη</div>' if pending
+        else f'<div class="kpi-now">{eur(now)}</div>'
+    )
+
+    body = (
+        '<div class="scale target">'
+        '<div class="scale-head">'
+        f'<span class="scale-label">{_esc(label)}</span>'
+        f'{badge}'
+        '</div>'
+        f'{value}'
+        '<div class="bars">'
+        '<div class="bar-row now">'
+        '<span class="bar-tag">Τώρα</span>'
+        f'<span class="bar-track"><span class="bar-fill now" style="width:{w_now:.1f}%"></span></span>'
+        f'<span class="bar-val">{eur(now) if not pending else "—"}</span>'
+        '</div>'
+        '<div class="bar-row then">'
+        '<span class="bar-tag">Στόχος</span>'
+        '<span class="bar-track"><span class="bar-fill goal" style="width:100%"></span></span>'
+        f'<span class="bar-val">{eur(goal)}</span>'
+        '</div>'
+        '</div>'
+        + (f'<div class="scale-foot">{_esc(foot)}</div>' if foot else '')
+        + '</div>'
+    )
+
+    return f'<a href="{href}" target="_self" class="plain">{body}</a>' if href else body
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # ΑΠΛΗ ΜΕΤΡΗΣΗ
 # ══════════════════════════════════════════════════════════════════════════════

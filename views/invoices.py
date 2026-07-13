@@ -15,7 +15,7 @@ from core.config import SHEET_INV
 from core.metrics import (
     week_range, invoice_totals, invoices_in_week, invoices_monthly,
 )
-from core.sheets import check_quality, delete_row, purge_duplicate_invoices
+from core.sheets import check_quality, delete_row
 from ui import components as c
 from ui import charts
 
@@ -157,17 +157,15 @@ def _table(week: pd.DataFrame) -> None:
 # ══════════════════════════════════════════════════════════════════════════════
 def _tools() -> None:
     """
-    Έλεγχος και καθαρισμός.
+    Έλεγχος — ΧΩΡΙΣ αυτόματη διαγραφή.
 
-    Το παλιό «Διαγραφή» ανά γραμμή ήταν άχρηστο με 496 διπλά — δεν θα πατούσε
-    κανείς 496 κουμπιά. Τώρα ένα κουμπί τα καθαρίζει όλα, κρατώντας πάντα την
-    πρώτη εμφάνιση κάθε παραστατικού.
+    Ο λόγος είναι στο core/sheets.py: χωρίς αριθμό παραστατικού δεν μπορούμε να
+    ξεχωρίσουμε «το ίδιο τιμολόγιο μπήκε 2 φορές» από «δύο διαφορετικά τιμολόγια
+    ίδιου ποσού την ίδια μέρα». Το δεύτερο είναι φυσιολογικό — και μια αυτόματη
+    διαγραφή θα έσβηνε πραγματικά χρήματα από τα βιβλία.
     """
-    with st.expander("Έλεγχος & καθαρισμός δεδομένων"):
-        st.caption(
-            "Ψάχνει πανομοιότυπες εγγραφές (ίδια ημερομηνία, τύπος και αξία) "
-            "και μέρες που λείπουν."
-        )
+    with st.expander("Έλεγχος δεδομένων"):
+        st.caption("Ψάχνει εγγραφές που μοιάζουν ίδιες και μέρες που λείπουν.")
 
         if st.button("Έλεγχος τώρα", key="inv_check", width="stretch"):
             st.session_state["inv_checked"] = True
@@ -181,51 +179,33 @@ def _tools() -> None:
         dups, gaps = result["duplicates"], result["gaps"]
 
         if not dups and not gaps:
-            c.note("Καθαρά. Καμία διπλή εγγραφή, καμία μέρα δεν λείπει.", "ok")
+            c.note("Καθαρά. Καμία ύποπτη εγγραφή, καμία μέρα δεν λείπει.", "ok")
             return
 
         if dups:
             extra = sum(len(d["entries"]) - 1 for d in dups)
 
             c.note(
-                f"<b>{len(dups)} παραστατικά</b> υπάρχουν πάνω από μία φορά — "
-                f"συνολικά <b>{extra} περιττές γραμμές</b>.<br><br>"
-                f"Αυτό συμβαίνει όταν η ΑΒ στείλει το ίδιο Excel σε πολλά email. "
-                f"Τα διπλά διπλομετρούν τα σύνολα, οπότε πρέπει να φύγουν.",
+                f"<b>{len(dups)} ομάδες</b> με ίδια ημερομηνία, τύπο και ποσό "
+                f"— <b>{extra} επιπλέον γραμμές</b>.<br><br>"
+                f"<b>Δεν σβήνονται αυτόματα.</b> Χωρίς τον αριθμό παραστατικού "
+                f"δεν ξέρουμε αν είναι:<br>"
+                f"• το ίδιο τιμολόγιο καταχωρημένο δύο φορές, ή<br>"
+                f"• δύο διαφορετικά τιμολόγια του ίδιου ποσού την ίδια μέρα "
+                f"(απολύτως φυσιολογικό).<br><br>"
+                f"Μια λάθος διαγραφή αφαιρεί πραγματικά χρήματα από τα βιβλία.",
                 "warn",
             )
 
-            st.caption("Κρατιέται πάντα η πρώτη εμφάνιση κάθε παραστατικού.")
-
-            if st.button(
-                f"Καθάρισε τα {extra} διπλά",
-                key="inv_purge",
-                width="stretch",
-                type="primary",
-            ):
-                with st.spinner(f"Διαγραφή {extra} γραμμών…"):
-                    killed, kept = purge_duplicate_invoices()
-
-                if killed:
-                    c.note(
-                        f"Σβήστηκαν {killed} διπλές γραμμές. "
-                        f"Έμειναν {kept} μοναδικά παραστατικά.",
-                        "ok",
-                    )
-                    st.session_state["inv_checked"] = False
-                    st.rerun()
-                else:
-                    c.note("Δεν βρέθηκε τίποτα να σβηστεί.", "info")
-
-            with st.expander(f"Δες τα {len(dups)} πρώτα", expanded=False):
-                for d in dups[:20]:
-                    lines = ", ".join(f"γρ. {e['row']}" for e in d["entries"])
+            with st.expander(f"Δες τις {min(len(dups), 25)} πρώτες", expanded=False):
+                for d in dups[:25]:
+                    rows = ", ".join(f"γρ. {e['row']}" for e in d["entries"])
                     st.markdown(
                         f"**{d['date']}** · {d['type']} · {c.eur(d['value'])} "
-                        f"— {len(d['entries'])} φορές ({lines})"
+                        f"— {len(d['entries'])} φορές ({rows})"
                     )
-                if len(dups) > 20:
-                    st.caption(f"…και άλλα {len(dups) - 20}")
+                if len(dups) > 25:
+                    st.caption(f"…και άλλες {len(dups) - 25} ομάδες")
 
         if gaps:
             shown = ", ".join(gaps[:15])
