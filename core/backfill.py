@@ -39,6 +39,7 @@ core/backfill.py — Βαθύς έλεγχος παλιών παραστατικ
 
 from __future__ import annotations
 
+import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date
@@ -243,9 +244,55 @@ def plan(records: list, emails_scanned: int = 0) -> Plan:
 # ══════════════════════════════════════════════════════════════════════════════
 # ΒΗΜΑ 3 — ΕΚΤΕΛΕΣΗ
 # ══════════════════════════════════════════════════════════════════════════════
-def apply(p: Plan) -> dict:
+#
+# ΤΟ ΟΡΙΟ ΤΟΥ GOOGLE
+#
+# Το Sheets API επιτρέπει 60 write requests ανά λεπτό ανά χρήστη. Αν το
+# ξεπεράσεις, γυρνάει 429 και ΤΙΠΟΤΑ δεν γράφεται.
+#
+# Με 7.300 γραμμές προς γέμισμα και 100 ranges ανά batch, χρειάζονται 73 κλήσεις.
+# Χωρίς παύση, οι πρώτες ~60 περνάνε και οι υπόλοιπες σκάνε.
+#
+# Η λύση: 500 ranges ανά batch (μειώνει τις κλήσεις 5×) + παύση 1,2 δευτ.
+# ανάμεσα. 7.300 γραμμές → 15 κλήσεις → ~18 δευτερόλεπτα. Άνετα μέσα στο όριο.
+BATCH_RANGES = 500
+PAUSE = 1.2          # δευτερόλεπτα ανάμεσα σε κλήσεις
+RETRIES = 4          # πόσες φορές ξαναδοκιμάζουμε ένα batch που έσκασε
+
+
+def _write_with_retry(fn, label: str, errors: list) -> bool:
+    """
+    Εκτελεί μια κλήση στο Sheets API, με exponential backoff σε 429.
+
+    Το 429 δεν είναι μόνιμο σφάλμα — είναι «περίμενε λίγο». Οπότε περιμένουμε
+    και ξαναδοκιμάζουμε: 2δ, 5δ, 12δ, 30δ. Αν και μετά από 4 προσπάθειες δεν
+    περάσει, τότε κάτι άλλο φταίει.
+    """
+    delay = 2.0
+
+    for attempt in range(RETRIES):
+        try:
+            fn()
+            return True
+        except Exception as e:
+            msg = str(e)
+            is_quota = "429" in msg or "Quota exceeded" in msg or "RESOURCE_EXHAUSTED" in msg
+
+            if not is_quota or attempt == RETRIES - 1:
+                errors.append(f"{label}: {msg[:160]}")
+                return False
+
+            time.sleep(delay)
+            delay *= 2.4
+
+    return False
+
+
+def apply(p: Plan, on_progress=None) -> dict:
     """
     Εκτελεί το σχέδιο. Καλείται ΜΟΝΟ μετά από ρητή έγκριση.
+
+    → {"filled", "deleted", "added", "errors", "complete"}
 
     ΣΕΙΡΑ ΕΝΕΡΓΕΙΩΝ — δεν είναι τυχαία:
       1. ΓΕΜΙΣΜΑ    — γράφουμε τους αριθμούς ΠΡΩΤΑ, όσο οι γραμμές είναι σταθερές
@@ -253,50 +300,97 @@ def apply(p: Plan) -> dict:
       3. ΠΡΟΣΘΗΚΗ   — στο τέλος, δεν επηρεάζει τις υπάρχουσες
 
     Αν σβήναμε πρώτα, οι γραμμές που θέλουμε να γεμίσουμε θα είχαν αλλάξει θέση.
+
+    ΚΡΙΣΙΜΟ: αν το ΓΕΜΙΣΜΑ αποτύχει, ΔΕΝ προχωράμε σε διαγραφή.
+    Η διαγραφή βασίζεται στο ότι οι σωστές γραμμές έχουν πάρει αριθμό. Αν δεν
+    τον πήραν, σβήνουμε στα τυφλά. Καλύτερα να σταματήσουμε.
+
+    ΕΠΑΝΑΛΗΨΙΜΟ: το γέμισμα είναι idempotent. Αν έσκασε στη μέση, ξανατρέχεις
+    τον έλεγχο — θα βρει μόνο όσες έμειναν και θα συνεχίσει από εκεί.
     """
     ws = _ws(SHEET_INV)
-    done = {"filled": 0, "deleted": 0, "added": 0, "errors": []}
+    done = {"filled": 0, "deleted": 0, "added": 0, "errors": [], "complete": False}
+
+    def tick(stage: str, cur: int, total: int):
+        if on_progress:
+            on_progress(stage, cur, total)
 
     # ── 1. Κεφαλίδα ──
     try:
         header = ws.row_values(1)
         if len(header) < 4 or str(header[3]).strip().lower() != "number":
             ws.update_cell(1, 4, "number")
+            time.sleep(PAUSE)
     except Exception as e:
         done["errors"].append(f"Κεφαλίδα: {e}")
 
-    # ── 2. Γέμισμα (σε παρτίδες — 1 κλήση αντί για 8.000) ──
+    # ── 2. ΓΕΜΙΣΜΑ ──
     if p.fill:
-        try:
-            cells = []
-            for row, number in p.fill:
-                cells.append({"range": f"D{row}", "values": [[number]]})
+        cells = [{"range": f"D{row}", "values": [[num]]} for row, num in p.fill]
+        batches = [cells[i:i + BATCH_RANGES] for i in range(0, len(cells), BATCH_RANGES)]
 
-            # Το Sheets API δέχεται ως 100 ranges ανά κλήση
-            for i in range(0, len(cells), 100):
-                ws.batch_update(cells[i:i + 100], value_input_option="RAW")
-                done["filled"] += len(cells[i:i + 100])
-        except Exception as e:
-            done["errors"].append(f"Γέμισμα: {e}")
+        for n, batch in enumerate(batches, 1):
+            tick("Γέμισμα", n, len(batches))
 
-    # ── 3. Διαγραφή — ΑΠΟ ΚΑΤΩ ΠΡΟΣ ΤΑ ΠΑΝΩ ──
+            ok = _write_with_retry(
+                lambda b=batch: ws.batch_update(b, value_input_option="RAW"),
+                "Γέμισμα",
+                done["errors"],
+            )
+
+            if not ok:
+                # Σταματάμε. ΔΕΝ σβήνουμε τίποτα με ημιτελές γέμισμα.
+                done["errors"].append(
+                    "Το γέμισμα δεν ολοκληρώθηκε — η διαγραφή ΔΕΝ εκτελέστηκε. "
+                    "Ξανατρέξε τον έλεγχο: θα συνεχίσει από εκεί που έμεινε."
+                )
+                return done
+
+            done["filled"] += len(batch)
+
+            if n < len(batches):
+                time.sleep(PAUSE)
+
+    # ── 3. ΔΙΑΓΡΑΦΗ — ΑΠΟ ΚΑΤΩ ΠΡΟΣ ΤΑ ΠΑΝΩ ──
     if p.delete:
-        try:
-            for start, end in reversed(_group_runs(p.delete)):
-                ws.delete_rows(start, end)
-                done["deleted"] += end - start + 1
-        except Exception as e:
-            done["errors"].append(f"Διαγραφή: {e}")
+        runs = list(reversed(_group_runs(p.delete)))
 
-    # ── 4. Προσθήκη ──
+        for n, (start, end) in enumerate(runs, 1):
+            tick("Διαγραφή", n, len(runs))
+
+            ok = _write_with_retry(
+                lambda s=start, e=end: ws.delete_rows(s, e),
+                "Διαγραφή",
+                done["errors"],
+            )
+
+            if not ok:
+                done["errors"].append(
+                    "Η διαγραφή σταμάτησε στη μέση. Ξανατρέξε τον έλεγχο — "
+                    "θα βρει τις υπόλοιπες."
+                )
+                return done
+
+            done["deleted"] += end - start + 1
+
+            if n < len(runs):
+                time.sleep(PAUSE)
+
+    # ── 4. ΠΡΟΣΘΗΚΗ ──
     if p.add:
-        try:
-            ws.append_rows(p.add, value_input_option="RAW")
+        tick("Προσθήκη", 1, 1)
+
+        ok = _write_with_retry(
+            lambda: ws.append_rows(p.add, value_input_option="RAW"),
+            "Προσθήκη",
+            done["errors"],
+        )
+
+        if ok:
             done["added"] = len(p.add)
-        except Exception as e:
-            done["errors"].append(f"Προσθήκη: {e}")
 
     load_invoices.clear()
+    done["complete"] = not done["errors"]
     return done
 
 

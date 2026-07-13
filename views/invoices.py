@@ -324,11 +324,14 @@ def _deep_check() -> None:
     Ανακατασκευή αριθμών από τα email — για τα ΠΑΛΙΑ παραστατικά.
 
     Τρία βήματα, με ρητή έγκριση ανάμεσα:
-        1. ΣΑΡΩΣΗ    → διαβάζει όλα τα email, χτίζει το σχέδιο
+        1. ΣΑΡΩΣΗ        → διαβάζει όλα τα email, χτίζει το σχέδιο
         2. ΠΡΟΕΠΙΣΚΟΠΗΣΗ → δείχνει ΑΚΡΙΒΩΣ τι θα γίνει + αντίγραφο ασφαλείας
-        3. ΕΚΤΕΛΕΣΗ  → μόνο αφού το δεις και το εγκρίνεις
+        3. ΕΚΤΕΛΕΣΗ      → μόνο αφού το δεις και το εγκρίνεις
 
     Τίποτα δεν αγγίζεται στα βήματα 1-2.
+
+    ΕΠΑΝΑΛΗΨΙΜΟ: αν το Google κόψει τη σύνδεση στη μέση (rate limit), ξανατρέχεις
+    και συνεχίζει από εκεί που έμεινε. Το γέμισμα είναι idempotent.
     """
     st.caption(
         "Ξαναδιαβάζει **όλα** τα email παραστατικών και βρίσκει τον πραγματικό "
@@ -354,7 +357,6 @@ def _deep_check() -> None:
         bar = st.progress(0.0, text="Σύνδεση στο Gmail…")
 
         def tick(scanned, found):
-            # Δεν ξέρουμε πόσα email υπάρχουν — δείχνουμε πρόοδο, όχι ποσοστό.
             pct = min(0.85, scanned / 400)
             bar.progress(pct, text=f"{scanned} email · {found} παραστατικά")
 
@@ -368,10 +370,15 @@ def _deep_check() -> None:
         bar.progress(0.9, text="Σύγκριση με το Sheet…")
         p = backfill_plan(records, emails_scanned=scanned)
 
-        bar.progress(1.0, text="Έτοιμο")
         bar.empty()
-
         st.session_state["deep_plan"] = p
+        st.session_state["deep_done"] = None
+
+    # ── ΑΠΟΤΕΛΕΣΜΑ ΠΡΟΗΓΟΥΜΕΝΗΣ ΕΚΤΕΛΕΣΗΣ ──
+    done = st.session_state.get("deep_done")
+    if done:
+        _report(done)
+        return
 
     p = st.session_state.get("deep_plan")
     if p is None:
@@ -403,25 +410,26 @@ def _deep_check() -> None:
     if p.add:
         lines.append(f"+ <b>{len(p.add)}</b> παραστατικά λείπουν και θα προστεθούν")
     if p.skip:
-        lines.append(
-            f"⊘ <b>{len(p.skip)}</b> γραμμές <b>δεν πειράζονται</b> "
-            f"(δεν βρέθηκαν στα email)"
-        )
+        lines.append(f"⊘ <b>{len(p.skip)}</b> γραμμές <b>δεν πειράζονται</b> (δεν βρέθηκαν στα email)")
     if p.already:
         lines.append(f"· {p.already} είχαν ήδη αριθμό")
 
     c.note("<br>".join(lines), "warn" if p.delete else "info")
 
+    # Χρόνος — το Google επιτρέπει 60 write/λεπτό, άρα κάνουμε παύσεις.
+    steps = (len(p.fill) + 499) // 500 + len(p.delete) // 20 + (1 if p.add else 0)
+    if steps > 3:
+        st.caption(f"Εκτιμώμενος χρόνος: ~{max(1, steps * 2 // 60 + 1)} λεπτά "
+                   f"(κάνουμε παύσεις για να μη μας κόψει το Google).")
+
     if p.skip:
         with st.expander(f"Δες τις {len(p.skip)} γραμμές που δεν πειράζονται"):
             st.caption(
-                "Αυτές δεν βρέθηκαν σε κανένα email. Ίσως το email σβήστηκε, "
-                "ίσως καταχωρήθηκαν με το χέρι. Μένουν ως έχουν."
+                "Δεν βρέθηκαν σε κανένα email. Ίσως το email σβήστηκε, ίσως "
+                "καταχωρήθηκαν με το χέρι. Μένουν ως έχουν."
             )
             for x in p.skip[:40]:
-                st.markdown(
-                    f"γρ. {x['row']} · {x['date']} · {x['type'][:28]} · {c.eur(x['value'])}"
-                )
+                st.markdown(f"γρ. {x['row']} · {x['date']} · {x['type'][:28]} · {c.eur(x['value'])}")
             if len(p.skip) > 40:
                 st.caption(f"…και άλλες {len(p.skip) - 40}")
 
@@ -446,8 +454,7 @@ def _deep_check() -> None:
         )
 
         confirmed = st.checkbox(
-            f"Κατέβασα το αντίγραφο. Καταλαβαίνω ότι θα σβηστούν "
-            f"{len(p.delete)} γραμμές.",
+            f"Κατέβασα το αντίγραφο. Καταλαβαίνω ότι θα σβηστούν {len(p.delete)} γραμμές.",
             key="deep_confirm",
         )
     else:
@@ -456,30 +463,61 @@ def _deep_check() -> None:
     # ── ΒΗΜΑ 3: ΕΚΤΕΛΕΣΗ ──
     st.divider()
 
-    if st.button(
-        "Εκτέλεση",
-        key="deep_apply",
-        width="stretch",
-        type="primary",
-        disabled=not confirmed,
-    ):
-        with st.spinner("Ενημέρωση Sheet…"):
-            done = backfill_apply(p)
+    if st.button("Εκτέλεση", key="deep_apply", width="stretch",
+                 type="primary", disabled=not confirmed):
 
-        if done["errors"]:
-            for e in done["errors"]:
-                c.note(e, "bad")
+        bar = st.progress(0.0, text="Έναρξη…")
 
+        def progress(stage, cur, total):
+            bar.progress(min(1.0, cur / max(total, 1)),
+                         text=f"{stage} — {cur}/{total}")
+
+        result = backfill_apply(p, on_progress=progress)
+        bar.empty()
+
+        # ΔΕΝ γράφουμε στο "deep_confirm" — ανήκει σε widget και το Streamlit
+        # πετάει StreamlitAPIException. Καθαρίζουμε μόνο τα δικά μας κλειδιά.
+        st.session_state["deep_done"] = result
+        st.session_state.pop("deep_plan", None)
+        st.rerun()
+
+
+def _report(done: dict) -> None:
+    """Το αποτέλεσμα της εκτέλεσης — με ΕΙΛΙΚΡΙΝΗ αριθμητική."""
+    st.divider()
+
+    if done.get("complete"):
         c.note(
-            f"Ολοκληρώθηκε.<br>"
+            f"<b>Ολοκληρώθηκε.</b><br>"
             f"• {done['filled']} γραμμές πήραν αριθμό<br>"
             f"• {done['deleted']} διπλές σβήστηκαν<br>"
             f"• {done['added']} προστέθηκαν",
             "ok",
         )
+    else:
+        # ΔΕΝ λέμε «ολοκληρώθηκε» όταν δεν ολοκληρώθηκε.
+        c.note(
+            f"<b>Δεν ολοκληρώθηκε.</b><br>"
+            f"Πέρασαν: {done['filled']} γεμίσματα · {done['deleted']} διαγραφές · "
+            f"{done['added']} προσθήκες<br><br>"
+            f"<b>Ξανατρέξε τη σάρωση</b> — θα συνεχίσει από εκεί που έμεινε. "
+            f"Τίποτα δεν χάθηκε.",
+            "warn",
+        )
 
-        st.session_state.pop("deep_plan", None)
-        st.session_state["deep_confirm"] = False
+        for e in done.get("errors", []):
+            if "Quota exceeded" in e or "429" in e:
+                c.note(
+                    "Το Google έκοψε τη σύνδεση (όριο 60 εγγραφών/λεπτό). "
+                    "Περίμενε ένα λεπτό και ξαναπάτα «Ξεκίνα σάρωση».",
+                    "bad",
+                )
+                break
+            c.note(e, "bad")
+
+    if st.button("Νέα σάρωση", key="deep_reset", width="stretch"):
+        st.session_state.pop("deep_done", None)
+        st.rerun()
 
 
 def _password() -> str:

@@ -141,16 +141,30 @@ def main() -> int:
         print(f"  ✓ Ανέβηκε ως artifact του workflow — κατέβασέ το αν χρειαστεί")
 
     print("\n▶ Εκτέλεση…")
-    done = apply(p)
+    print("  (κάνουμε παύσεις — το Google επιτρέπει 60 εγγραφές/λεπτό)\n")
 
-    print(f"\n  ✓ {done['filled']} γραμμές πήραν αριθμό")
-    print(f"  ✓ {done['deleted']} διπλές σβήστηκαν")
-    print(f"  ✓ {done['added']} προστέθηκαν")
+    last = [""]
+
+    def progress(stage, cur, total):
+        if stage != last[0]:
+            print(f"  {stage}:")
+            last[0] = stage
+        print(f"    {cur}/{total}", flush=True)
+
+    done = apply(p, on_progress=progress)
+
+    print("\n" + "─" * 64)
+    print(f"  Γέμισμα:   {done['filled']:5d} γραμμές")
+    print(f"  Διαγραφή:  {done['deleted']:5d} γραμμές")
+    print(f"  Προσθήκη:  {done['added']:5d} γραμμές")
+    print("─" * 64)
 
     if done["errors"]:
-        print("\n  ✗ Σφάλματα:")
+        print("\n  ✗ ΔΕΝ ΟΛΟΚΛΗΡΩΘΗΚΕ")
         for e in done["errors"]:
             print(f"      {e}")
+        print("\n  Ξανατρέξε το workflow — θα συνεχίσει από εκεί που έμεινε.")
+        print("  Τίποτα δεν χάθηκε: το γέμισμα είναι idempotent.")
         return 1
 
     print("\n✓ Ολοκληρώθηκε.")
