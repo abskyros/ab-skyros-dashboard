@@ -14,13 +14,14 @@ import streamlit as st
 from core.config import SHEET_INV
 from core.metrics import (
     week_range, invoice_totals, invoices_in_week, invoices_monthly,
+    today_greece,
 )
 from core.sheets import (
     load_invoices, check_quality, delete_row,
     purge_duplicate_invoices, find_double_charges,
 )
 from core.backfill import (
-    repair, apply_repair, audit, snapshot,
+    repair, apply_repair, rebuild_plan, apply_rebuild, audit, snapshot,
 )
 from core.mail import fetch_all_invoices
 from core.github import trigger_workflow, workflow_url, last_run, available as gh_available
@@ -80,7 +81,7 @@ def _health_warning(df: pd.DataFrame) -> None:
         f"({pct:.0f}%).<br><br>"
         f"Αυτές είναι παλιές καταχωρήσεις. Δεν ξέρουμε ποιες είναι διπλές — "
         f"άρα <b>τα σύνολα παραπάνω μπορεί να είναι φουσκωμένα</b>.<br><br>"
-        f"Άνοιξε τον <b>Έλεγχο δεδομένων → 🧹 Καθαρισμός</b> για να διορθωθεί. "
+        f"Άνοιξε τον <b>Έλεγχο δεδομένων → 🔄 Ξαναχτίσιμο</b> για να διορθωθεί. "
         f"Τρέχει μία φορά."
         .replace(",", "."),
         "warn",
@@ -220,7 +221,7 @@ def _tools(df: pd.DataFrame) -> None:
 
     with st.expander("Έλεγχος δεδομένων", expanded=needs_work):
         clean_tab, verify_tab, charge_tab = st.tabs([
-            "🧹 Καθαρισμός (όλα τα χρόνια)",
+            "🔄 Ξαναχτίσιμο (όλα τα χρόνια)",
             "✅ Επαλήθευση εβδομάδας",
             "⚠️ Διπλές χρεώσεις",
         ])
@@ -260,7 +261,7 @@ def _verify(df: pd.DataFrame) -> None:
 
     col, _ = st.columns([1, 2])
     with col:
-        picked = st.date_input("Εβδομάδα", date.today(), key="vf_day", format="DD/MM/YYYY")
+        picked = st.date_input("Εβδομάδα", today_greece(), key="vf_day", format="DD/MM/YYYY")
 
     start, end = week_range(picked)
     st.caption(f"Περίοδος: **{start:%d/%m/%Y}** — **{end:%d/%m/%Y}**")
@@ -354,9 +355,11 @@ def _verify(df: pd.DataFrame) -> None:
 
     if not rep["fill"] and not rep["delete"]:
         c.note(
-            "Δεν βρέθηκε τίποτα να επισκευαστεί σε αυτή την εβδομάδα.<br><br>"
-            "Οι γραμμές που περισσεύουν δεν αντιστοιχούν σε κανένα email — "
-            "δεν μπορούμε να αποφασίσουμε γι' αυτές.",
+            "<b>Δεν βρέθηκε τίποτα να επισκευαστεί.</b><br><br>"
+            "Οι γραμμές που περισσεύουν είναι <b>μοναδικές</b> — καμία δεν έχει "
+            "ακριβώς ίδιο δίδυμο, και καμία δεν αντιστοιχεί σε email.<br><br>"
+            "Πιθανόν έχουν <b>λάθος ποσό</b> (σφάλμα του παλιού συγχρονισμού) ή "
+            "καταχωρήθηκαν με το χέρι.",
             "info",
         )
         return
@@ -422,42 +425,45 @@ def _check_double_charges(df: pd.DataFrame) -> None:
 # ══════════════════════════════════════════════════════════════════════════════
 def _clean_all() -> None:
     """
-    Η ΜΕΓΑΛΗ ΚΑΘΑΡΙΟΤΗΤΑ — όλα τα χρόνια.
+    ΞΑΝΑΧΤΙΣΙΜΟ — σβήνουμε τα πάντα, ξαναγράφουμε από τα email.
 
-    Τρέχει ΜΙΑ ΦΟΡΑ. Από εδώ και πέρα το data_sync κρατάει το Sheet καθαρό —
-    το κλειδί (αριθμός παραστατικού) δεν αφήνει διπλά να μπουν.
+    Τρέχει ΜΙΑ ΦΟΡΑ. Από εδώ και πέρα το data_sync κρατάει το Sheet καθαρό:
+    το κλειδί είναι ο αριθμός παραστατικού και δεν αφήνει διπλά να μπουν.
     """
     df = load_invoices()
 
     if not df.empty and "number" in df.columns:
         blank = int((df["number"].astype(str).str.strip() == "").sum())
+        total = len(df)
 
-        if blank == 0:
+        if blank:
             c.note(
-                "<b>Το Sheet είναι καθαρό.</b><br><br>"
-                "Κάθε γραμμή έχει αριθμό παραστατικού. Δεν χρειάζεται καθαρισμός.",
-                "ok",
+                f"<b>{blank:,} από τις {total:,} γραμμές δεν έχουν αριθμό "
+                f"παραστατικού.</b><br><br>"
+                f"Το ξαναχτίσιμο τις αντικαθιστά όλες — κάθε παραστατικό "
+                f"γράφεται μία φορά, με τον μοναδικό αριθμό του."
+                .replace(",", "."),
+                "warn",
             )
-            st.caption("Για επιβεβαίωση, τρέξε την **Επαλήθευση εβδομάδας**.")
-            return
 
-        c.note(
-            f"<b>{blank:,} γραμμές δεν έχουν αριθμό παραστατικού.</b><br><br>"
-            f"Ο καθαρισμός θα βρει τον αριθμό της καθεμιάς από τα email, και θα "
-            f"σβήσει όσες αποδειχθούν διπλές."
-            .replace(",", "."),
-            "warn",
-        )
+    st.caption(
+        "Σβήνει **ολόκληρη** τη λίστα παραστατικών και τη ξαναχτίζει από τα "
+        "email, με τον **αριθμό παραστατικού** σε κάθε γραμμή."
+    )
 
-    with st.expander("Πώς δουλεύει"):
+    with st.expander("Γιατί ξαναχτίσιμο και όχι καθαρισμός"):
         st.markdown(
-            "> Η 10/07 έχει **11 τιμολόγια** στα email.\n"
-            "> Το Sheet έχει **30 γραμμές** για την 10/07.\n"
-            ">\n"
-            "> Οι 11 πρώτες παίρνουν τους 11 αριθμούς.\n"
-            "> Οι 19 υπόλοιπες **δεν έχουν αριθμό να πάρουν** → είναι διπλές.\n\n"
-            "Δεν μαντεύουμε. Μετράμε.\n\n"
-            "**Τι ΔΕΝ σβήνεται:** γραμμές που δεν υπάρχουν σε **κανένα** email."
+            "Ο καθαρισμός προσπαθούσε να **μαντέψει** ποιες γραμμές αντιστοιχούν "
+            "σε ποια email, ταιριάζοντας ημερομηνία + τύπο + ποσό.\n\n"
+            "Αν το ποσό στο Sheet ήταν λάθος (π.χ. από το παλιό `daily_sync.py` "
+            "που έγραφε ευρώ αντί λεπτά), το ταίριασμα **αποτύγχανε σιωπηλά**. "
+            "Οι γραμμές έμεναν «άγνωστες» και δεν καθαρίζονταν ποτέ.\n\n"
+            "---\n\n"
+            "**Το ξαναχτίσιμο δεν μαντεύει.**\n\n"
+            "Τα email είναι η **πηγή**. Το Sheet είναι απλώς αντίγραφο. Αν το "
+            "αντίγραφο έχει σκουπίδια, δεν το «καθαρίζεις» — το **ξαναγράφεις**.\n\n"
+            "Κάθε παραστατικό γράφεται μία φορά, με τον μοναδικό αριθμό του. "
+            "Τα διπλά **εξαφανίζονται εξ ορισμού** — δεν υπάρχει τρόπος να μπουν."
         )
 
     pw = _password()
@@ -465,15 +471,21 @@ def _clean_all() -> None:
         c.note("Λείπει το EMAIL_PASS από τα secrets.", "bad")
         return
 
-    rep = st.session_state.get("clean_plan")
+    done = st.session_state.get("rb_done")
+    if done:
+        _rebuild_report(done)
+        return
 
-    if rep is None:
-        if st.button("Ξεκίνα σάρωση (όλα τα email)", key="cl_scan",
+    plan = st.session_state.get("rb_plan")
+
+    # ── ΒΗΜΑ 1: ΣΑΡΩΣΗ ──
+    if plan is None:
+        if st.button("Ξεκίνα σάρωση (όλα τα email)", key="rb_scan",
                      width="stretch", type="primary"):
             bar = st.progress(0.0, text="Σύνδεση στο Gmail…")
 
             def tick(scanned, found):
-                bar.progress(min(0.8, scanned / 500),
+                bar.progress(min(0.85, scanned / 500),
                              text=f"{scanned} email · {found} παραστατικά")
 
             records, errors, scanned = fetch_all_invoices(pw, on_progress=tick)
@@ -483,33 +495,151 @@ def _clean_all() -> None:
                 c.note(errors[0], "bad")
                 return
 
-            bar.progress(0.9, text="Σύγκριση με το Sheet…")
-            rep = repair(records)          # ΧΩΡΙΣ όρια → όλα τα χρόνια
+            bar.progress(0.95, text="Προετοιμασία…")
+            plan = rebuild_plan(records)
+            plan["emails"] = scanned
             bar.empty()
 
-            st.session_state["clean_plan"] = rep
-            st.session_state["clean_meta"] = {"emails": scanned, "records": len(records)}
+            st.session_state["rb_plan"] = plan
             st.rerun()
         return
 
-    meta = st.session_state.get("clean_meta", {})
-
+    # ── ΒΗΜΑ 2: ΤΟ ΣΧΕΔΙΟ ──
     st.divider()
     c.section("Τι βρέθηκε")
 
     a, b, d = st.columns(3)
-    a.metric("Email", f"{meta.get('emails', 0):,}".replace(",", "."))
-    b.metric("Παραστατικά", f"{meta.get('records', 0):,}".replace(",", "."))
-    d.metric("Γραμμές Sheet", f"{rep['scanned']:,}".replace(",", "."))
+    a.metric("Email", f"{plan.get('emails', 0):,}".replace(",", "."))
+    b.metric("Παραστατικά", f"{plan['records']:,}".replace(",", "."))
+    d.metric("Μοναδικά", f"{plan['unique']:,}".replace(",", "."))
 
-    if not rep["fill"] and not rep["delete"]:
-        c.note("Το Sheet είναι ήδη καθαρό. Καμία αλλαγή δεν χρειάζεται.", "ok")
-        if st.button("Νέα σάρωση", key="cl_again", width="stretch"):
-            st.session_state.pop("clean_plan", None)
+    if plan["unique"] == 0:
+        c.note("Δεν βρέθηκε κανένα παραστατικό με αριθμό. Κάτι πάει στραβά.", "bad")
+        if st.button("Νέα σάρωση", key="rb_again", width="stretch"):
+            st.session_state.pop("rb_plan", None)
             st.rerun()
         return
 
-    _repair_ui(rep, key="cl", label="Καθαρισμός", show_after=True)
+    dupes = plan["records"] - plan["unique"]
+
+    c.section("Τι θα γίνει")
+
+    c.note(
+        f"🗑 Θα σβηστούν <b>{plan['sheet_rows']:,}</b> γραμμές<br>"
+        f"✓ Θα γραφτούν <b>{plan['unique']:,}</b> μοναδικά παραστατικά<br><br>"
+        f"Κάθε ένα με τον <b>αριθμό παραστατικού</b> του."
+        .replace(",", "."),
+        "warn",
+    )
+
+    if dupes > 0:
+        st.caption(
+            f"Στα email βρέθηκαν **{plan['records']:,}** εγγραφές, αλλά μόνο "
+            f"**{plan['unique']:,}** μοναδικοί αριθμοί — τα υπόλοιπα "
+            f"**{dupes:,}** ήταν το ίδιο παραστατικό σε πολλά email."
+            .replace(",", ".")
+        )
+
+    removed = plan["sheet_rows"] - plan["unique"]
+    if removed > 0:
+        st.caption(
+            f"Το Sheet θα πάει από **{plan['sheet_rows']:,}** σε "
+            f"**{plan['unique']:,}** γραμμές — **{removed:,} λιγότερες**."
+            .replace(",", ".")
+        )
+
+    # ── ΑΝΤΙΓΡΑΦΟ ──
+    st.divider()
+    c.section("Πριν προχωρήσεις")
+
+    c.note(
+        "<b>Κατέβασε αντίγραφο ασφαλείας.</b><br>"
+        "Σβήνεται ΟΛΟΚΛΗΡΗ η λίστα. Αν κάτι πάει στραβά, ξαναγράφεις το φύλλο "
+        "από αυτό το αρχείο.",
+        "bad",
+    )
+
+    st.download_button(
+        "Λήψη αντιγράφου (CSV)",
+        snapshot().encode("utf-8-sig"),
+        "invoices_backup.csv",
+        "text/csv",
+        key="rb_backup",
+        width="stretch",
+    )
+
+    confirmed = st.checkbox(
+        f"Κατέβασα το αντίγραφο. Σβήσε τις {plan['sheet_rows']:,} γραμμές και "
+        f"ξαναγράψε τις {plan['unique']:,}.".replace(",", "."),
+        key="rb_confirm",
+    )
+
+    # ── ΒΗΜΑ 3: ΕΚΤΕΛΕΣΗ ──
+    st.divider()
+
+    batches = (plan["unique"] + 999) // 1000
+    seconds = 2 + batches * 1.5
+
+    st.caption(f"Εκτιμώμενος χρόνος: ~{int(seconds)} δευτερόλεπτα.")
+
+    if st.button("Ξαναχτίσιμο", key="rb_apply", width="stretch",
+                 type="primary", disabled=not confirmed):
+
+        bar = st.progress(0.0, text="Έναρξη…")
+
+        def progress(stage, cur, total):
+            bar.progress(min(1.0, cur / max(total, 1)),
+                         text=f"{stage} — {cur}/{total}")
+
+        try:
+            result = apply_rebuild(plan, on_progress=progress)
+        except Exception as e:
+            bar.empty()
+            c.note(
+                f"<b>Το ξαναχτίσιμο διακόπηκε.</b><br><br>{e}<br><br>"
+                f"Δοκίμασε ξανά — τα email είναι πάντα εκεί.",
+                "bad",
+            )
+            return
+
+        bar.empty()
+
+        st.session_state["rb_done"] = result
+        st.session_state.pop("rb_plan", None)
+        st.rerun()
+
+
+def _rebuild_report(done: dict) -> None:
+    """Το αποτέλεσμα του ξαναχτίσιματος."""
+    st.divider()
+
+    if done.get("complete"):
+        c.note(
+            f"<b>Ολοκληρώθηκε.</b><br>"
+            f"• {done['deleted']:,} γραμμές σβήστηκαν<br>"
+            f"• {done['written']:,} παραστατικά γράφτηκαν, με αριθμό<br><br>"
+            f"Το Sheet είναι πλέον καθαρό. Από εδώ και πέρα τα διπλά δεν "
+            f"μπορούν να μπουν — το κλειδί είναι ο αριθμός παραστατικού."
+            .replace(",", "."),
+            "ok",
+        )
+    else:
+        c.note(
+            f"<b>Δεν ολοκληρώθηκε.</b><br>"
+            f"Σβήστηκαν: {done['deleted']:,} · Γράφτηκαν: {done['written']:,}<br><br>"
+            f"<b>Δοκίμασε ξανά</b> — τα email είναι πάντα εκεί. Αν χρειαστεί, "
+            f"ξαναγράψε το φύλλο από το αντίγραφο."
+            .replace(",", "."),
+            "bad",
+        )
+
+        for e in done.get("errors", []):
+            c.note(e, "bad")
+
+    if st.button("Νέος έλεγχος", key="rb_reset", width="stretch"):
+        st.session_state.pop("rb_done", None)
+        st.session_state.pop("rb_plan", None)
+        st.rerun()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -565,18 +695,53 @@ def _repair_ui(rep: dict, key: str, label: str, show_after: bool = False) -> Non
     lines = []
     if rep["fill"]:
         lines.append(f"✓ <b>{len(rep['fill'])}</b> γραμμές θα πάρουν τον αριθμό τους")
+
     if rep["delete"]:
+        self_dups = rep.get("self_dups", 0)
+        confirmed_dups = len(rep["delete"]) - self_dups
+
         lines.append(
             f"🗑 <b>{len(rep['delete'])}</b> γραμμές θα <b>σβηστούν</b> "
             f"(αξίας {c.eur(rep['value'])})"
         )
+
     if rep["keep"]:
         lines.append(
-            f"⊘ <b>{len(rep['keep'])}</b> γραμμές <b>δεν πειράζονται</b> "
-            f"(δεν υπάρχουν στα email)"
+            f"⊘ <b>{len(rep['keep'])}</b> γραμμές <b>δεν πειράζονται</b>"
         )
 
     c.note("<br>".join(lines), "warn" if rep["delete"] else "info")
+
+    # ── ΤΙ ΣΒΗΝΕΤΑΙ ΚΑΙ ΓΙΑΤΙ ──
+    #
+    # Δύο διαφορετικές βεβαιότητες. Ο χρήστης πρέπει να ξέρει τη διαφορά —
+    # γιατί η μία είναι απόδειξη και η άλλη είναι συμπέρασμα.
+    if rep["delete"]:
+        self_dups = rep.get("self_dups", 0)
+        confirmed = len(rep["delete"]) - self_dups
+
+        with st.expander("Τι ακριβώς σβήνεται;", expanded=True):
+            if confirmed:
+                st.markdown(
+                    f"**{confirmed} — επιβεβαιωμένα από τα email**\n\n"
+                    f"Το email λέει ότι η μέρα έχει π.χ. 11 τιμολόγια. "
+                    f"Το Sheet έχει 30 γραμμές. Οι 19 περισσεύουν.\n\n"
+                    f"*Απόδειξη, όχι εικασία.*"
+                )
+
+            if self_dups:
+                if confirmed:
+                    st.divider()
+
+                st.markdown(
+                    f"**{self_dups} — πανομοιότυπες μεταξύ τους**\n\n"
+                    f"Ίδια ημερομηνία, ίδιος τύπος, **ίδιο ποσό**, καμία με αριθμό. "
+                    f"Δεν βρέθηκαν σε κανένα email — αλλά **δεν μπορεί να είναι "
+                    f"όλες σωστές**.\n\n"
+                    f"Κρατιέται **μία** από κάθε ομάδα, σβήνονται οι υπόλοιπες.\n\n"
+                    f"*Δεν ξέρουμε ποια είναι η αληθινή — αλλά ξέρουμε ότι μόνο "
+                    f"μία μπορεί να είναι.*"
+                )
 
     if show_after and rep.get("scanned"):
         after = rep["scanned"] - len(rep["delete"])

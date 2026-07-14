@@ -30,6 +30,7 @@ from core.sheets import (
 )
 from core.mail import fetch_sales, fetch_invoices, fetch_timologiseis
 from core.parsers import ocr_available
+from core.metrics import today_greece
 from core.github import trigger_workflow, last_run, available as gh_available
 
 from ui import components as c
@@ -38,7 +39,7 @@ from ui import mobile
 from views import overview, sales, invoices, timologiseis, month
 
 
-VERSION = "6.5"
+VERSION = "6.6"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -61,7 +62,7 @@ def current_page() -> str:
 
 # ══════════════════════════════════════════════════════════════════════════════
 def main() -> None:
-    today = date.today()
+    today = today_greece()
     page = current_page()
 
     mobile.setup()          # εικονίδιο αρχικής οθόνης, κόκκινη μπάρα κατάστασης
@@ -180,7 +181,7 @@ def _sync_sales(df_s) -> None:
         latest = d.date() if hasattr(d, "date") else d
 
     if latest:
-        gap = (date.today() - latest).days
+        gap = (today_greece() - latest).days
         st.caption(f"Τελευταία καταχώρηση: **{latest:%d/%m/%Y}** ({gap} μέρες πίσω)"
                    if gap > 1 else f"Τελευταία καταχώρηση: **{latest:%d/%m/%Y}**")
 

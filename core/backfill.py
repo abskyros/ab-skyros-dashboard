@@ -757,19 +757,58 @@ def repair(records: list, start: date | None = None, end: date | None = None) ->
                int(parse_number(r[2])))
         buckets[key].append({"row": i, "value": parse_number(r[2]) / 100.0})
 
-    # ── Η αντιστοίχιση ──
+    # ── Η ΑΝΤΙΣΤΟΙΧΙΣΗ ──
+    #
+    # ┌────────────────────────────────────────────────────────────────────────┐
+    # │ ΔΥΟ ΕΠΙΠΕΔΑ ΒΕΒΑΙΟΤΗΤΑΣ                                                │
+    # │                                                                        │
+    # │ ΕΠΙΠΕΔΟ 1 — Το κουβαδάκι ΥΠΑΡΧΕΙ στα email                             │
+    # │   Ξέρουμε ακριβώς πόσα πραγματικά παραστατικά υπάρχουν.                │
+    # │   Οι επιπλέον γραμμές σβήνονται, και οι υπόλοιπες παίρνουν αριθμό.     │
+    # │                                                                        │
+    # │ ΕΠΙΠΕΔΟ 2 — Το κουβαδάκι ΔΕΝ υπάρχει στα email                         │
+    # │   Δεν ξέρουμε πόσα πραγματικά υπάρχουν. ΑΛΛΑ:                          │
+    # │                                                                        │
+    # │   Πέντε ΠΑΝΟΜΟΙΟΤΥΠΕΣ γραμμές (ίδια μέρα, τύπος, ποσό) δεν μπορεί      │
+    # │   να είναι όλες σωστές. Ακόμα κι αν δεν ξέρουμε ποια είναι η           │
+    # │   αληθινή, ξέρουμε ΜΕ ΒΕΒΑΙΟΤΗΤΑ ότι οι 4 περισσεύουν.                 │
+    # │                                                                        │
+    # │   Κρατάμε ΜΙΑ, σβήνουμε τις υπόλοιπες.                                 │
+    # │                                                                        │
+    # │ ΤΟ ΠΑΛΙΟ BUG: όλες οι γραμμές του επιπέδου 2 έμπαιναν στο "keep" και   │
+    # │ ΚΑΜΙΑ δεν σβηνόταν — ούτε οι προφανώς διπλές.                          │
+    # │                                                                        │
+    # │ Το αποτέλεσμα: «2.916 γραμμές χωρίς αριθμό» ΚΑΙ ταυτόχρονα             │
+    # │ «Το Sheet είναι ήδη καθαρό». Αντιφατικό — και το δεύτερο ήταν ψέμα.    │
+    # └────────────────────────────────────────────────────────────────────────┘
     fill, delete, keep = [], [], []
     deleted_value = 0.0
+    self_dups = 0        # πόσες σβήστηκαν χωρίς email, ως προφανή διπλά
 
     for key, rows in buckets.items():
         available = truth.get(key, [])
 
+        # ── ΕΠΙΠΕΔΟ 2: κανένα email γι' αυτό το κουβαδάκι ──
         if not available:
-            # Το κουβαδάκι ΔΕΝ υπάρχει στα email. Δεν ξέρουμε τι είναι.
-            keep += [r["row"] for r in rows]
+            if len(rows) == 1:
+                # Μία και μοναδική. Δεν έχουμε λόγο να την πειράξουμε.
+                keep.append(rows[0]["row"])
+                continue
+
+            # Πολλές ΠΑΝΟΜΟΙΟΤΥΠΕΣ. Κρατάμε την πρώτη, σβήνουμε τις άλλες.
+            #
+            # ΓΙΑΤΙ ΤΗΝ ΠΡΩΤΗ: είναι αυθαίρετο, αλλά δεν έχει σημασία — οι
+            # γραμμές είναι ταυτόσημες. Ό,τι κι αν κρατήσουμε, το ίδιο είναι.
+            keep.append(rows[0]["row"])
+
+            for r in rows[1:]:
+                delete.append(r["row"])
+                deleted_value += r["value"]
+                self_dups += 1
+
             continue
 
-        # Οι αριθμοί που δεν τους πήρε άλλη γραμμή
+        # ── ΕΠΙΠΕΔΟ 1: ξέρουμε πόσα πραγματικά υπάρχουν ──
         free = [n for n in available if n not in taken]
 
         n = min(len(rows), len(free))
@@ -778,7 +817,7 @@ def repair(records: list, start: date | None = None, end: date | None = None) ->
             fill.append((rows[j]["row"], free[j]))
             taken.add(free[j])
 
-        # Όσες γραμμές έμειναν χωρίς αριθμό → ΔΙΠΛΕΣ
+        # Περισσότερες γραμμές από αριθμούς → ΔΙΠΛΕΣ
         for r in rows[n:]:
             delete.append(r["row"])
             deleted_value += r["value"]
@@ -792,6 +831,7 @@ def repair(records: list, start: date | None = None, end: date | None = None) ->
         "keep": sorted(keep),
         "value": round(deleted_value, 2),
         "scanned": scanned,
+        "self_dups": self_dups,      # πόσες σβήστηκαν ως προφανή διπλά
     }
 
 
@@ -869,6 +909,161 @@ def apply_repair(rep: dict, on_progress=None) -> dict:
 
     load_invoices.clear()
     done["complete"] = not done["errors"]
+    return done
+
+
+def rebuild_plan(records: list) -> dict:
+    """
+    ΞΑΝΑΧΤΙΣΙΜΟ — σβήνουμε τα πάντα και ξαναγράφουμε από τα email.
+
+    ┌────────────────────────────────────────────────────────────────────────┐
+    │ ΓΙΑΤΙ ΑΥΤΟ ΚΑΙ ΟΧΙ «ΚΑΘΑΡΙΣΜΟΣ»                                        │
+    │                                                                        │
+    │ Ο καθαρισμός προσπαθούσε να ΜΑΝΤΕΨΕΙ ποιες γραμμές αντιστοιχούν σε     │
+    │ ποια email, ταιριάζοντας (μέρα + τύπος + ποσό).                        │
+    │                                                                        │
+    │ Αν το ποσό στο Sheet ήταν λάθος (π.χ. από το παλιό daily_sync.py που   │
+    │ έγραφε ευρώ αντί λεπτά), το ταίριασμα αποτύγχανε ΣΙΩΠΗΛΑ. Οι γραμμές   │
+    │ έμεναν «άγνωστες» και δεν πειράζονταν ποτέ.                            │
+    │                                                                        │
+    │ Αποτέλεσμα: 2.916 γραμμές που δεν καθαρίζονταν με τίποτα.              │
+    │                                                                        │
+    │ ΤΟ ΞΑΝΑΧΤΙΣΙΜΟ ΔΕΝ ΜΑΝΤΕΥΕΙ.                                           │
+    │                                                                        │
+    │ Τα email είναι η ΠΗΓΗ. Το Sheet είναι απλώς αντίγραφο. Αν το αντίγραφο │
+    │ έχει σκουπίδια, δεν το «καθαρίζεις» — το ΞΑΝΑΓΡΑΦΕΙΣ.                  │
+    │                                                                        │
+    │ Κάθε παραστατικό γράφεται μία φορά, με τον μοναδικό αριθμό του.        │
+    │ Τα διπλά εξαφανίζονται εξ ορισμού — δεν υπάρχει τρόπος να μπουν.       │
+    └────────────────────────────────────────────────────────────────────────┘
+
+    → {"rows": [[date, type, cents, number]], "sheet_rows": int, "unique": int}
+    """
+    # Κρατάμε ΜΙΑ γραμμή ανά αριθμό παραστατικού.
+    # Ο αριθμός είναι μοναδικός στο σύστημα της ΑΒ — αν εμφανιστεί δεύτερη
+    # φορά, είναι το ίδιο παραστατικό σε δεύτερο email.
+    seen: dict[str, list] = {}
+
+    for r in records:
+        num = str(r.get("number", "")).strip()
+        if not num:
+            continue   # χωρίς αριθμό δεν το εμπιστευόμαστε
+
+        d = r.get("date")
+        if d is None or (isinstance(d, float) and pd.isna(d)):
+            continue
+
+        d_str = d.strftime("%Y-%m-%d") if hasattr(d, "strftime") else str(d)[:10]
+
+        # Πρώτη εμφάνιση κερδίζει. Οι επόμενες είναι αντίγραφα.
+        if num not in seen:
+            seen[num] = [
+                d_str,
+                str(r.get("type", "")).strip(),
+                to_cents(r.get("value", 0)),
+                num,
+            ]
+
+    # Ταξινόμηση: νεότερα πρώτα, όπως και το υπόλοιπο Sheet
+    rows = sorted(seen.values(), key=lambda r: r[0], reverse=True)
+
+    # Πόσες γραμμές έχει τώρα το Sheet
+    try:
+        vals = _ws(SHEET_INV).get_all_values()
+        sheet_rows = max(0, len(vals) - 1)
+    except Exception:
+        sheet_rows = 0
+
+    return {
+        "rows": rows,
+        "sheet_rows": sheet_rows,
+        "unique": len(rows),
+        "records": len(records),
+    }
+
+
+def apply_rebuild(plan: dict, on_progress=None) -> dict:
+    """
+    Εκτελεί το ξαναχτίσιμο: καθαρίζει το φύλλο, γράφει τα πάντα από την αρχή.
+
+    ΣΕΙΡΑ:
+      1. ΚΑΘΑΡΙΣΜΑ  — ws.clear() σβήνει τα πάντα με ΜΙΑ κλήση
+      2. ΚΕΦΑΛΙΔΑ   — date, type, value, number
+      3. ΓΡΑΨΙΜΟ    — σε παρτίδες των 1.000
+
+    ΓΙΑΤΙ ΕΙΝΑΙ ΓΡΗΓΟΡΟ:
+      Το παλιό «καθαρισμός» έσβηνε γραμμή-γραμμή (2.876 κλήσεις × 1,2" = 57').
+      Εδώ: 1 clear + 8 batches = ~15 δευτερόλεπτα.
+
+    ΓΙΑΤΙ ΕΙΝΑΙ ΑΣΦΑΛΕΣ:
+      Το ws.clear() είναι ατομικό. Είτε πετυχαίνει, είτε όχι.
+      Αν αποτύχει το γράψιμο μετά, το Sheet είναι άδειο — αλλά έχεις το
+      αντίγραφο, και μπορείς να ξανατρέξεις: τα email είναι πάντα εκεί.
+    """
+    ws = _ws(SHEET_INV)
+    done = {"deleted": 0, "written": 0, "errors": [], "complete": False}
+
+    rows = plan["rows"]
+    if not rows:
+        done["errors"].append("Δεν βρέθηκε κανένα παραστατικό στα email.")
+        return done
+
+    def tick(stage, cur, total):
+        if on_progress:
+            on_progress(stage, cur, total)
+
+    # ── 1. ΚΑΘΑΡΙΣΜΑ ──
+    tick("Καθαρισμός φύλλου", 1, 1)
+
+    ok = _write_with_retry(ws.clear, "Καθαρισμός", done["errors"])
+    if not ok:
+        return done
+
+    done["deleted"] = plan["sheet_rows"]
+    time.sleep(PAUSE)
+
+    # ── 2. ΚΕΦΑΛΙΔΑ ──
+    ok = _write_with_retry(
+        lambda: ws.update(
+            values=[["date", "type", "value", "number"]],
+            range_name="A1:D1",
+            value_input_option="RAW",
+        ),
+        "Κεφαλίδα",
+        done["errors"],
+    )
+    if not ok:
+        return done
+
+    time.sleep(PAUSE)
+
+    # ── 3. ΓΡΑΨΙΜΟ ──
+    CHUNK = 1000
+    batches = [rows[i:i + CHUNK] for i in range(0, len(rows), CHUNK)]
+
+    for n, batch in enumerate(batches, 1):
+        tick("Γράψιμο", n, len(batches))
+
+        ok = _write_with_retry(
+            lambda b=batch: ws.append_rows(b, value_input_option="RAW"),
+            "Γράψιμο",
+            done["errors"],
+        )
+
+        if not ok:
+            done["errors"].append(
+                f"Το γράψιμο σταμάτησε στη γραμμή {done['written']}. "
+                f"Ξανατρέξε το ξαναχτίσιμο — τα email είναι πάντα εκεί."
+            )
+            return done
+
+        done["written"] += len(batch)
+
+        if n < len(batches):
+            time.sleep(PAUSE)
+
+    load_invoices.clear()
+    done["complete"] = True
     return done
 
 
