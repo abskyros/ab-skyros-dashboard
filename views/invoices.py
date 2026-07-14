@@ -23,6 +23,7 @@ from core.backfill import (
     repair, apply_repair, audit, snapshot,
 )
 from core.mail import fetch_all_invoices
+from core.github import trigger_workflow, workflow_url, last_run, available as gh_available
 from ui import components as c
 from ui import charts
 
@@ -340,21 +341,27 @@ def _verify(df: pd.DataFrame) -> None:
 
     # ── Η ΔΙΟΡΘΩΣΗ, ΕΔΩ ΚΑΙ ΤΩΡΑ ──
     #
-    # Δεν στέλνουμε τον χρήστη σε άλλη καρτέλα. Του δίνουμε το κουμπί μπροστά του.
-    # Ένα εργαλείο που βρίσκει το πρόβλημα αλλά δεν το λύνει είναι μισό εργαλείο.
+    # Το παλιό κουμπί έλεγε «Πήγαινε στον καθαρισμό» και έγραφε ένα flag στο
+    # session_state που ΚΑΝΕΙΣ ΔΕΝ ΔΙΑΒΑΖΕ. Το Streamlit δεν αλλάζει καρτέλα
+    # προγραμματιστικά. Άρα το κουμπί δεν έκανε τίποτα.
+    #
+    # Τώρα η επισκευή γίνεται ΕΔΩ, για αυτή την εβδομάδα.
     st.divider()
+    c.section("Επισκευή αυτής της εβδομάδας")
 
-    c.note(
-        "<b>Ο καθαρισμός διορθώνει αυτή την εβδομάδα ΚΑΙ όλες τις υπόλοιπες.</b><br><br>"
-        "Γεμίζει τους αριθμούς από τα email, και σβήνει ό,τι απομείνει χωρίς "
-        "αριθμό — αυτά είναι αποδεδειγμένα διπλά.",
-        "info",
-    )
+    with st.spinner("Υπολογισμός…"):
+        rep = repair(records, start, end)
 
-    if st.button("🧹 Πήγαινε στον καθαρισμό", key="vf_goto", width="stretch",
-                 type="primary"):
-        st.session_state["goto_clean"] = True
-        st.rerun()
+    if not rep["fill"] and not rep["delete"]:
+        c.note(
+            "Δεν βρέθηκε τίποτα να επισκευαστεί σε αυτή την εβδομάδα.<br><br>"
+            "Οι γραμμές που περισσεύουν δεν αντιστοιχούν σε κανένα email — "
+            "δεν μπορούμε να αποφασίσουμε γι' αυτές.",
+            "info",
+        )
+        return
+
+    _repair_ui(rep, key="vf", label="Επισκευή εβδομάδας")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -415,20 +422,11 @@ def _check_double_charges(df: pd.DataFrame) -> None:
 # ══════════════════════════════════════════════════════════════════════════════
 def _clean_all() -> None:
     """
-    Η ΜΕΓΑΛΗ ΚΑΘΑΡΙΟΤΗΤΑ.
+    Η ΜΕΓΑΛΗ ΚΑΘΑΡΙΟΤΗΤΑ — όλα τα χρόνια.
 
     Τρέχει ΜΙΑ ΦΟΡΑ. Από εδώ και πέρα το data_sync κρατάει το Sheet καθαρό —
     το κλειδί (αριθμός παραστατικού) δεν αφήνει διπλά να μπουν.
-
-    Τρία βήματα, με ρητή έγκριση:
-        1. ΣΑΡΩΣΗ  → διαβάζει ΟΛΑ τα email, όλων των ετών
-        2. ΣΧΕΔΙΟ  → δείχνει ακριβώς τι θα γίνει. Δεν αγγίζει τίποτα.
-        3. ΕΚΤΕΛΕΣΗ → γεμίζει αριθμούς, μετά σβήνει τα διπλά
     """
-    # ── ΤΙ ΘΑ ΔΙΟΡΘΩΣΕΙ, ΠΡΙΝ ΚΑΝ ΠΑΤΗΣΕΙΣ ──
-    #
-    # Φθηνός έλεγχος από το cache — μηδέν κλήσεις δικτύου. Ο χρήστης βλέπει
-    # αμέσως γιατί υπάρχει αυτό το κουμπί.
     df = load_invoices()
 
     if not df.empty and "number" in df.columns:
@@ -440,40 +438,26 @@ def _clean_all() -> None:
                 "Κάθε γραμμή έχει αριθμό παραστατικού. Δεν χρειάζεται καθαρισμός.",
                 "ok",
             )
-            st.caption(
-                "Αν θέλεις να το επιβεβαιώσεις, τρέξε την **Επαλήθευση εβδομάδας**."
-            )
+            st.caption("Για επιβεβαίωση, τρέξε την **Επαλήθευση εβδομάδας**.")
             return
 
         c.note(
             f"<b>{blank:,} γραμμές δεν έχουν αριθμό παραστατικού.</b><br><br>"
-            f"Αυτές είναι παλιές καταχωρήσεις — δεν ξέρουμε ποιες είναι διπλές. "
             f"Ο καθαρισμός θα βρει τον αριθμό της καθεμιάς από τα email, και θα "
             f"σβήσει όσες αποδειχθούν διπλές."
             .replace(",", "."),
             "warn",
         )
 
-    st.caption(
-        "Διαβάζει **όλα** τα email παραστατικών, γεμίζει τους αριθμούς, "
-        "και σβήνει **όλες** τις διπλές καταχωρήσεις — όλων των ετών."
-    )
-
     with st.expander("Πώς δουλεύει"):
         st.markdown(
-            "**Τρέχει μία φορά.** Από εδώ και πέρα το σύστημα κρατάει το Sheet "
-            "καθαρό μόνο του: το κλειδί είναι ο **αριθμός παραστατικού**, και δεν "
-            "αφήνει το ίδιο τιμολόγιο να μπει δύο φορές.\n\n"
-            "**Η λογική:**\n\n"
             "> Η 10/07 έχει **11 τιμολόγια** στα email.\n"
             "> Το Sheet έχει **30 γραμμές** για την 10/07.\n"
             ">\n"
             "> Οι 11 πρώτες παίρνουν τους 11 αριθμούς.\n"
             "> Οι 19 υπόλοιπες **δεν έχουν αριθμό να πάρουν** → είναι διπλές.\n\n"
             "Δεν μαντεύουμε. Μετράμε.\n\n"
-            "**Τι ΔΕΝ σβήνεται:** γραμμές που δεν υπάρχουν σε **κανένα** email. "
-            "Σβησμένο email; Χειροκίνητη καταχώρηση; Δεν ξέρουμε — άρα δεν "
-            "αποφασίζουμε."
+            "**Τι ΔΕΝ σβήνεται:** γραμμές που δεν υπάρχουν σε **κανένα** email."
         )
 
     pw = _password()
@@ -481,43 +465,35 @@ def _clean_all() -> None:
         c.note("Λείπει το EMAIL_PASS από τα secrets.", "bad")
         return
 
-    # ── ΑΠΟΤΕΛΕΣΜΑ ΠΡΟΗΓΟΥΜΕΝΗΣ ΕΚΤΕΛΕΣΗΣ ──
-    done = st.session_state.get("clean_done")
-    if done:
-        _clean_report(done)
-        return
-
-    # ── ΒΗΜΑ 1: ΣΑΡΩΣΗ ──
-    if st.button("Ξεκίνα σάρωση (όλα τα email)", key="cl_scan",
-                 width="stretch", type="primary"):
-        bar = st.progress(0.0, text="Σύνδεση στο Gmail…")
-
-        def tick(scanned, found):
-            bar.progress(min(0.8, scanned / 500),
-                         text=f"{scanned} email · {found} παραστατικά")
-
-        records, errors, scanned = fetch_all_invoices(pw, on_progress=tick)
-
-        if errors:
-            bar.empty()
-            c.note(errors[0], "bad")
-            return
-
-        bar.progress(0.9, text="Σύγκριση με το Sheet…")
-        rep = repair(records)          # ΧΩΡΙΣ όρια → όλα τα χρόνια
-
-        bar.empty()
-
-        st.session_state["clean_plan"] = rep
-        st.session_state["clean_meta"] = {"emails": scanned, "records": len(records)}
-
     rep = st.session_state.get("clean_plan")
+
     if rep is None:
+        if st.button("Ξεκίνα σάρωση (όλα τα email)", key="cl_scan",
+                     width="stretch", type="primary"):
+            bar = st.progress(0.0, text="Σύνδεση στο Gmail…")
+
+            def tick(scanned, found):
+                bar.progress(min(0.8, scanned / 500),
+                             text=f"{scanned} email · {found} παραστατικά")
+
+            records, errors, scanned = fetch_all_invoices(pw, on_progress=tick)
+
+            if errors:
+                bar.empty()
+                c.note(errors[0], "bad")
+                return
+
+            bar.progress(0.9, text="Σύγκριση με το Sheet…")
+            rep = repair(records)          # ΧΩΡΙΣ όρια → όλα τα χρόνια
+            bar.empty()
+
+            st.session_state["clean_plan"] = rep
+            st.session_state["clean_meta"] = {"emails": scanned, "records": len(records)}
+            st.rerun()
         return
 
     meta = st.session_state.get("clean_meta", {})
 
-    # ── ΒΗΜΑ 2: ΤΟ ΣΧΕΔΙΟ ──
     st.divider()
     c.section("Τι βρέθηκε")
 
@@ -527,10 +503,61 @@ def _clean_all() -> None:
     d.metric("Γραμμές Sheet", f"{rep['scanned']:,}".replace(",", "."))
 
     if not rep["fill"] and not rep["delete"]:
-        c.note(
-            "Το Sheet είναι ήδη καθαρό. Καμία αλλαγή δεν χρειάζεται.",
-            "ok",
-        )
+        c.note("Το Sheet είναι ήδη καθαρό. Καμία αλλαγή δεν χρειάζεται.", "ok")
+        if st.button("Νέα σάρωση", key="cl_again", width="stretch"):
+            st.session_state.pop("clean_plan", None)
+            st.rerun()
+        return
+
+    _repair_ui(rep, key="cl", label="Καθαρισμός", show_after=True)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Η ΕΠΙΣΚΕΥΗ — ΚΟΙΝΗ ΓΙΑ ΕΠΑΛΗΘΕΥΣΗ ΚΑΙ ΚΑΘΑΡΙΣΜΟ
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Το Google Sheets επιτρέπει 60 εγγραφές/λεπτό. Κάνουμε παύση 1,2" ανάμεσα.
+#
+# Άρα:  2.876 διαγραφές × 1,2"  =  ~57 λεπτά
+#
+# Το Streamlit Cloud σκοτώνει κάθε αίτημα που ξεπερνά ~2 λεπτά.
+#
+# ┌────────────────────────────────────────────────────────────────────────────┐
+# │ ΤΟ BUG ΠΟΥ ΕΦΤΙΑΞΕ ΑΥΤΟ                                                    │
+# │                                                                            │
+# │ Ο χρήστης πατούσε «Καθαρισμός», η μπάρα ξεκινούσε, και… τίποτα.            │
+# │ Το Streamlit το σκότωνε στη μέση. Καμία ένδειξη, κανένα σφάλμα.            │
+# │                                                                            │
+# │ Τώρα μετράμε τον χρόνο ΠΡΙΝ ξεκινήσουμε:                                   │
+# │   • Μικρή δουλειά  → τρέχει εδώ, με μπάρα                                  │
+# │   • Μεγάλη δουλειά → ξεκινάει GitHub Action (90 λεπτά timeout)             │
+# └────────────────────────────────────────────────────────────────────────────┘
+
+# Πόσα δευτερόλεπτα αντέχει το Streamlit πριν μας κόψει.
+SAFE_SECONDS = 90
+
+# Χρόνος ανά ενέργεια (μετρημένος: 1,2" παύση + ~0,3" η ίδια η κλήση)
+SEC_PER_BATCH = 1.5     # 500 γεμίσματα ανά batch
+SEC_PER_DELETE = 1.5    # μία ομάδα συνεχόμενων γραμμών
+
+
+def _estimate(rep: dict) -> float:
+    """Πόσο θα κρατήσει η επισκευή, σε δευτερόλεπτα."""
+    from core.sheets import _group_runs
+
+    batches = (len(rep["fill"]) + 499) // 500
+    runs = len(_group_runs(rep["delete"])) if rep["delete"] else 0
+
+    return batches * SEC_PER_BATCH + runs * SEC_PER_DELETE
+
+
+def _repair_ui(rep: dict, key: str, label: str, show_after: bool = False) -> None:
+    """
+    Δείχνει το σχέδιο, και το εκτελεί — εδώ ή στο GitHub, ανάλογα με το μέγεθος.
+    """
+    done = st.session_state.get(f"{key}_done")
+    if done:
+        _repair_report(done, key)
         return
 
     c.section("Τι θα γίνει")
@@ -546,26 +573,24 @@ def _clean_all() -> None:
     if rep["keep"]:
         lines.append(
             f"⊘ <b>{len(rep['keep'])}</b> γραμμές <b>δεν πειράζονται</b> "
-            f"(δεν υπάρχουν σε κανένα email)"
+            f"(δεν υπάρχουν στα email)"
         )
 
     c.note("<br>".join(lines), "warn" if rep["delete"] else "info")
 
-    after = rep["scanned"] - len(rep["delete"])
-    st.caption(
-        f"Το Sheet θα πάει από **{rep['scanned']:,}** σε **{after:,}** γραμμές."
-        .replace(",", ".")
-    )
+    if show_after and rep.get("scanned"):
+        after = rep["scanned"] - len(rep["delete"])
+        st.caption(
+            f"Το Sheet θα πάει από **{rep['scanned']:,}** σε **{after:,}** γραμμές."
+            .replace(",", ".")
+        )
 
-    # Χρόνος
-    steps = (len(rep["fill"]) + 499) // 500 + len(rep["delete"]) // 30 + 1
-    if steps > 5:
-        st.caption(f"Εκτιμώμενος χρόνος: ~{max(1, steps * 2 // 60 + 1)} λεπτά.")
+    seconds = _estimate(rep)
+    heavy = seconds > SAFE_SECONDS
 
     # ── ΑΝΤΙΓΡΑΦΟ ──
     if rep["delete"]:
         st.divider()
-        c.section("Πριν προχωρήσεις")
 
         c.note(
             "<b>Κατέβασε αντίγραφο ασφαλείας.</b><br>"
@@ -578,22 +603,60 @@ def _clean_all() -> None:
             snapshot().encode("utf-8-sig"),
             "invoices_backup.csv",
             "text/csv",
-            key="cl_backup",
+            key=f"{key}_backup",
             width="stretch",
         )
 
         confirmed = st.checkbox(
-            f"Κατέβασα το αντίγραφο. Καταλαβαίνω ότι θα σβηστούν "
-            f"{len(rep['delete'])} γραμμές.",
-            key="cl_confirm",
+            f"Κατέβασα το αντίγραφο. Θα σβηστούν {len(rep['delete'])} γραμμές.",
+            key=f"{key}_confirm",
         )
     else:
         confirmed = True
 
-    # ── ΒΗΜΑ 3: ΕΚΤΕΛΕΣΗ ──
     st.divider()
 
-    if st.button("Καθαρισμός", key="cl_apply", width="stretch",
+    # ══════════════════════════════════════════════════════════════════════════
+    # ΜΕΓΑΛΗ ΔΟΥΛΕΙΑ → GITHUB
+    # ══════════════════════════════════════════════════════════════════════════
+    if heavy:
+        mins = int(seconds // 60) + 1
+
+        c.note(
+            f"<b>Αυτή η δουλειά θέλει ~{mins} λεπτά.</b><br><br>"
+            f"Το Streamlit Cloud κόβει κάθε αίτημα μετά από 2 λεπτά — δεν "
+            f"προλαβαίνει.<br><br>"
+            f"Τρέχει στο <b>GitHub Actions</b>, όπου υπάρχει χρόνος.",
+            "info",
+        )
+
+        if not gh_available():
+            _github_manual("clean_invoices.yml", key)
+            return
+
+        if st.button(f"{label} (στο GitHub)", key=f"{key}_gh",
+                     width="stretch", type="primary", disabled=not confirmed):
+
+            ok, msg = trigger_workflow("clean_invoices.yml", inputs={"apply": "yes"})
+
+            if ok:
+                st.session_state[f"{key}_done"] = {
+                    "github": True,
+                    "url": workflow_url("clean_invoices.yml"),
+                }
+                st.session_state.pop("clean_plan", None)
+                st.rerun()
+            else:
+                c.note(f"Δεν ξεκίνησε: {msg}", "bad")
+                _github_manual("clean_invoices.yml", key)
+        return
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # ΜΙΚΡΗ ΔΟΥΛΕΙΑ → ΕΔΩ
+    # ══════════════════════════════════════════════════════════════════════════
+    st.caption(f"Εκτιμώμενος χρόνος: ~{int(seconds)} δευτερόλεπτα.")
+
+    if st.button(label, key=f"{key}_apply", width="stretch",
                  type="primary", disabled=not confirmed):
 
         bar = st.progress(0.0, text="Έναρξη…")
@@ -602,34 +665,71 @@ def _clean_all() -> None:
             bar.progress(min(1.0, cur / max(total, 1)),
                          text=f"{stage} — {cur}/{total}")
 
-        result = apply_repair(rep, on_progress=progress)
+        try:
+            result = apply_repair(rep, on_progress=progress)
+        except Exception as e:
+            bar.empty()
+            c.note(
+                f"<b>Η επισκευή διακόπηκε.</b><br><br>{e}<br><br>"
+                f"Δοκίμασε ξανά — θα συνεχίσει από εκεί που έμεινε.",
+                "bad",
+            )
+            return
+
         bar.empty()
 
-        st.session_state["clean_done"] = result
+        st.session_state[f"{key}_done"] = result
         st.session_state.pop("clean_plan", None)
+        st.rerun()
 
-        _clean_report(result)
 
-
-def _clean_report(done: dict) -> None:
+def _repair_report(done: dict, key: str) -> None:
     """Το αποτέλεσμα — με ειλικρινή αριθμητική."""
     st.divider()
 
+    # ── Ξεκίνησε στο GitHub ──
+    if done.get("github"):
+        url = done.get("url", "")
+        c.note(
+            f"<b>Ο καθαρισμός ξεκίνησε στο GitHub.</b><br><br>"
+            f"Θα πάρει μερικά λεπτά. Μπορείς να κλείσεις αυτή τη σελίδα.<br><br>"
+            f'<a href="{url}" target="_blank">Δες την πρόοδο →</a>',
+            "ok",
+        )
+
+        run = last_run("clean_invoices.yml")
+        if run:
+            status = run.get("status")
+            if status in ("queued", "in_progress"):
+                st.caption("Τρέχει τώρα…")
+            elif run.get("conclusion") == "success":
+                c.note("Ολοκληρώθηκε. Ανανέωσε τη σελίδα.", "ok")
+            elif run.get("conclusion") == "failure":
+                c.note(
+                    f'Απέτυχε. <a href="{run.get("url")}" target="_blank">'
+                    f'Δες το σφάλμα</a>.',
+                    "bad",
+                )
+
+        if st.button("Έλεγχος ξανά", key=f"{key}_recheck", width="stretch"):
+            st.session_state.pop(f"{key}_done", None)
+            st.rerun()
+        return
+
+    # ── Έτρεξε εδώ ──
     if done.get("complete"):
         c.note(
             f"<b>Ολοκληρώθηκε.</b><br>"
             f"• {done['filled']} γραμμές πήραν αριθμό<br>"
-            f"• {done['deleted']} διπλές σβήστηκαν<br><br>"
-            f"Πάτα <b>«Νέος έλεγχος»</b> για επαλήθευση — αν όλα πήγαν καλά, "
-            f"θα πει «το Sheet είναι ήδη καθαρό».",
+            f"• {done['deleted']} διπλές σβήστηκαν",
             "ok",
         )
     else:
         c.note(
             f"<b>Δεν ολοκληρώθηκε.</b><br>"
             f"Πέρασαν: {done['filled']} γεμίσματα · {done['deleted']} διαγραφές<br><br>"
-            f"<b>Τίποτα δεν χάθηκε.</b> Πάτα «Νέος έλεγχος» — θα συνεχίσει "
-            f"από εκεί που έμεινε.",
+            f"<b>Τίποτα δεν χάθηκε.</b> Δοκίμασε ξανά — θα συνεχίσει από εκεί "
+            f"που έμεινε.",
             "warn",
         )
 
@@ -643,9 +743,39 @@ def _clean_report(done: dict) -> None:
                 break
             c.note(e, "bad")
 
-    if st.button("Νέος έλεγχος", key="cl_reset", width="stretch"):
-        st.session_state.pop("clean_done", None)
+    if st.button("Νέος έλεγχος", key=f"{key}_reset", width="stretch"):
+        st.session_state.pop(f"{key}_done", None)
         st.session_state.pop("clean_plan", None)
+        st.rerun()
+
+
+def _github_manual(workflow: str, key: str) -> None:
+    """Όταν λείπει το token — δίνουμε δρόμο, όχι τοίχο."""
+    url = workflow_url(workflow)
+
+    c.note(
+        f"<b>Κάν' το από το GitHub:</b><br><br>"
+        f'1. Άνοιξε <a href="{url}" target="_blank">το workflow</a><br>'
+        f"2. <b>Run workflow</b> → <b>apply: yes</b> → <b>Run workflow</b><br>"
+        f"3. Σε λίγα λεπτά ανανέωσε αυτή τη σελίδα",
+        "warn",
+    )
+
+    with st.expander("Ή φτιάξε GitHub token για ένα κλικ"):
+        st.markdown(
+            "**1. Φτιάξε το token**\n\n"
+            "GitHub → Settings → Developer settings → "
+            "**Fine-grained tokens** → Generate new token\n\n"
+            "| Πεδίο | Τιμή |\n"
+            "|---|---|\n"
+            "| Repository | `ab-skyros-dashboard` |\n"
+            "| Permissions → **Actions** | **Read and write** |\n\n"
+            "**2. Streamlit → Settings → Secrets**\n\n"
+            "```toml\n"
+            'GITHUB_TOKEN = "github_pat_..."\n'
+            'GITHUB_REPO  = "abskyros/ab-skyros-dashboard"\n'
+            "```"
+        )
 
 
 def _password() -> str:

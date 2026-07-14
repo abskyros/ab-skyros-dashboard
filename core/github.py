@@ -47,11 +47,18 @@ def available() -> bool:
     return bool(token and repo)
 
 
-def trigger_workflow(filename: str, branch: str = "main") -> tuple[bool, str]:
+def trigger_workflow(
+    filename: str,
+    branch: str = "main",
+    inputs: dict | None = None,
+) -> tuple[bool, str]:
     """
     Ξεκινάει ένα workflow.
 
     → (πέτυχε, μήνυμα)
+
+    Το `inputs` περνάει παραμέτρους στο workflow — π.χ. {"apply": "yes"} για
+    τον καθαρισμό, ώστε να ξέρει ότι πρέπει να εκτελέσει και όχι απλώς να δείξει.
 
     Το GitHub επιστρέφει 204 (No Content) όταν πετύχει — όχι 200.
     """
@@ -65,6 +72,10 @@ def trigger_workflow(filename: str, branch: str = "main") -> tuple[bool, str]:
 
     url = f"{API}/repos/{repo}/actions/workflows/{filename}/dispatches"
 
+    payload: dict = {"ref": branch}
+    if inputs:
+        payload["inputs"] = inputs
+
     try:
         r = requests.post(
             url,
@@ -73,7 +84,7 @@ def trigger_workflow(filename: str, branch: str = "main") -> tuple[bool, str]:
                 "Authorization": f"Bearer {token}",
                 "X-GitHub-Api-Version": "2022-11-28",
             },
-            json={"ref": branch},
+            json=payload,
             timeout=TIMEOUT,
         )
     except requests.RequestException as e:
@@ -97,7 +108,24 @@ def trigger_workflow(filename: str, branch: str = "main") -> tuple[bool, str]:
             f"<code>{repo}</code>."
         )
 
+    if r.status_code == 422:
+        # Συνήθως: λάθος παράμετρος, ή το workflow δεν έχει workflow_dispatch
+        detail = ""
+        try:
+            detail = r.json().get("message", "")
+        except Exception:
+            pass
+        return False, f"Το GitHub απέρριψε το αίτημα. {detail}"
+
     return False, f"Το GitHub απάντησε {r.status_code}."
+
+
+def workflow_url(filename: str) -> str:
+    """Ο σύνδεσμος προς το workflow — για όταν δεν υπάρχει token."""
+    _, repo = _config()
+    if not repo:
+        return "https://github.com"
+    return f"https://github.com/{repo}/actions/workflows/{filename}"
 
 
 def last_run(filename: str) -> dict | None:

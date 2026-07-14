@@ -24,7 +24,6 @@ from core.sheets import (
     check_quality, delete_row,
 )
 from ui import components as c
-from ui import charts
 
 
 def render(df: pd.DataFrame, today: date) -> None:
@@ -88,11 +87,6 @@ def _weekly(df: pd.DataFrame, today: date) -> None:
     )
 
     c.section(f"Ημέρες · {start:%d/%m} — {end:%d/%m/%Y}")
-    charts.daily_week(
-        list(as_dates(week["date"])),
-        list(week["net_sales"].astype(float)),
-    )
-
     _table(week)
 
 
@@ -155,14 +149,6 @@ def _yearly(df: pd.DataFrame, today: date) -> None:
 
     if months:
         c.section("Ανά μήνα")
-        charts.paired_bars(
-            [m["name"][:3] for m in months],
-            [m["total"] for m in months],
-            [prev_months.get(m["month"], 0) for m in months],
-            label_now=str(year),
-            label_then=str(year - 1),
-        )
-
         c.html("".join(
             c.row(
                 m["name"],
