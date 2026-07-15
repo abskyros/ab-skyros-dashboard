@@ -219,7 +219,16 @@ def _tools(df: pd.DataFrame) -> None:
         and (df["number"].astype(str).str.strip() == "").any()
     )
 
-    with st.expander("Έλεγχος δεδομένων", expanded=needs_work):
+    # ΚΡΙΣΙΜΟ: αν υπάρχει ΕΝΕΡΓΗ διαδικασία (σάρωση, σχέδιο, αποτέλεσμα), το
+    # expander ΠΡΕΠΕΙ να μείνει ανοιχτό. Αλλιώς, μετά από κάθε st.rerun() που
+    # κάνουν τα κουμπιά μέσα του, ξανακλείνει — και ο χρήστης νομίζει ότι
+    # «γύρισε πίσω χωρίς να κάνει τίποτα».
+    in_progress = any(
+        st.session_state.get(k)
+        for k in ("rb_plan", "rb_done", "vf_done", "chg_checked")
+    )
+
+    with st.expander("Έλεγχος δεδομένων", expanded=needs_work or in_progress):
         clean_tab, verify_tab, charge_tab = st.tabs([
             "🔄 Ξαναχτίσιμο (όλα τα χρόνια)",
             "✅ Επαλήθευση εβδομάδας",
