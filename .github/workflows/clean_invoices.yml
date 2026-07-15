@@ -1,0 +1,56 @@
+name: Καθαρισμός παραστατικών
+
+# ΧΕΙΡΟΚΙΝΗΤΑ ΜΟΝΟ. Τρέχει μία φορά.
+#
+# Σβήνει γραμμές. Ένα script που το κάνει αυτό μόνο του, κάθε μέρα, χωρίς να το
+# βλέπει κανείς, είναι θέμα χρόνου να κάνει ζημιά.
+#
+# Από εδώ και πέρα το data_sync κρατάει το Sheet καθαρό: το κλειδί είναι ο
+# ΑΡΙΘΜΟΣ ΠΑΡΑΣΤΑΤΙΚΟΥ και δεν αφήνει διπλά να μπουν.
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: 'Εκτέλεση; (no = δοκιμή, τίποτα δεν αλλάζει)'
+        required: true
+        default: 'no'
+        type: choice
+        options:
+          - 'no'
+          - 'yes'
+
+concurrency:
+  group: clean-invoices
+  cancel-in-progress: false
+
+jobs:
+  clean:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Εγκατάσταση
+        run: pip install -r requirements.txt
+
+      - name: Καθαρισμός
+        env:
+          GOOGLE_KEY_JSON: ${{ secrets.GOOGLE_KEY_JSON }}
+          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+          APPLY: ${{ inputs.apply }}
+        run: python jobs/clean_invoices.py
+
+      - name: Αντίγραφο ασφαλείας
+        if: always() && inputs.apply == 'yes'
+        uses: actions/upload-artifact@v4
+        with:
+          name: invoices-backup-${{ github.run_number }}
+          path: invoices_backup.csv
+          retention-days: 30
+          if-no-files-found: ignore

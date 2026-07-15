@@ -1,0 +1,29 @@
+name: Έλεγχος ποιότητας
+
+on:
+  schedule:
+    # 10:00 ώρα Ελλάδας. Δύο cron για να καλυφθούν χειμώνας & καλοκαίρι.
+    - cron: '0 8 * * *'   # χειμώνας (UTC+2)
+    - cron: '0 7 * * *'   # καλοκαίρι (UTC+3)
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Εγκατάσταση
+        run: pip install -r requirements.txt
+
+      - name: Έλεγχος
+        env:
+          GOOGLE_KEY_JSON: ${{ secrets.GOOGLE_KEY_JSON }}
+        run: python jobs/quality_check.py

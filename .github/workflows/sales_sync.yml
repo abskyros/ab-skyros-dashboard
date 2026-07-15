@@ -1,1 +1,90 @@
+name: Πωλήσεις (OCR)
 
+on:
+  schedule:
+    # ══════════════════════════════════════════════════════════════════════════
+    # ΚΑΘΕ 10 ΛΕΠΤΑ, από τις 21:00 (ώρα Ελλάδας) ώσπου να βρεθεί η αναφορά.
+    #
+    # ┌──────────────────────────────────────────────────────────────────────┐
+    # │ ΤΟ ΠΡΟΒΛΗΜΑ ΤΗΣ ΩΡΑΣ                                                │
+    # │                                                                      │
+    # │ Το GitHub cron τρέχει ΠΑΝΤΑ σε UTC και ΔΕΝ ξέρει από θερινή ώρα:     │
+    # │                                                                      │
+    # │     Καλοκαίρι (UTC+3) → 21:00 Ελλάδας = 18:00 UTC                   │
+    # │     Χειμώνας  (UTC+2) → 21:00 Ελλάδας = 19:00 UTC                   │
+    # │                                                                      │
+    # │ Ένα σταθερό cron θα ήταν λάθος τη μισή χρονιά.                       │
+    # │                                                                      │
+    # │ ΛΥΣΗ: το cron τρέχει ΕΥΡΕΩΣ (18:00-03:59 UTC = καλύπτει και τα δύο), │
+    # │ και το ΙΔΙΟ ΤΟ SCRIPT ελέγχει την πραγματική ώρα Ελλάδας.            │
+    # │                                                                      │
+    # │ Η Python ξέρει από zoneinfo. Το cron όχι.                            │
+    # │ Ο έλεγχος γίνεται εκεί που υπάρχει η γνώση.                          │
+    # └──────────────────────────────────────────────────────────────────────┘
+    #
+    # ΤΟ ΚΟΣΤΟΣ ΤΩΝ «ΠΡΟΩΡΩΝ» ΕΚΤΕΛΕΣΕΩΝ:
+    # Το script ελέγχει την ώρα ΠΡΩΤΟ ΑΠ' ΟΛΑ και βγαίνει. Δεν συνδέεται στο
+    # Gmail, δεν διαβάζει το Sheet, δεν κάνει OCR. Τελειώνει σε 1 δευτερόλεπτο.
+    #
+    # ΚΑΙ ΟΤΑΝ ΒΡΕΘΕΙ Η ΑΝΑΦΟΡΑ:
+    # Οι υπόλοιπες εκτελέσεις της νύχτας τελειώνουν κι αυτές αμέσως — ο έλεγχος
+    # «υπάρχει ήδη;» γίνεται ΠΡΙΝ το OCR.
+    # ══════════════════════════════════════════════════════════════════════════
+    - cron: '*/10 18,19,20,21,22,23 * * *'
+    - cron: '*/10 0,1,2,3 * * *'
+  workflow_dispatch:
+
+# Αν μια εκτέλεση αργήσει, η επόμενη ΔΕΝ ξεκινάει παράλληλα.
+# Χωρίς αυτό, δύο διεργασίες θα διάβαζαν τα ίδια email ταυτόχρονα και θα
+# μπορούσαν να γράψουν την ίδια μέρα δύο φορές.
+concurrency:
+  group: sales-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      # Το OCR εγκαθίσταται ΜΟΝΟ αν χρειάζεται.
+      #
+      # Το apt-get παίρνει ~40 δευτερόλεπτα. Αν το script πρόκειται να βγει
+      # αμέσως (πολύ νωρίς, ή η μέρα υπάρχει ήδη), δεν έχει νόημα.
+      #
+      # Πρώτα ρωτάμε το script αν έχει δουλειά.
+      - name: Ελαφρύς έλεγχος
+        id: check
+        env:
+          GOOGLE_KEY_JSON: ${{ secrets.GOOGLE_KEY_JSON }}
+        run: |
+          pip install -q -r requirements.txt
+          if python jobs/sales_precheck.py; then
+            echo "work=yes" >> $GITHUB_OUTPUT
+          else
+            echo "work=no" >> $GITHUB_OUTPUT
+          fi
+
+      - name: OCR (tesseract + poppler + ελληνικά)
+        if: steps.check.outputs.work == 'yes'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq tesseract-ocr tesseract-ocr-ell poppler-utils
+
+      - name: Εγκατάσταση OCR
+        if: steps.check.outputs.work == 'yes'
+        run: pip install -q -r requirements-ocr.txt
+
+      - name: Συγχρονισμός
+        if: steps.check.outputs.work == 'yes'
+        env:
+          GOOGLE_KEY_JSON: ${{ secrets.GOOGLE_KEY_JSON }}
+          SALES_EMAIL_PASS: ${{ secrets.SALES_EMAIL_PASS }}
+        run: python jobs/sales_sync.py

@@ -1,0 +1,40 @@
+name: Πρωινός συγχρονισμός
+
+on:
+  schedule:
+    # 08:00 ώρα Ελλάδας (05:00 UTC). Δίχτυ ασφαλείας:
+    # αν χθες βράδυ κάτι δεν πέρασε, το πιάνουμε το πρωί.
+    - cron: '0 5 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: daily-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: OCR (tesseract + poppler + ελληνικά)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq tesseract-ocr tesseract-ocr-ell poppler-utils
+
+      - name: Εγκατάσταση
+        run: pip install -r requirements-ocr.txt
+
+      - name: Συγχρονισμός
+        env:
+          GOOGLE_KEY_JSON: ${{ secrets.GOOGLE_KEY_JSON }}
+          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+          SALES_EMAIL_PASS: ${{ secrets.SALES_EMAIL_PASS }}
+        run: python jobs/daily_sync.py
