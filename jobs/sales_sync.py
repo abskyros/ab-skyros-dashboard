@@ -26,8 +26,8 @@ from core.sheets import merge_sales, load_sales
 from core.parsers import ocr_available
 from core.metrics import now_greece, sales_window_open
 
-LOOKBACK_DAYS = 10
-EMAIL_LIMIT = 80
+LOOKBACK_DAYS = 21
+EMAIL_LIMIT = 120
 
 
 def main() -> int:
@@ -77,23 +77,38 @@ def main() -> int:
 
     print(f"  Ήδη καταχωρημένες: {len(have)} ημέρες")
 
-    # ── ΠΟΙΑ ΜΕΡΑ ΨΑΧΝΟΥΜΕ; ──
+    # ── ΠΟΙΕΣ ΜΕΡΕΣ ΨΑΧΝΟΥΜΕ; ──
     #
-    # Η αναφορά αφορά ΤΗ ΜΕΡΑ ΠΟΥ ΠΕΡΑΣΕ (ή τη σημερινή, αν είναι απόγευμα).
+    # ΟΧΙ μόνο η χθεσινή. Ψάχνουμε ΟΛΕΣ τις ημέρες που λείπουν μέσα στο πρόσφατο
+    # παράθυρο (τελευταίες LOOKBACK_DAYS). Έτσι, αν έλειψε μια αναφορά πριν 3
+    # μέρες (π.χ. έπεσε το email ή το OCR), θα την πιάσουμε τώρα.
     #
-    #   Δευτέρα 23:00  → ψάχνουμε τη ΔΕΥΤΕΡΑ
-    #   Τρίτη   01:00  → ψάχνουμε ακόμα τη ΔΕΥΤΕΡΑ (μεταμεσονύκτια εκτέλεση)
+    # Το skip_dates=have προστατεύει από περιττό OCR: ανοίγουμε PDF μόνο για
+    # ημέρες που ΔΕΝ έχουμε ήδη. Άρα το «ψάξε ευρύτερα» δεν κοστίζει τίποτα
+    # όταν δεν υπάρχουν κενά.
     #
-    # Αν το μπερδέψουμε, θα λέμε «όλα εντάξει» ενώ λείπει η χθεσινή.
-    target = now.date() if now.hour >= 12 else now.date() - timedelta(days=1)
+    #   Δευτέρα 23:00  → η νεότερη μέρα προς αναζήτηση είναι η ΔΕΥΤΕΡΑ
+    #   Τρίτη   01:00  → ακόμα η ΔΕΥΤΕΡΑ (μεταμεσονύκτια εκτέλεση)
+    newest_target = now.date() if now.hour >= 12 else now.date() - timedelta(days=1)
 
-    if target in have:
-        print(f"  ✓ Η αναφορά της {target:%d/%m} υπάρχει ήδη. Τίποτα να κάνω.")
+    # Ποιες μέρες μέσα στο παράθυρο λείπουν πραγματικά;
+    window_days = [
+        newest_target - timedelta(days=i)
+        for i in range(LOOKBACK_DAYS + 1)
+    ]
+    missing = [d for d in window_days if d not in have]
+
+    if not missing:
+        print(f"  ✓ Δεν λείπει καμία μέρα (έως {newest_target:%d/%m}). Τίποτα να κάνω.")
         return 0
 
-    print(f"  ⟳ Ψάχνω την αναφορά της {target:%d/%m}…")
+    oldest_missing = min(missing)
+    print(f"  ⟳ Λείπουν {len(missing)} ημέρες. Ψάχνω από {oldest_missing:%d/%m} "
+          f"έως {newest_target:%d/%m}…")
 
-    since = target - timedelta(days=LOOKBACK_DAYS)
+    # Ψάχνουμε email από την παλαιότερη μέρα που λείπει (με λίγο περιθώριο, γιατί
+    # το email μπορεί να ήρθε μια-δυο μέρες αργότερα).
+    since = oldest_missing - timedelta(days=2)
     records, errors, seen = fetch_sales(
         password, since=since, limit=EMAIL_LIMIT, skip_dates=have
     )

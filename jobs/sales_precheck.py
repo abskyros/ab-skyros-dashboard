@@ -64,10 +64,10 @@ def main() -> int:
         print("  ! Λείπει το GOOGLE_KEY_JSON — αφήνω το κύριο script να αποφασίσει.")
         return 0
 
-    # Η αναφορά αφορά τη μέρα που πέρασε:
+    # Η νεότερη μέρα προς αναζήτηση:
     #   Δευτέρα 23:00 → Δευτέρα
     #   Τρίτη   01:00 → ακόμα Δευτέρα
-    target = now.date() if now.hour >= 12 else now.date() - timedelta(days=1)
+    newest_target = now.date() if now.hour >= 12 else now.date() - timedelta(days=1)
 
     try:
         df = load_sales()
@@ -76,17 +76,24 @@ def main() -> int:
         return 0
 
     if df.empty:
-        print(f"  Το Sheet είναι άδειο. Ψάχνω την {target:%d/%m}.")
+        print(f"  Το Sheet είναι άδειο. Ψάχνω από την {newest_target:%d/%m} και πίσω.")
         return 0
 
     have = {d.date() if hasattr(d, "date") else d for d in df["date"]}
 
-    if target in have:
-        print(f"  ✓ Η αναφορά της {target:%d/%m} υπάρχει ήδη.")
+    # Λείπει ΚΑΠΟΙΑ μέρα μέσα στο πρόσφατο παράθυρο; (όχι μόνο η χθεσινή)
+    # Πρέπει να συμφωνεί με το LOOKBACK_DAYS του sales_sync.py.
+    LOOKBACK_DAYS = 21
+    window = [newest_target - timedelta(days=i) for i in range(LOOKBACK_DAYS + 1)]
+    missing = [d for d in window if d not in have]
+
+    if not missing:
+        print(f"  ✓ Δεν λείπει καμία μέρα (έως {newest_target:%d/%m}).")
         print("   Δεν εγκαθιστώ OCR.")
         return 1
 
-    print(f"  ⟳ Η αναφορά της {target:%d/%m} λείπει. Εγκαθιστώ OCR και ψάχνω.")
+    print(f"  ⟳ Λείπουν {len(missing)} ημέρες (παλαιότερη: {min(missing):%d/%m}). "
+          f"Εγκαθιστώ OCR και ψάχνω.")
     return 0
 
 

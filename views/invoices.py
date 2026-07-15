@@ -18,7 +18,7 @@ from core.metrics import (
 )
 from core.sheets import (
     load_invoices, check_quality, delete_row,
-    purge_duplicate_invoices, find_double_charges,
+    purge_duplicate_invoices, find_double_charges, find_duplicate_numbers,
 )
 from core.backfill import (
     repair, apply_repair, rebuild_plan, apply_rebuild, audit, snapshot,
@@ -194,12 +194,19 @@ def _table(week: pd.DataFrame) -> None:
     """Μορφοποίηση ΠΡΙΝ το dataframe — ποτέ .style.format() (τρώει τη μνήμη)."""
     t = week.sort_values("date", ascending=False)
 
-    out = pd.DataFrame({
+    cols = {
         "ΗΜΕΡΟΜΗΝΙΑ": t["date"].dt.strftime("%d/%m/%Y"),
         "ΤΥΠΟΣ":      t["type"],
-        "ΑΞΙΑ":       t["value"].map(c.eur),
-    })
+    }
 
+    # Ο ΑΡΙΘΜΟΣ ΠΑΡΑΣΤΑΤΙΚΟΥ — η μοναδική ταυτότητα. Τον δείχνουμε ώστε να
+    # μπορείς να δεις με το μάτι αν κάτι επαναλαμβάνεται.
+    if "number" in t.columns:
+        cols["ΑΡΙΘΜΟΣ"] = t["number"].replace("", "—")
+
+    cols["ΑΞΙΑ"] = t["value"].map(c.eur)
+
+    out = pd.DataFrame(cols)
     st.dataframe(out, width='stretch', hide_index=True)
 
 
@@ -225,15 +232,19 @@ def _tools(df: pd.DataFrame) -> None:
     # «γύρισε πίσω χωρίς να κάνει τίποτα».
     in_progress = any(
         st.session_state.get(k)
-        for k in ("rb_plan", "rb_done", "vf_done", "chg_checked")
+        for k in ("rb_plan", "rb_done", "vf_done", "chg_checked", "dup_checked")
     )
 
     with st.expander("Έλεγχος δεδομένων", expanded=needs_work or in_progress):
-        clean_tab, verify_tab, charge_tab = st.tabs([
+        dup_tab, clean_tab, verify_tab, charge_tab = st.tabs([
+            "🔁 Διπλοκαταχωρήσεις (ίδιος αριθμός)",
             "🔄 Ξαναχτίσιμο (όλα τα χρόνια)",
             "✅ Επαλήθευση εβδομάδας",
             "⚠️ Διπλές χρεώσεις",
         ])
+
+        with dup_tab:
+            _check_duplicate_numbers(df)
 
         with clean_tab:
             _clean_all()
@@ -430,9 +441,138 @@ def _check_double_charges(df: pd.DataFrame) -> None:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# ΚΑΘΑΡΙΣΜΟΣ — ΟΛΑ ΤΑ ΧΡΟΝΙΑ, ΜΙΑ ΦΟΡΑ
+# ΔΙΠΛΟΚΑΤΑΧΩΡΗΣΕΙΣ — Ο ΙΔΙΟΣ ΑΡΙΘΜΟΣ ΠΑΝΩ ΑΠΟ ΜΙΑ ΦΟΡΑ
 # ══════════════════════════════════════════════════════════════════════════════
-def _clean_all() -> None:
+def _check_duplicate_numbers(df: pd.DataFrame) -> None:
+    """
+    🔁 Ο ΙΔΙΟΣ ΑΡΙΘΜΟΣ, ΠΟΛΛΕΣ ΦΟΡΕΣ → σίγουρη διπλοκαταχώρηση.
+
+    Ο αριθμός παραστατικού είναι ΜΟΝΑΔΙΚΟΣ. Αν το ίδιο νούμερο υπάρχει 2+ φορές,
+    το παραστατικό μπήκε πολλές φορές. Κρατάμε μία γραμμή, σβήνουμε τις άλλες.
+
+    Αυτό είναι το ΑΣΦΑΛΕΣ σβήσιμο: δεν μαντεύουμε τίποτα — ο αριθμός είναι
+    απόδειξη ότι πρόκειται για το ίδιο ακριβώς παραστατικό.
+    """
+    st.caption(
+        "Ψάχνει τον **ίδιο αριθμό παραστατικού** που εμφανίζεται πάνω από μία "
+        "φορά. Επειδή ο αριθμός είναι μοναδικός, αυτές είναι **σίγουρες "
+        "διπλοκαταχωρήσεις** — μπορούν να σβηστούν με ασφάλεια."
+    )
+
+    # Αν μόλις ολοκληρώθηκε διαγραφή, δείξε το αποτέλεσμα.
+    done = st.session_state.get("dup_done")
+    if done:
+        if done.get("deleted"):
+            c.note(
+                f"<b>Σβήστηκαν {done['deleted']} διπλές γραμμές.</b><br>"
+                f"Κάθε παραστατικό έμεινε μία φορά.",
+                "ok",
+            )
+        for e in done.get("errors", []):
+            c.note(e, "bad")
+
+        if st.button("Νέος έλεγχος", key="dup_reset", width="stretch"):
+            st.session_state.pop("dup_done", None)
+            st.session_state.pop("dup_checked", None)
+            st.rerun()
+        return
+
+    if st.button("Έλεγχος τώρα", key="dup_check", width="stretch", type="primary"):
+        st.session_state["dup_checked"] = True
+
+    if not st.session_state.get("dup_checked"):
+        return
+
+    with st.spinner("Έλεγχος…"):
+        found = find_duplicate_numbers(df)
+
+    if not found:
+        c.note(
+            "Καμία διπλοκαταχώρηση. Κάθε αριθμός παραστατικού εμφανίζεται "
+            "μία μόνο φορά.",
+            "ok",
+        )
+        return
+
+    # Πόσες γραμμές περισσεύουν συνολικά (κρατάμε μία ανά αριθμό).
+    extra_rows = sum(f["count"] - 1 for f in found)
+    extra_value = sum((f["count"] - 1) * abs(f["value"]) for f in found)
+
+    c.note(
+        f"<b>{len(found)} αριθμοί</b> εμφανίζονται πάνω από μία φορά.<br><br>"
+        f"Περισσεύουν <b>{extra_rows} γραμμές</b> (αξίας {c.eur(extra_value)}). "
+        f"Θα κρατηθεί <b>μία</b> από κάθε αριθμό.",
+        "warn",
+    )
+
+    # ── Η ΛΙΣΤΑ ──
+    for f in found[:40]:
+        rows_txt = ", ".join(str(r) for r in f["rows"])
+        st.markdown(
+            f"**#{f['number']}** — {f['type'][:34]} · **{c.eur(f['value'])}** "
+            f"× **{f['count']}**  \
+"
+            f"<span style='color:#64748B;font-size:.8rem'>"
+            f"γραμμές {rows_txt} · {f['dates'][0]}</span>",
+            unsafe_allow_html=True,
+        )
+
+    if len(found) > 40:
+        st.caption(f"…και άλλοι {len(found) - 40} αριθμοί")
+
+    # ── ΤΟ ΣΒΗΣΙΜΟ ──
+    #
+    # Για κάθε αριθμό, κρατάμε την ΠΡΩΤΗ γραμμή και σβήνουμε τις υπόλοιπες.
+    to_delete = []
+    for f in found:
+        to_delete.extend(f["rows"][1:])   # όλες εκτός της πρώτης
+
+    st.divider()
+
+    # Το Sheets API αντέχει ~60 κλήσεις/λεπτό. Με ~1,2" παύση ανά ομάδα, ένα
+    # μεγάλο σβήσιμο μπορεί να ξεπεράσει το όριο ~2 λεπτών του Streamlit Cloud.
+    from core.sheets import _group_runs
+    runs = len(_group_runs(to_delete))
+    seconds = runs * 1.5
+    heavy = seconds > 90
+
+    if heavy:
+        c.note(
+            f"<b>Πολλές γραμμές ({len(to_delete)}).</b><br><br>"
+            f"Αυτό θέλει ~{int(seconds // 60) + 1} λεπτά — περισσότερο απ' ό,τι "
+            f"αντέχει το Streamlit Cloud. Καλύτερα τρέξε το "
+            f"<b>🔄 Ξαναχτίσιμο</b>, που καθαρίζει τα πάντα με ασφάλεια.",
+            "info",
+        )
+        return
+
+    c.note(
+        "<b>Κατέβασε αντίγραφο ασφαλείας πριν σβήσεις.</b>",
+        "bad",
+    )
+    st.download_button(
+        "Λήψη αντιγράφου (CSV)",
+        snapshot().encode("utf-8-sig"),
+        "invoices_backup.csv",
+        "text/csv",
+        key="dup_backup",
+        width="stretch",
+    )
+
+    confirmed = st.checkbox(
+        f"Κατέβασα το αντίγραφο. Σβήσε τις {len(to_delete)} διπλές γραμμές.",
+        key="dup_confirm",
+    )
+
+    if st.button("Σβήσε τις διπλές", key="dup_apply", width="stretch",
+                 type="primary", disabled=not confirmed):
+        from core.sheets import delete_rows_safe
+
+        with st.spinner(f"Διαγραφή {len(to_delete)} γραμμών…"):
+            deleted, errors = delete_rows_safe("invoices", to_delete)
+
+        st.session_state["dup_done"] = {"deleted": deleted, "errors": errors}
+        st.rerun()
     """
     ΞΑΝΑΧΤΙΣΙΜΟ — σβήνουμε τα πάντα, ξαναγράφουμε από τα email.
 

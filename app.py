@@ -39,7 +39,7 @@ from ui import mobile
 from views import overview, sales, invoices, timologiseis, month
 
 
-VERSION = "6.7"
+VERSION = "6.8"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -210,21 +210,47 @@ def _sync_sales(df_s) -> None:
     └────────────────────────────────────────────────────────────────────────┘
     """
     latest = None
+    have_dates: set = set()
     if not df_s.empty:
         d = df_s["date"].max()
         latest = d.date() if hasattr(d, "date") else d
+        have_dates = {
+            (x.date() if hasattr(x, "date") else x)
+            for x in df_s["date"]
+        }
 
     if latest:
         gap = (today_greece() - latest).days
         st.caption(f"Τελευταία καταχώρηση: **{latest:%d/%m/%Y}** ({gap} μέρες πίσω)"
                    if gap > 1 else f"Τελευταία καταχώρηση: **{latest:%d/%m/%Y}**")
 
-    # ── ΤΟΠΙΚΟ OCR (αν κάποιος τρέχει την εφαρμογή στον υπολογιστή του) ──
+    # ── ΤΟΠΙΚΟ OCR (Codespaces ή τοπικός υπολογιστής με tesseract/poppler) ──
+    #
+    # ΕΔΩ το κουμπί κάνει την ΠΡΑΓΜΑΤΙΚΗ δουλειά: ψάχνει ΟΛΕΣ τις ημέρες που
+    # λείπουν, όχι μόνο τη χθεσινή.
+    #
+    # Ξεκινάμε την αναζήτηση από την τελευταία καταχωρημένη μέρα και πίσω, με
+    # περιθώριο. Το skip_dates λέει στο fetch_sales να ΜΗΝ ξανακάνει OCR σε
+    # μέρες που ήδη έχουμε — άρα ανοίγει PDF μόνο για ό,τι λείπει πραγματικά.
     if ocr_available():
-        since = (latest - timedelta(days=4)) if latest else None
+        # Πόσο πίσω ψάχνουμε: αν λείπουν πολλές μέρες, πάμε αρκετά πίσω ώστε να
+        # τις πιάσουμε όλες. Αν δεν υπάρχει τίποτα, ψάχνουμε τις τελευταίες 30.
+        if latest:
+            gap = (today_greece() - latest).days
+            lookback = max(gap + 3, 7)
+        else:
+            lookback = 30
 
-        with st.spinner("Διάβασμα email και OCR…"):
-            records, errors, seen = fetch_sales(SALES_PW, since=since, limit=120, want=60)
+        since = today_greece() - timedelta(days=lookback)
+
+        with st.spinner(f"Αναζήτηση όλων των μη καταχωρημένων ημερών "
+                        f"(έως {lookback} μέρες πίσω)…"):
+            records, errors, seen = fetch_sales(
+                SALES_PW,
+                since=since,
+                limit=200,
+                skip_dates=have_dates,   # ← μην ξανακάνεις OCR ό,τι ήδη έχουμε
+            )
 
         if errors:
             c.note(errors[0], "bad")
@@ -233,34 +259,98 @@ def _sync_sales(df_s) -> None:
         saved = merge_sales(records)
 
         if saved:
-            c.note(f"{saved} νέες ημέρες από {seen} email.", "ok")
+            # Δείξε ΠΟΙΕΣ μέρες μπήκαν — να ξέρει ο χρήστης τι βρέθηκε.
+            days = sorted(
+                {(r["date"].date() if hasattr(r["date"], "date") else r["date"])
+                 for r in records}
+            )
+            lst = ", ".join(f"{d:%d/%m}" for d in days[:12])
+            more = f" +{len(days) - 12}" if len(days) > 12 else ""
+            c.note(
+                f"<b>{saved} νέες ημέρες καταχωρήθηκαν.</b><br>{lst}{more}",
+                "ok",
+            )
             st.rerun()
         elif seen == 0:
-            c.note("Δεν έχει έρθει νέο email πωλήσεων ακόμη.", "info")
+            c.note(
+                "Δεν βρέθηκε καμία νέα αναφορά πωλήσεων. Είτε έχουν καταχωρηθεί "
+                "όλες, είτε δεν έχει έρθει ακόμη το email της τελευταίας ημέρας.",
+                "info",
+            )
         else:
-            c.note(f"Βρέθηκαν {seen} email, αλλά οι ημέρες υπάρχουν ήδη.", "info")
+            c.note(
+                f"Ανοίχτηκαν {seen} αναφορές, αλλά όλες οι ημέρες υπάρχουν ήδη.",
+                "info",
+            )
         return
 
     # ── STREAMLIT CLOUD ──
     #
-    # Εδώ δεν υπάρχει OCR. Ο συγχρονισμός πωλήσεων γίνεται στο GitHub Actions,
-    # ΑΥΤΟΜΑΤΑ, κάθε 10 λεπτά από τις 15:00 ώρα Ελλάδας ώσπου να βρεθεί η
-    # αναφορά. Άρα ΔΕΝ χρειάζεται να κάνεις τίποτα — απλώς περιμένεις.
+    # Εδώ δεν υπάρχει OCR (το tesseract/poppler ρίχνουν την εφαρμογή). Ο
+    # συγχρονισμός πωλήσεων γίνεται στο GitHub Actions — και τρέχει ΑΥΤΟΜΑΤΑ
+    # κάθε 10 λεπτά από τις 15:00 ώρα Ελλάδας, ώσπου να μπουν όλες οι μέρες.
     #
-    # Το κουμπί απλώς «σκουντάει» τον συγχρονισμό να τρέξει ΤΩΡΑ, αν βιάζεσαι.
+    # Το κουμπί «σκουντάει» τον συγχρονισμό να ψάξει ΤΩΡΑ όλες τις ημέρες που
+    # λείπουν. Για να δουλέψει με ένα κλικ, χρειάζεται ένα GITHUB_TOKEN.
 
-    # Αν δεν υπάρχει token, ΔΕΝ στέλνουμε τον χρήστη σε χειρωνακτική διαδικασία.
-    # Ο αυτόματος συγχρονισμός τρέχει έτσι κι αλλιώς. Το λέμε καθαρά.
+    repo = _repo_name()
+    link = (
+        f"https://github.com/{repo}/actions/workflows/sales_sync.yml"
+        if repo else "https://github.com"
+    )
+
+    # ── ΔΕΝ ΥΠΑΡΧΕΙ TOKEN → ΔΩΣΕ ΑΜΕΣΟ ΔΡΟΜΟ ──
+    #
+    # Χωρίς token, το κουμπί δεν μπορεί να ξεκινήσει το Action από μόνο του.
+    # Δίνουμε (α) άμεσο σύνδεσμο για ένα κλικ στο GitHub, και (β) οδηγίες για
+    # να δουλέψει το κουμπί μόνιμα.
     if not gh_available():
         c.note(
-            "<b>Ο συγχρονισμός πωλήσεων τρέχει αυτόματα.</b><br><br>"
-            "Κάθε 10 λεπτά, από τις <b>15:00</b> ώρα Ελλάδας, το σύστημα ψάχνει "
-            "μόνο του την αναφορά της ημέρας — και μόλις έρθει το email, την "
-            "καταχωρεί.<br><br>"
-            "Δεν χρειάζεται να κάνεις κάτι. Αν μόλις ήρθε το email, ανανέωσε τη "
-            "σελίδα σε λίγα λεπτά.",
+            "<b>Ο συγχρονισμός πωλήσεων τρέχει αυτόματα</b> κάθε 10 λεπτά, από "
+            "τις <b>15:00</b> ώρα Ελλάδας, ώσπου να μπουν όλες οι μέρες που "
+            "λείπουν.<br><br>"
+            "Αν βιάζεσαι και θες να τρέξει <b>τώρα</b>:",
             "info",
         )
+        c.html(
+            f'<a href="{link}" target="_blank" '
+            f'style="display:inline-block;background:var(--brand);color:#fff;'
+            f'padding:.6rem 1rem;border-radius:8px;text-decoration:none;'
+            f'font-weight:600;margin:.3rem 0">▶ Άνοιξε το GitHub → Run workflow</a>'
+        )
+        c.note(
+            "Εκεί πάτα <b>Run workflow</b> (πράσινο κουμπί δεξιά) → <b>Run "
+            "workflow</b>. Σε 1-3 λεπτά ανανέωσε αυτή τη σελίδα.",
+            "info",
+        )
+
+        with st.expander("Για να δουλεύει το κουμπί με ΕΝΑ κλικ (μία φορά)"):
+            st.markdown(
+                "Το κουμπί χρειάζεται ένα **GitHub token** — έναν κωδικό που "
+                "επιτρέπει στην εφαρμογή να ξεκινά το συγχρονισμό μόνη της.\n\n"
+                "**1. Φτιάξε το token**\n\n"
+                "Άνοιξε: **github.com → (φωτογραφία σου πάνω δεξιά) → Settings → "
+                "Developer settings → Personal access tokens → Fine-grained "
+                "tokens → Generate new token**\n\n"
+                "| Πεδίο | Τι βάζεις |\n"
+                "|---|---|\n"
+                "| Token name | `ab-skyros-sync` (ό,τι θες) |\n"
+                "| Expiration | π.χ. 1 χρόνο |\n"
+                "| Repository access | **Only select repositories** → "
+                "`ab-skyros-dashboard` |\n"
+                "| Permissions → **Actions** | **Read and write** |\n\n"
+                "Πάτα **Generate token** και **αντίγραψέ** τον (αρχίζει με "
+                "`github_pat_...`). Θα φαίνεται μόνο μία φορά.\n\n"
+                "**2. Βάλ' τον στα Streamlit secrets**\n\n"
+                "Άνοιξε την εφαρμογή στο **share.streamlit.io → (τα 3 τελίτσες "
+                "δίπλα στην εφαρμογή) → Settings → Secrets** και πρόσθεσε:\n\n"
+                "```toml\n"
+                'GITHUB_TOKEN = "github_pat_..."\n'
+                'GITHUB_REPO  = "abskyros/ab-skyros-dashboard"\n'
+                "```\n\n"
+                "Πάτα **Save**. Από εκεί και πέρα, το κουμπί «Πωλήσεις» θα "
+                "ξεκινά τον συγχρονισμό με ένα κλικ."
+            )
         return
 
     ok, msg = trigger_workflow("sales_sync.yml")
@@ -268,7 +358,8 @@ def _sync_sales(df_s) -> None:
     if ok:
         c.note(
             "<b>Ξεκίνησε ο συγχρονισμός πωλήσεων.</b><br><br>"
-            "Τρέχει στο GitHub (εκεί υπάρχει το OCR). Θα πάρει 1-3 λεπτά.<br>"
+            "Ψάχνει <b>όλες τις ημέρες που λείπουν</b>, στο GitHub (εκεί υπάρχει "
+            "το OCR). Θα πάρει 1-3 λεπτά.<br>"
             "Η σελίδα θα ανανεωθεί μόνη της.",
             "ok",
         )
@@ -282,36 +373,27 @@ def _sync_sales(df_s) -> None:
     # ── ΤΟ ΚΟΥΜΠΙ ΑΠΕΤΥΧΕ (λ.χ. έληξε το token) ──
     #
     # Ακόμα κι εδώ, ο ΑΥΤΟΜΑΤΟΣ συγχρονισμός συνεχίζει να τρέχει κάθε 10 λεπτά.
-    # Άρα καθησυχάζουμε — δεν ρίχνουμε τοίχο χειρωνακτικών βημάτων.
     c.note(
         "<b>Το χειροκίνητο σκούντημα δεν πέρασε αυτή τη φορά.</b><br><br>"
         "Δεν πειράζει: ο <b>αυτόματος</b> συγχρονισμός τρέχει μόνος του κάθε "
-        "10 λεπτά, από τις 15:00 ώρα Ελλάδας. Η αναφορά θα μπει μόλις έρθει "
-        "το email.<br><br>"
-        "Αν θέλεις να το ψάξεις: ο τελευταίος αυτόματος συγχρονισμός φαίνεται "
-        "πιο πάνω, στην κατάσταση.",
-        "info",
+        "10 λεπτά, από τις 15:00 ώρα Ελλάδας, και ψάχνει όλες τις μέρες που "
+        "λείπουν.<br><br>"
+        "Αν θέλεις να τρέξει τώρα:",
+        "warn",
+    )
+    c.html(
+        f'<a href="{link}" target="_blank" '
+        f'style="display:inline-block;background:var(--brand);color:#fff;'
+        f'padding:.6rem 1rem;border-radius:8px;text-decoration:none;'
+        f'font-weight:600;margin:.3rem 0">▶ Άνοιξε το GitHub → Run workflow</a>'
     )
 
-    repo = _repo_name()
-    link = (
-        f"https://github.com/{repo}/actions/workflows/sales_sync.yml"
-        if repo else "https://github.com"
-    )
-
-    with st.expander("Λεπτομέρειες (προαιρετικά)"):
+    with st.expander("Λεπτομέρειες σφάλματος"):
         st.markdown(
-            f"Το χειροκίνητο κουμπί χρειάζεται ένα **GitHub token** για να "
-            f"ξεκινήσει το workflow με ένα κλικ. Αν λείπει ή έληξε, το κουμπί "
-            f"δεν δουλεύει — αλλά **ο αυτόματος συγχρονισμός συνεχίζει κανονικά**.\n\n"
-            f"Σφάλμα: `{msg}`\n\n"
-            f"Αν θέλεις να ξεκινήσεις τον συγχρονισμό με το χέρι αυτή τη στιγμή: "
-            f"[άνοιξε το workflow στο GitHub]({link}) → **Run workflow**.\n\n"
-            f"Για να δουλεύει ξανά το κουμπί, ανανέωσε το token στα Streamlit secrets:\n\n"
-            "```toml\n"
-            'GITHUB_TOKEN = "github_pat_..."\n'
-            'GITHUB_REPO  = "abskyros/ab-skyros-dashboard"\n'
-            "```"
+            f"Το token ίσως έληξε ή δεν έχει δικαίωμα **Actions: Read and "
+            f"write**.\n\nΣφάλμα: `{msg}`\n\n"
+            f"Ανανέωσε το `GITHUB_TOKEN` στα Streamlit secrets για να ξαναδουλέψει "
+            f"το κουμπί."
         )
 
 

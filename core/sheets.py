@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import os
 import json
+import time
 from datetime import date, datetime, timedelta
 
 import pandas as pd
@@ -441,6 +442,49 @@ def purge_duplicate_invoices() -> tuple[int, int, int]:
     return len(doomed), len(seen), no_number
 
 
+def find_duplicate_numbers(df: pd.DataFrame) -> list[dict]:
+    """
+    🔁 ΔΙΠΛΟΚΑΤΑΧΩΡΗΣΗ — ο ΙΔΙΟΣ αριθμός παραστατικού, πάνω από μία φορά.
+
+    Ο ΑΡΙΘΜΟΣ ΠΑΡΑΣΤΑΤΙΚΟΥ είναι ΜΟΝΑΔΙΚΟΣ. Αν εμφανίζεται 2+ φορές, τότε το ίδιο
+    ακριβώς παραστατικό καταχωρήθηκε πολλές φορές — σίγουρη διπλοκαταχώρηση.
+
+    Αυτό είναι διαφορετικό από το find_double_charges():
+      • Ίδιος αριθμός    → ΣΙΓΟΥΡΗ διπλοκαταχώρηση (εδώ)   → σβήσε τις παραπανίσιες
+      • Άλλος αριθμός    → ίδιο ποσό, πιθανό λάθος προμηθευτή → ΜΗΝ σβήνεις
+
+    → [{"number", "type", "value", "count", "rows": [...], "dates": [...]}, ...]
+    """
+    if df.empty or "number" not in df.columns:
+        return []
+
+    d = df[df["number"].astype(str).str.strip() != ""].copy()
+    if d.empty:
+        return []
+
+    out = []
+    for number, g in d.groupby("number"):
+        if len(g) < 2:
+            continue
+
+        rows = sorted(int(x) for x in g["_row"].tolist()) if "_row" in g else []
+        dates = sorted(g["date"].dt.strftime("%d/%m/%Y").tolist())
+
+        out.append({
+            "number": str(number),
+            "type": str(g["type"].iloc[0]),
+            "value": float(g["value"].iloc[0]),
+            "count": len(g),
+            "rows": rows,
+            "dates": dates,
+        })
+
+    # Οι πιο ακριβές διπλοκαταχωρήσεις πρώτα — εκεί «πονάει» περισσότερο.
+    out.sort(key=lambda x: (x["count"] - 1) * abs(x["value"]), reverse=True)
+    return out
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 def find_double_charges(df: pd.DataFrame) -> list[dict]:
     """
     ⚠️ ΔΙΠΛΗ ΧΡΕΩΣΗ — άλλο πράγμα από τη διπλοκαταχώρηση.
@@ -766,6 +810,47 @@ def delete_row(sheet: str, row: int) -> tuple[bool, str]:
         return True, f"Η γραμμή {row} διαγράφηκε."
     except Exception as e:
         return False, f"Δεν διαγράφηκε: {e}"
+
+
+def delete_rows_safe(sheet: str, rows: list[int]) -> tuple[int, list[str]]:
+    """
+    Σβήνει ΠΟΛΛΕΣ γραμμές με ασφάλεια.
+
+    ┌────────────────────────────────────────────────────────────────────────┐
+    │ ΓΙΑΤΙ ΑΠΟ ΚΑΤΩ ΠΡΟΣ ΤΑ ΠΑΝΩ                                            │
+    │                                                                        │
+    │ Όταν σβήνεις τη γραμμή 5, η γραμμή 6 γίνεται 5, η 7 γίνεται 6, κ.ο.κ.  │
+    │ Αν σβήσεις πρώτα τη 5 και μετά «τη 7», θα σβήσεις ΛΑΘΟΣ γραμμή.        │
+    │                                                                        │
+    │ Σβήνοντας από κάτω προς τα πάνω, οι αριθμοί των γραμμών που ΔΕΝ έχουν  │
+    │ σβηστεί ακόμα δεν αλλάζουν. Ασφαλές.                                   │
+    │                                                                        │
+    │ Ομαδοποιούμε και συνεχόμενες γραμμές → μία κλήση αντί για πολλές.      │
+    └────────────────────────────────────────────────────────────────────────┘
+
+    → (πόσες σβήστηκαν, [σφάλματα])
+    """
+    if not rows:
+        return 0, []
+
+    ws = _ws(sheet)
+    deleted = 0
+    errors = []
+
+    # reversed → από κάτω προς τα πάνω, ώστε να μην αλλάζουν οι αριθμοί γραμμών
+    for start, end in reversed(_group_runs(rows)):
+        try:
+            ws.delete_rows(int(start), int(end))
+            deleted += end - start + 1
+            time.sleep(1.2)   # όριο Sheets API: ~60 κλήσεις/λεπτό
+        except Exception as e:
+            errors.append(f"Γραμμές {start}-{end}: {e}")
+
+    {SHEET_SALES: load_sales,
+     SHEET_INV: load_invoices,
+     SHEET_TIMOL: load_timologiseis}[sheet].clear()
+
+    return deleted, errors
 
 
 # ══════════════════════════════════════════════════════════════════════════════
