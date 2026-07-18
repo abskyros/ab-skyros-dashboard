@@ -142,18 +142,13 @@ def scale(
     lower_is_better: bool = False,
 ) -> str:
     """
-    Δύο νούμερα, δύο μπάρες. Το πλάτος των μπαρών ΕΙΝΑΙ η σύγκριση.
+    Το νούμερο, και δίπλα του η σύγκριση με πέρσι.
 
-    Το μάτι βλέπει ποια μπάρα είναι μακρύτερη πριν προλάβει να διαβάσει το
-    ποσοστό. Αυτό είναι το ζητούμενο σε ένα εργαλείο που το κοιτάς 5 φορές τη μέρα.
+    Χωρίς μπάρες: το ποσοστό στην κορυφή λέει ήδη την ιστορία, και τα δύο ποσά
+    κάθονται δίπλα στις ετικέτες τους — όχι σε απόσταση αναγνώρισης.
     """
     n = 0.0 if now is None or pd.isna(now) else float(now)
     t = None if then is None or pd.isna(then) else float(then)
-
-    # Οι μπάρες κλιμακώνονται στο μεγαλύτερο από τα δύο.
-    peak = max(n, t or 0) or 1
-    w_now = min(100, n / peak * 100)
-    w_then = min(100, (t or 0) / peak * 100)
 
     pct = pct_change(n, t)
     if pct is None:
@@ -174,12 +169,10 @@ def scale(
         '<div class="bars">'
         '<div class="bar-row now">'
         f'<span class="bar-tag">{_esc(now_tag)}</span>'
-        f'<span class="bar-track"><span class="bar-fill now" style="width:{w_now:.1f}%"></span></span>'
         f'<span class="bar-val">{fmt(now)}</span>'
         '</div>'
         '<div class="bar-row then">'
         f'<span class="bar-tag">{_esc(then_tag)}</span>'
-        f'<span class="bar-track"><span class="bar-fill then" style="width:{w_then:.1f}%"></span></span>'
         f'<span class="bar-val">{fmt(then)}</span>'
         '</div>'
         '</div>'
@@ -227,8 +220,6 @@ def target(
     else:
         badge = f'<span class="scale-delta flat">{done:.0f}% του στόχου</span>'
 
-    w_now = min(100, done) if done else 0
-
     value = (
         f'<div class="kpi-now pending">Σε εξέλιξη</div>' if pending
         else f'<div class="kpi-now">{eur(now)}</div>'
@@ -244,12 +235,10 @@ def target(
         '<div class="bars">'
         '<div class="bar-row now">'
         '<span class="bar-tag">Τώρα</span>'
-        f'<span class="bar-track"><span class="bar-fill now" style="width:{w_now:.1f}%"></span></span>'
         f'<span class="bar-val">{eur(now) if not pending else "—"}</span>'
         '</div>'
         '<div class="bar-row then">'
         '<span class="bar-tag">Στόχος</span>'
-        '<span class="bar-track"><span class="bar-fill goal" style="width:100%"></span></span>'
         f'<span class="bar-val">{eur(goal)}</span>'
         '</div>'
         '</div>'

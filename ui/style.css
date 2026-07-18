@@ -222,7 +222,7 @@ html, body, [class*="css"], .stApp {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
-  padding: 1.15rem 1.25rem 1.1rem;
+  padding: .8rem .9rem .75rem;
   box-shadow: var(--lift-1);
   transition: box-shadow .15s ease, transform .15s ease;
   height: 100%;
@@ -234,12 +234,12 @@ a:hover > .scale { box-shadow: var(--lift-2); transform: translateY(-1px); }
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  margin-bottom: .55rem;
+  margin-bottom: .35rem;
 }
 
 .scale-label {
   font-family: 'Manrope', sans-serif;
-  font-size: .7rem;
+  font-size: .66rem;
   font-weight: 700;
   letter-spacing: .05em;
   text-transform: uppercase;
@@ -248,9 +248,9 @@ a:hover > .scale { box-shadow: var(--lift-2); transform: translateY(-1px); }
 
 .scale-delta {
   font-family: 'Manrope', sans-serif;
-  font-size: .76rem;
+  font-size: .72rem;
   font-weight: 800;
-  padding: .16rem .48rem;
+  padding: .14rem .42rem;
   border-radius: 100px;
   white-space: nowrap;
 }
@@ -258,73 +258,49 @@ a:hover > .scale { box-shadow: var(--lift-2); transform: translateY(-1px); }
 .scale-delta.down { color: var(--neg); background: var(--neg-tint); }
 .scale-delta.flat { color: var(--dim); background: var(--sunken); }
 
-/* Το φετινό: μεγάλο, μαύρο, αδιαπραγμάτευτο */
-/*
-   Το κύριο νούμερο είναι ΜΑΥΡΟ, όχι κόκκινο.
-   Το κόκκινο εδώ θα σήμαινε «ζημιά». Το νούμερο είναι απλώς το νούμερο —
-   τη σημασία τη δίνει το ποσοστό δίπλα και η μπάρα από κάτω.
-*/
+/* Το φετινό: ευανάγνωστο, αλλά όχι τεράστιο — η σελίδα πρέπει να χωράει. */
 .kpi-now {
   font-family: 'Manrope', sans-serif;
-  font-size: 1.9rem;
+  font-size: 1.35rem;
   font-weight: 800;
-  letter-spacing: -.035em;
-  line-height: 1.05;
+  letter-spacing: -.03em;
+  line-height: 1.1;
   color: var(--data);
 }
 
-/* Οι δύο μπάρες. Το πλάτος τους ΕΙΝΑΙ η πληροφορία. */
-.bars { margin-top: .75rem; }
+/* Φέτος / Πέρσι — ετικέτα και ποσό ΔΙΠΛΑ-ΔΙΠΛΑ, χωρίς κενό ανάμεσα.
+   Τα νούμερα είναι ΕΥΑΝΑΓΝΩΣΤΑ: τα διαβάζεις με μια ματιά, όχι με φακό. */
+.bars { margin-top: .5rem; }
 
 .bar-row {
   display: flex;
-  align-items: center;
-  gap: .55rem;
-  margin-bottom: .3rem;
+  align-items: baseline;
+  gap: .4rem;
+  margin-bottom: .22rem;
 }
 
 .bar-tag {
-  font-size: .64rem;
+  font-size: .76rem;
   font-weight: 700;
   color: var(--dim);
-  width: 34px;
   flex-shrink: 0;
-  letter-spacing: .03em;
+  letter-spacing: .02em;
 }
-
-.bar-track {
-  flex: 1;
-  height: 5px;
-  background: var(--line-soft);
-  border-radius: 100px;
-  overflow: hidden;
-}
-
-.bar-fill {
-  height: 100%;
-  border-radius: 100px;
-  transition: width .5s cubic-bezier(.4, 0, .2, 1);
-}
-/* «Φέτος» = μπλε (εμείς). «Πέρσι» = γκρι (το μέτρο). */
-.bar-fill.now  { background: var(--blue); }
-.bar-fill.then { background: var(--prev); }
 
 .bar-val {
   font-family: 'Manrope', sans-serif;
-  font-size: .7rem;
+  font-size: .95rem;
   font-weight: 700;
-  color: var(--muted);
-  width: 76px;
-  text-align: right;
-  flex-shrink: 0;
+  color: var(--text);
+  white-space: nowrap;
 }
-.bar-row.then .bar-val { color: var(--dim); font-weight: 600; }
+.bar-row.then .bar-val { color: var(--muted); font-weight: 600; }
 
 .scale-foot {
-  margin-top: .6rem;
-  padding-top: .55rem;
+  margin-top: .45rem;
+  padding-top: .4rem;
   border-top: 1px solid var(--line-soft);
-  font-size: .7rem;
+  font-size: .66rem;
   color: var(--dim);
 }
 
@@ -351,44 +327,30 @@ a:hover > .scale { box-shadow: var(--lift-2); transform: translateY(-1px); }
   padding: .35rem 0 .1rem;
 }
 
-/* Ο στόχος: γεμάτη γκρι μπάρα. Είναι το 100% που κυνηγάς. */
-.bar-fill.goal {
-  background: repeating-linear-gradient(
-    -45deg,
-    var(--prev) 0 5px,
-    #B4BAC4 5px 10px
-  );
-  opacity: .55;
-}
-
-.scale.target .bar-fill.now {
-  background: var(--pos);
-}
-
 /* ── ΑΠΛΗ ΜΕΤΡΗΣΗ (χωρίς σύγκριση) ───────────────────────────────────────── */
 .stat {
   background: var(--surface);
   border: 1px solid var(--line);
   border-left: 3px solid var(--accent, var(--blue));
   border-radius: var(--r);
-  padding: .95rem 1.1rem;
+  padding: .7rem .85rem;
   box-shadow: var(--lift-1);
   height: 100%;
 }
 
 .stat-label {
   font-family: 'Manrope', sans-serif;
-  font-size: .68rem;
+  font-size: .66rem;
   font-weight: 700;
   letter-spacing: .05em;
   text-transform: uppercase;
   color: var(--muted);
-  margin-bottom: .4rem;
+  margin-bottom: .28rem;
 }
 
 .stat-value {
   font-family: 'Manrope', sans-serif;
-  font-size: 1.45rem;
+  font-size: 1.35rem;
   font-weight: 800;
   letter-spacing: -.03em;
   color: var(--data);
@@ -396,11 +358,11 @@ a:hover > .scale { box-shadow: var(--lift-2); transform: translateY(-1px); }
 }
 .stat-value.pos  { color: var(--pos); }
 .stat-value.neg  { color: var(--neg); }
-.stat-value.none { color: var(--dim); font-size: 1.15rem; }
+.stat-value.none { color: var(--dim); font-size: 1.05rem; }
 
 .stat-foot {
-  margin-top: .35rem;
-  font-size: .7rem;
+  margin-top: .28rem;
+  font-size: .66rem;
   color: var(--dim);
 }
 
@@ -853,15 +815,15 @@ button[data-testid="stBaseButton-primary"]:hover {
 
   /* Το νούμερο πιο μεγάλο, όχι πιο μικρό.
      Στο κινητό το διαβάζεις με μια ματιά — πρέπει να ουρλιάζει. */
-  .kpi-now { font-size: 2rem; }
-  .kpi-now.pending { font-size: 1.1rem; }
+  .kpi-now { font-size: 1.65rem; }
+  .kpi-now.pending { font-size: 1.05rem; }
 
   .scale-label { font-size: .66rem; }
   .scale-delta { font-size: .72rem; padding: .14rem .42rem; }
 
-  .bar-tag { width: 30px; font-size: .6rem; }
-  .bar-val { width: 68px; font-size: .66rem; }
-  .bar-track { height: 6px; }
+  /* Φέτος/Πέρσι — ευανάγνωστα και στο κινητό, δίπλα στην ετικέτα. */
+  .bar-tag { font-size: .76rem; }
+  .bar-val { font-size: .95rem; }
 
   .scale-foot { font-size: .66rem; }
 
@@ -999,8 +961,9 @@ button[data-testid="stBaseButton-primary"]:hover {
 
 /* ── ΠΟΛΥ ΜΙΚΡΕΣ ΟΘΟΝΕΣ (iPhone SE) ─────────────────────────────────────── */
 @media (max-width: 380px) {
-  .kpi-now { font-size: 1.75rem; }
-  .bar-val { width: 60px; font-size: .62rem; }
+  .kpi-now { font-size: 1.5rem; }
+  .bar-val { font-size: .88rem; }
+  .bar-tag { font-size: .72rem; }
   .tabbar a { font-size: .53rem; }
   .tabbar .ico { font-size: 1.1rem; }
 }
