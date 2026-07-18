@@ -98,8 +98,17 @@ PAGES = {
     "Παραστατικά":  "file-text",
     "Τιμολογήσεις": "credit-card",
     "Μήνας":        "calendar",
+    # «Επιταγές» — η δεξαμενή. ΜΟΝΟ στο κινητό (βλ. MOBILE_ONLY_PAGES).
+    # Στο desktop η ίδια μπάρα ζει μέσα στη σελίδα «Μήνας», δεξιά του πίνακα.
+    "Επιταγές":     "wallet",
 }
 DEFAULT_PAGE = "Επισκόπηση"
+
+# Σελίδες που εμφανίζονται ΜΟΝΟ στην πλοήγηση κινητού (tabbar), όχι στο desktop.
+MOBILE_ONLY_PAGES = {"Επιταγές"}
+
+# Σελίδες που εμφανίζονται στο desktop nav (όλες εκτός των mobile-only).
+DESKTOP_PAGES = {k: v for k, v in PAGES.items() if k not in MOBILE_ONLY_PAGES}
 
 # ── ΧΡΩΜΑΤΑ (ταιριάζουν με ui/style.css) ─────────────────────────────────────
 #

@@ -77,9 +77,11 @@ def topbar(today: date) -> None:
 
 
 def nav(current: str) -> None:
+    """Πλοήγηση desktop. ΔΕΝ δείχνει τις σελίδες που είναι μόνο για κινητό."""
+    from core.config import DESKTOP_PAGES
     items = "".join(
         f'<a href="{link(p)}" target="_self" class="{"on" if p == current else ""}">{p}</a>'
-        for p in PAGES
+        for p in DESKTOP_PAGES
     )
     html(f'<nav class="nav">{items}</nav>')
 
@@ -90,14 +92,20 @@ ICONS = {
     "Παραστατικά": "🧾",
     "Τιμολογήσεις": "💳",
     "Μήνας": "📅",
+    "Επιταγές": "💰",
 }
 
 
 def tabbar(current: str) -> None:
-    """Πλοήγηση κινητού. Κάτω, όπου φτάνει ο αντίχειρας."""
+    """
+    Πλοήγηση κινητού. Πάνω στην οθόνη.
+
+    Δείχνει ΟΛΕΣ τις σελίδες, μαζί με το «Επιταγές» (η δεξαμενή) που στο κινητό
+    έχει δική της καρτέλα.
+    """
     items = "".join(
         f'<a href="{link(p)}" target="_self" class="{"on" if p == current else ""}">'
-        f'<span class="ico">{ICONS[p]}</span><span>{p}</span></a>'
+        f'<span class="ico">{ICONS.get(p, "•")}</span><span>{p}</span></a>'
         for p in PAGES
     )
     html(f'<nav class="tabbar">{items}</nav>')
@@ -383,4 +391,103 @@ def empty(headline: str, body: str = "") -> None:
         f'<div class="empty-head">{_esc(headline)}</div>'
         + (f'<div class="empty-body">{_esc(body)}</div>' if body else '')
         + '</div>'
+    )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Η ΔΕΞΑΜΕΝΗ — πόσο μακριά φτάνει το ταμείο στις επόμενες επιταγές
+# ══════════════════════════════════════════════════════════════════════════════
+def cash_runway_card(runway: dict) -> None:
+    """
+    Στιλ D: μια κάρτα ανά επιταγή, με μίνι μπάρα «καυσίμου».
+
+    Το runway έρχεται από core.metrics.cash_runway(). Εδώ γίνεται ΜΟΝΟ εμφάνιση.
+
+    Πράσινο = πληρωμένη πλήρως · Πορτοκαλί = εδώ κόβεσαι · Γκρι = δεν φτάνεις.
+    """
+    checks = runway["checks"]
+
+    if not checks:
+        html(
+            '<div class="runway">'
+            '<div class="runway-empty">Δεν υπάρχουν επιταγές μπροστά. '
+            'Ό,τι έληξε δεν μετράει εδώ.</div>'
+            '</div>'
+        )
+        return
+
+    # ── Οι κάρτες ──
+    cards = []
+    for i, c in enumerate(checks, 1):
+        frac = c["fraction"]
+        status = c["status"]
+        pct = int(round(frac * 100))
+        width = max(0, min(100, pct))
+
+        if status == "full":
+            badge = '<span class="rw-badge full">✓</span>'
+        elif status == "partial":
+            badge = f'<span class="rw-badge partial">{pct}%</span>'
+        else:
+            badge = '<span class="rw-badge empty">—</span>'
+
+        period = f' · {_esc(c["period"])}' if c.get("period") else ""
+
+        cards.append(
+            f'<div class="rw-row {status}">'
+            f'  <div class="rw-top">'
+            f'    <span class="rw-name">Επιταγή {i}</span>'
+            f'    <span class="rw-date">{c["date"]:%d/%m}{period}</span>'
+            f'    {badge}'
+            f'  </div>'
+            f'  <div class="rw-track">'
+            f'    <div class="rw-fill {status}" style="width:{width}%"></div>'
+            f'    <span class="rw-amt">{eur(c["amount"])}</span>'
+            f'  </div>'
+            f'</div>'
+        )
+
+    # ── Η σύνοψη (κάτω) ──
+    fully = runway["fully_covered"]
+    leftover = runway["leftover_after_full"]
+    surplus = runway["surplus"]
+
+    partial = next((c for c in checks if c["status"] == "partial"), None)
+    partial_idx = next((i for i, c in enumerate(checks, 1)
+                        if c["status"] == "partial"), None)
+
+    if surplus > 0:
+        # Το ταμείο καλύπτει τα πάντα και περισσεύει
+        summary = (
+            f'<b>Το ταμείο καλύπτει και τις {fully} επιταγές.</b><br>'
+            f'Περισσεύουν <b>{eur(surplus)}</b>.'
+        )
+        tone = "ok"
+    elif partial:
+        pct = int(round(partial["fraction"] * 100))
+        word = "επιταγή" if fully == 1 else "επιταγές"
+        summary = (
+            f'<b>Καλύπτεις πλήρως {fully} {word}</b> και φτάνεις ως το '
+            f'<b>{pct}%</b> της {partial_idx}ης.<br>'
+            f'Μένουν <b>{eur(leftover)}</b> για να την κλείσεις.'
+        )
+        tone = "warn"
+    elif fully > 0:
+        word = "επιταγή" if fully == 1 else "επιταγές"
+        summary = f'<b>Καλύπτεις πλήρως {fully} {word}.</b>'
+        tone = "ok"
+    else:
+        # Δεν φτάνει ούτε η πρώτη
+        first = checks[0]
+        summary = (
+            f'<b>Το ταμείο δεν καλύπτει ούτε την πρώτη επιταγή.</b><br>'
+            f'Λείπουν <b>{eur(first["amount"] - first["covered"])}</b>.'
+        )
+        tone = "bad"
+
+    html(
+        '<div class="runway">'
+        f'<div class="rw-cards">{"".join(cards)}</div>'
+        f'<div class="rw-summary {tone}">{summary}</div>'
+        '</div>'
     )

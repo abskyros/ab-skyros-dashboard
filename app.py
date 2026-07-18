@@ -36,10 +36,10 @@ from core.github import trigger_workflow, last_run, available as gh_available
 from ui import components as c
 from ui import mobile
 
-from views import overview, sales, invoices, timologiseis, month
+from views import overview, sales, invoices, timologiseis, month, checks
 
 
-VERSION = "6.9"
+VERSION = "7.0"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -122,6 +122,9 @@ def main() -> None:
 
     elif page == "Μήνας":
         month.render(df_t, df_s, today)
+
+    elif page == "Επιταγές":
+        checks.render(df_t, today)
 
     sync_panel(df_s)
     footer()

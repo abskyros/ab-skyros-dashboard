@@ -31,12 +31,13 @@ import pandas as pd
 import streamlit as st
 
 from core.config import MONTHS_GR
-from core.metrics import as_dates, month_rows, check_period
-from core.sheets import update_timologiseis_field
+from core.metrics import as_dates, month_rows, check_period, cash_runway
+from core.sheets import update_timologiseis_field, load_setting, save_setting
 from ui import components as c
 
 
 EDITOR_KEY = "month_editor"
+CASH_SETTING = "cash_on_hand"   # κλειδί στο φύλλο settings για το ταμείο
 
 COLS = ["Ημ. επιταγής", "Περίοδος", "Επιταγή", "Πωλήσεις περιόδου",
         "Έξοδα", "Μένει", "Πέρσι επιταγή", "Πέρσι πωλήσεις", "Αρ. επιταγής"]
@@ -69,7 +70,65 @@ def render(df_t: pd.DataFrame, df_s: pd.DataFrame, today: date) -> None:
     _flush(rows)
 
     _summary(rows)
-    _editor(rows)
+
+    # ── DESKTOP: πίνακας αριστερά, ΔΕΞΑΜΕΝΗ δεξιά ──
+    # Στο κινητό το st.columns στοιβάζεται αυτόματα (πίνακας πάνω, μπάρα κάτω) —
+    # αλλά στο κινητό η δεξαμενή έχει και δική της καρτέλα «Επιταγές», οπότε εδώ
+    # την κρύβουμε για να μη διπλασιάζεται. Τη δείχνουμε μόνο σε πλατιά οθόνη.
+    left, right = st.columns([2, 1], gap="large")
+
+    with left:
+        _editor(rows)
+
+    with right:
+        # Δείκτης-φάρος για το CSS: η δεξιά στήλη κρύβεται στο κινητό, γιατί η
+        # δεξαμενή έχει δική της καρτέλα «Επιταγές» εκεί.
+        c.html('<span class="runway-col-marker"></span>')
+        _runway_panel(df_t, today, key="month")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Η ΔΕΞΑΜΕΝΗ — ταμείο (με μνήμη) + μπάρα D
+# ══════════════════════════════════════════════════════════════════════════════
+def _runway_panel(df_t: pd.DataFrame, today: date, key: str) -> None:
+    """
+    Το ταμείο (που θυμάται την τελευταία τιμή) και η μπάρα «πόσο φτάνει».
+
+    Η τιμή του ταμείου ζει σε ΔΥΟ σημεία:
+      • session_state → για να μην ξαναδιαβάζουμε το Sheet σε κάθε rerun
+      • φύλλο settings → για να θυμάται ακόμα κι αν κλείσεις τον browser
+
+    Ο χρήστης μπορεί πάντα να το αλλάξει χειροκίνητα· η αλλαγή αποθηκεύεται.
+    """
+    c.section("Ταμείο")
+
+    # Πρώτη φορά στη συνεδρία: φόρτωσε την αποθηκευμένη τιμή από το Sheet.
+    ss_key = f"cash_{key}"
+    if ss_key not in st.session_state:
+        saved = load_setting(CASH_SETTING, "0")
+        try:
+            st.session_state[ss_key] = float(saved)
+        except (ValueError, TypeError):
+            st.session_state[ss_key] = 0.0
+
+    cash = st.number_input(
+        "Διαθέσιμα μετρητά (€)",
+        min_value=0.0,
+        step=1000.0,
+        format="%.0f",
+        key=ss_key,
+        help="Το ποσό που έχεις τώρα. Η μπάρα δείχνει ως πού φτάνει στις "
+             "επόμενες επιταγές. Θυμάται την τελευταία τιμή που έβαλες.",
+    )
+
+    # Αποθήκευσε στο Sheet ΜΟΝΟ όταν αλλάξει (όχι σε κάθε rerun).
+    last_saved = st.session_state.get(f"{ss_key}_saved")
+    if cash != last_saved:
+        save_setting(CASH_SETTING, str(int(cash)))
+        st.session_state[f"{ss_key}_saved"] = cash
+
+    runway = cash_runway(df_t, today, cash)
+    c.cash_runway_card(runway)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

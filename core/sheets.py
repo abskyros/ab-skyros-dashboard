@@ -98,6 +98,56 @@ def _ws(name: str):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# ΡΥΘΜΙΣΕΙΣ — μικρές τιμές που θυμάται η εφαρμογή (π.χ. το ταμείο)
+# ══════════════════════════════════════════════════════════════════════════════
+SHEET_SETTINGS = "settings"
+
+
+def _settings_ws():
+    """
+    Το φύλλο «settings» (key | value). Αν λείπει, το φτιάχνει.
+
+    Έτσι το ταμείο θυμάται την τελευταία τιμή ακόμα κι αν κλείσεις τον browser
+    ή ανοίξεις την εφαρμογή από άλλο κινητό.
+    """
+    ss = _client().open_by_key(SPREADSHEET_ID)
+    try:
+        return ss.worksheet(SHEET_SETTINGS)
+    except Exception:
+        ws = ss.add_worksheet(title=SHEET_SETTINGS, rows=50, cols=2)
+        ws.update([["key", "value"]], "A1")
+        return ws
+
+
+def load_setting(key: str, default: str = "") -> str:
+    """Διαβάζει μια ρύθμιση. Επιστρέφει default αν λείπει ή αν κάτι πάει στραβά."""
+    try:
+        ws = _settings_ws()
+        for row in ws.get_all_values()[1:]:   # παράλειψε την επικεφαλίδα
+            if row and row[0] == key:
+                return row[1] if len(row) > 1 else default
+    except Exception:
+        pass
+    return default
+
+
+def save_setting(key: str, value: str) -> bool:
+    """Γράφει μια ρύθμιση (ενημερώνει αν υπάρχει, προσθέτει αν λείπει)."""
+    try:
+        ws = _settings_ws()
+        rows = ws.get_all_values()
+        for i, row in enumerate(rows[1:], start=2):   # 1-indexed, μετά την επικεφαλίδα
+            if row and row[0] == key:
+                ws.update_cell(i, 2, str(value))
+                return True
+        # Δεν υπάρχει — πρόσθεσέ το
+        ws.append_row([key, str(value)])
+        return True
+    except Exception:
+        return False
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # ΑΡΙΘΜΟΙ — ελληνικό locale
 # ══════════════════════════════════════════════════════════════════════════════
 def parse_number(x) -> float:

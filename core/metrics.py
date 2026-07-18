@@ -357,6 +357,101 @@ def next_check(df: pd.DataFrame, today: date) -> pd.Series | None:
     return future.iloc[0] if not future.empty else None
 
 
+def upcoming_checks(df: pd.DataFrame, today: date) -> list[dict]:
+    """
+    Όλες οι επιταγές από ΣΗΜΕΡΑ και μετά, με σειρά πληρωμής (νωρίτερη πρώτη).
+
+    → [{"date": date, "amount": float, "period": str}, ...]
+
+    Οι ληγμένες (πριν από σήμερα) ΔΕΝ μπαίνουν — η δεξαμενή δείχνει τι έχεις
+    μπροστά σου, όχι τι πλήρωσες ήδη.
+    """
+    if df.empty:
+        return []
+
+    future = df[df["check_date"] >= pd.Timestamp(today)].sort_values("check_date")
+
+    out = []
+    for _, r in future.iterrows():
+        cd = r["check_date"]
+        out.append({
+            "date": cd.date() if hasattr(cd, "date") else cd,
+            "amount": float(r["amount"]),
+            "period": str(r.get("period", "") or ""),
+        })
+    return out
+
+
+def cash_runway(df: pd.DataFrame, today: date, cash: float) -> dict:
+    """
+    🛢️ Η ΔΕΞΑΜΕΝΗ — πόσο μακριά φτάνει το ταμείο στις επόμενες επιταγές.
+
+    Παίρνει το διαθέσιμο ταμείο και το «χύνει» στις επιταγές με τη σειρά που
+    λήγουν. Κάθε επιταγή γεμίζει όσο φτάνουν τα λεφτά· μόλις στερέψουν, οι
+    υπόλοιπες μένουν άδειες.
+
+    → {
+        "cash": float,                    # το ταμείο που δόθηκε
+        "total_due": float,               # σύνολο όλων των επόμενων επιταγών
+        "fully_covered": int,             # πόσες επιταγές καλύπτονται 100%
+        "checks": [                       # μία εγγραφή ανά επιταγή, με σειρά
+            {
+              "date", "amount", "period",
+              "covered": float,           # πόσα λεφτά «έπεσαν» πάνω της
+              "fraction": float,          # 0.0–1.0 κάλυψη
+              "status": "full"|"partial"|"empty",
+            }, ...
+        ],
+        "leftover_after_full": float,     # τι μένει για να κλείσει η μισή επιταγή
+        "surplus": float,                 # αν το ταμείο ξεπερνά ΟΛΕΣ τις επιταγές
+      }
+    """
+    checks = upcoming_checks(df, today)
+    cash = max(0.0, float(cash or 0))
+
+    total_due = sum(c["amount"] for c in checks)
+    remaining = cash
+    fully = 0
+    rows = []
+
+    for c in checks:
+        amt = c["amount"]
+        covered = max(0.0, min(amt, remaining))
+        remaining -= amt  # μπορεί να γίνει αρνητικό — δεν πειράζει, το κόβουμε πιο κάτω
+        frac = (covered / amt) if amt > 0 else 1.0
+
+        if frac >= 0.999:
+            status = "full"
+            fully += 1
+        elif frac > 0:
+            status = "partial"
+        else:
+            status = "empty"
+
+        rows.append({
+            **c,
+            "covered": covered,
+            "fraction": frac,
+            "status": status,
+        })
+
+    # Τι μένει από το ταμείο για να κλείσει η πρώτη μισο-γεμάτη επιταγή;
+    partial = next((r for r in rows if r["status"] == "partial"), None)
+    leftover = (partial["amount"] - partial["covered"]) if partial else 0.0
+
+    # Πλεόνασμα: αν το ταμείο ξεπερνά όλες τις επιταγές
+    surplus = max(0.0, cash - total_due)
+
+    return {
+        "cash": cash,
+        "total_due": total_due,
+        "fully_covered": fully,
+        "checks": rows,
+        "leftover_after_full": leftover,
+        "surplus": surplus,
+    }
+
+
 def check_this_week(df: pd.DataFrame, today: date) -> pd.Series | None:
     """Η επιταγή που πληρώνεται αυτή την εβδομάδα, αν υπάρχει."""
     if df.empty:
