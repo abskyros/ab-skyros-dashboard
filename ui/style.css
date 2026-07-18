@@ -927,10 +927,6 @@ button[data-testid="stBaseButton-primary"]:hover {
   }
   [data-testid="stColumn"] { width: 100% !important; min-width: 0 !important; }
 
-  /* Η στήλη της δεξαμενής (στη σελίδα «Μήνας») κρύβεται στο κινητό —
-     η ίδια μπάρα υπάρχει στην καρτέλα «Επιταγές». Έτσι δεν διπλασιάζεται. */
-  [data-testid="stColumn"]:has(.runway-col-marker) { display: none !important; }
-
   .stButton > button { padding: .6rem 1rem; font-size: .84rem; }
 
   .stTabs [data-baseweb="tab"] { padding: .42rem .7rem; font-size: .76rem; }

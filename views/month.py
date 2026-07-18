@@ -40,7 +40,8 @@ EDITOR_KEY = "month_editor"
 CASH_SETTING = "cash_on_hand"   # κλειδί στο φύλλο settings για το ταμείο
 
 COLS = ["Ημ. επιταγής", "Περίοδος", "Επιταγή", "Πωλήσεις περιόδου",
-        "Έξοδα", "Μένει", "Πέρσι επιταγή", "Πέρσι πωλήσεις", "Αρ. επιταγής"]
+        "Έξοδα", "Μένει", "Πέρσι επιταγή", "Πέρσι πωλήσεις",
+        "Αρ. επιταγής", "", "Κάλυψη ταμείου"]
 
 # Ποιες στήλες γράφονται πίσω στο Sheet, και σε ποιο πεδίο.
 EDITABLE = {
@@ -71,38 +72,40 @@ def render(df_t: pd.DataFrame, df_s: pd.DataFrame, today: date) -> None:
 
     _summary(rows)
 
-    # ── DESKTOP: πίνακας αριστερά, ΔΕΞΑΜΕΝΗ δεξιά ──
-    # Στο κινητό το st.columns στοιβάζεται αυτόματα (πίνακας πάνω, μπάρα κάτω) —
-    # αλλά στο κινητό η δεξαμενή έχει και δική της καρτέλα «Επιταγές», οπότε εδώ
-    # την κρύβουμε για να μη διπλασιάζεται. Τη δείχνουμε μόνο σε πλατιά οθόνη.
-    left, right = st.columns([2, 1], gap="large")
+    # ── ΤΑΜΕΙΟ + ΚΑΛΥΨΗ ──
+    #
+    # Το ταμείο μπαίνει πάνω από τον πίνακα. Η κάλυψη κάθε επιταγής μπαίνει
+    # ΜΕΣΑ στον πίνακα, ως στήλη με μπάρα — δίπλα στον αριθμό επιταγής.
+    cash = _cash_input(key="month")
+    runway = cash_runway(df_t, today, cash)
 
-    with left:
-        _editor(rows)
+    # Χάρτης: ημερομηνία επιταγής → κάλυψη. Ο πίνακας δείχνει ΤΟΝ ΜΗΝΑ που
+    # διάλεξες, ενώ η κάλυψη υπολογίζεται σε ΟΛΕΣ τις μελλοντικές επιταγές.
+    # Έτσι, όποιον μήνα κι αν δεις, η μπάρα λέει την αλήθεια.
+    coverage = {
+        _cov_key(ch["date"]): ch
+        for ch in runway["checks"]
+    }
 
-    with right:
-        # Δείκτης-φάρος για το CSS: η δεξιά στήλη κρύβεται στο κινητό, γιατί η
-        # δεξαμενή έχει δική της καρτέλα «Επιταγές» εκεί.
-        c.html('<span class="runway-col-marker"></span>')
-        _runway_panel(df_t, today, key="month")
+    _editor(rows, coverage)
+
+    # Μια γραμμή σύνοψης κάτω από τον πίνακα — η γενική εικόνα με μια ματιά.
+    _runway_summary(runway)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Η ΔΕΞΑΜΕΝΗ — ταμείο (με μνήμη) + μπάρα D
+# ΤΑΜΕΙΟ — θυμάται την τελευταία τιμή, αλλάζει χειροκίνητα
 # ══════════════════════════════════════════════════════════════════════════════
-def _runway_panel(df_t: pd.DataFrame, today: date, key: str) -> None:
+def _cash_input(key: str) -> float:
     """
-    Το ταμείο (που θυμάται την τελευταία τιμή) και η μπάρα «πόσο φτάνει».
+    Το διαθέσιμο ταμείο.
 
-    Η τιμή του ταμείου ζει σε ΔΥΟ σημεία:
-      • session_state → για να μην ξαναδιαβάζουμε το Sheet σε κάθε rerun
-      • φύλλο settings → για να θυμάται ακόμα κι αν κλείσεις τον browser
+    Ζει σε ΔΥΟ σημεία:
+      • session_state → να μην ξαναδιαβάζουμε το Sheet σε κάθε rerun
+      • φύλλο settings → να θυμάται ακόμα κι αν κλείσεις τον browser
 
-    Ο χρήστης μπορεί πάντα να το αλλάξει χειροκίνητα· η αλλαγή αποθηκεύεται.
+    Ο χρήστης το αλλάζει όποτε θέλει· η αλλαγή αποθηκεύεται μόνη της.
     """
-    c.section("Ταμείο")
-
-    # Πρώτη φορά στη συνεδρία: φόρτωσε την αποθηκευμένη τιμή από το Sheet.
     ss_key = f"cash_{key}"
     if ss_key not in st.session_state:
         saved = load_setting(CASH_SETTING, "0")
@@ -111,24 +114,57 @@ def _runway_panel(df_t: pd.DataFrame, today: date, key: str) -> None:
         except (ValueError, TypeError):
             st.session_state[ss_key] = 0.0
 
-    cash = st.number_input(
-        "Διαθέσιμα μετρητά (€)",
-        min_value=0.0,
-        step=1000.0,
-        format="%.0f",
-        key=ss_key,
-        help="Το ποσό που έχεις τώρα. Η μπάρα δείχνει ως πού φτάνει στις "
-             "επόμενες επιταγές. Θυμάται την τελευταία τιμή που έβαλες.",
-    )
+    a, _ = st.columns([1, 2])
+    with a:
+        cash = st.number_input(
+            "💰 Διαθέσιμα μετρητά (€)",
+            min_value=0.0,
+            step=1000.0,
+            format="%.0f",
+            key=ss_key,
+            help="Το ποσό που έχεις τώρα. Η στήλη «Κάλυψη ταμείου» δείχνει ως "
+                 "πού φτάνει στις επόμενες επιταγές. Θυμάται την τελευταία τιμή.",
+        )
 
-    # Αποθήκευσε στο Sheet ΜΟΝΟ όταν αλλάξει (όχι σε κάθε rerun).
-    last_saved = st.session_state.get(f"{ss_key}_saved")
-    if cash != last_saved:
+    last = st.session_state.get(f"{ss_key}_saved")
+    if cash != last:
         save_setting(CASH_SETTING, str(int(cash)))
         st.session_state[f"{ss_key}_saved"] = cash
 
-    runway = cash_runway(df_t, today, cash)
-    c.cash_runway_card(runway)
+    return cash
+
+
+def _runway_summary(runway: dict) -> None:
+    """Μία γραμμή: ως πού φτάνει το ταμείο. Κάτω από τον πίνακα."""
+    checks = runway["checks"]
+    if not checks or runway["cash"] <= 0:
+        return
+
+    fully = runway["fully_covered"]
+    partial = next((c for c in checks if c["status"] == "partial"), None)
+    idx = next((i for i, c in enumerate(checks, 1) if c["status"] == "partial"), None)
+
+    if runway["surplus"] > 0:
+        c.note(
+            f"<b>Το ταμείο καλύπτει και τις {fully} επόμενες επιταγές.</b> "
+            f"Περισσεύουν <b>{c.eur(runway['surplus'])}</b>.",
+            "ok",
+        )
+    elif partial:
+        word = "επιταγή" if fully == 1 else "επιταγές"
+        c.note(
+            f"<b>Καλύπτεις πλήρως {fully} {word}</b> και φτάνεις ως το "
+            f"<b>{int(round(partial['fraction'] * 100))}%</b> της {idx}ης. "
+            f"Μένουν <b>{c.eur(runway['leftover_after_full'])}</b> για να την κλείσεις.",
+            "warn",
+        )
+    elif fully == 0:
+        first = checks[0]
+        c.note(
+            f"<b>Το ταμείο δεν καλύπτει ούτε την πρώτη επιταγή.</b> "
+            f"Λείπουν <b>{c.eur(first['amount'] - first['covered'])}</b>.",
+            "bad",
+        )
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -182,9 +218,22 @@ def _summary(rows: list[dict]) -> None:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-def _editor(rows: list[dict]) -> None:
+def _editor(rows: list[dict], coverage: dict | None = None) -> None:
+    """
+    Ο πίνακας ανά περίοδο.
+
+    coverage: {ημερομηνία επιταγής → {"fraction": 0-1, "status": full|partial|empty}}
+    Αν δοθεί, προστίθεται στήλη «Κάλυψη ταμείου» με μπάρα σε ΚΑΘΕ γραμμή —
+    δίπλα στον αριθμό επιταγής, στο ύψος της κάθε επιταγής.
+    """
     c.section("Ανά περίοδο")
     st.caption("Συμπλήρωσε τον αριθμό επιταγής και τα έξοδα — αποθηκεύονται αυτόματα.")
+
+    coverage = coverage or {}
+
+    # Σήμα κατάστασης — το ProgressColumn δίνει ΕΝΑ χρώμα σε όλη τη στήλη,
+    # οπότε το χρώμα το δίνουμε με ένα μικρό εικονίδιο δίπλα.
+    MARK = {"full": "🟢", "partial": "🟠", "empty": "⚪", None: ""}
 
     table = pd.DataFrame([
         {
@@ -197,6 +246,10 @@ def _editor(rows: list[dict]) -> None:
             "Πέρσι επιταγή":     r["ly_amount"],
             "Πέρσι πωλήσεις":    r["ly_sales"],
             "Αρ. επιταγής":      r["check_number"],
+            "":                  MARK.get(
+                                     (coverage.get(_cov_key(r["check_date"])) or {}).get("status")
+                                 ),
+            "Κάλυψη ταμείου":    (coverage.get(_cov_key(r["check_date"])) or {}).get("fraction"),
         }
         for r in rows
     ])
@@ -209,6 +262,7 @@ def _editor(rows: list[dict]) -> None:
         width="stretch",
         hide_index=True,
         column_order=COLS,
+        row_height=42,          # ψηλότερες γραμμές — να «αναπνέει» η μπάρα
         column_config={
             "Ημ. επιταγής":      st.column_config.TextColumn(disabled=True, width="small"),
             "Περίοδος":          st.column_config.TextColumn(disabled=True),
@@ -221,12 +275,33 @@ def _editor(rows: list[dict]) -> None:
                 help="Ο αριθμός της επιταγής, όπως τον γράφεις στο μπλοκ",
                 width="small",
             ),
+            "": st.column_config.TextColumn(
+                disabled=True,
+                width=48,
+                help="🟢 καλύπτεται πλήρως · 🟠 μερικώς · ⚪ δεν φτάνει",
+            ),
+            "Κάλυψη ταμείου": st.column_config.ProgressColumn(
+                "Κάλυψη ταμείου",
+                help="Πόσο καλύπτει το διαθέσιμο ταμείο αυτή την επιταγή, "
+                     "αν πληρώσεις τις επιταγές με τη σειρά",
+                format="percent",
+                min_value=0.0,
+                max_value=1.0,
+                color="green",
+                width="medium",
+            ),
             "Έξοδα": st.column_config.TextColumn(
                 help="Τα έξοδα της περιόδου σε ευρώ, π.χ. 1250.50",
                 width="small",
             ),
         },
     )
+
+
+def _cov_key(d) -> str:
+    """Κλειδί αντιστοίχισης επιταγής ↔ κάλυψης. Η ημερομηνία, ως κείμενο."""
+    dd = d.date() if hasattr(d, "date") else d
+    return f"{dd:%Y-%m-%d}"
 
 
 def _period_label(r: dict) -> str:
