@@ -277,7 +277,7 @@ def _editor(rows: list[dict], coverage: dict | None = None) -> None:
             ),
             "": st.column_config.TextColumn(
                 disabled=True,
-                width=48,
+                width="small",
                 help="🟢 καλύπτεται πλήρως · 🟠 μερικώς · ⚪ δεν φτάνει",
             ),
             "Κάλυψη ταμείου": st.column_config.ProgressColumn(
@@ -287,7 +287,6 @@ def _editor(rows: list[dict], coverage: dict | None = None) -> None:
                 format="percent",
                 min_value=0.0,
                 max_value=1.0,
-                color="green",
                 width="medium",
             ),
             "Έξοδα": st.column_config.TextColumn(
