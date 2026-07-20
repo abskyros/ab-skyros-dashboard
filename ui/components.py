@@ -208,17 +208,27 @@ def target(
     n = 0.0 if now is None or pd.isna(now) else float(now)
     g = None if goal is None or pd.isna(goal) else float(goal)
 
-    done = (n / g * 100) if (g and g > 0) else None
     pending = n == 0
+
+    # ── ΤΟ ΠΟΣΟΣΤΟ: ΜΕΤΑΒΟΛΗ, ΟΧΙ ΑΝΑΛΟΓΙΑ ──
+    #
+    # Παλιά έδειχνε «128% του στόχου» (= φέτος/πέρσι). Σωστό νούμερο, λάθος
+    # γλώσσα: δίπλα του η κάρτα «Χθες» δείχνει ΜΕΤΑΒΟΛΗ (↑2.3%). Δύο διαφορετικά
+    # μέτρα δίπλα-δίπλα μπερδεύουν — και το «128%» διαβάζεται σαν «+128%».
+    #
+    # Τώρα μιλούν όλες την ίδια γλώσσα: ↑28% σημαίνει 28% πάνω από πέρσι.
+    pct = pct_change(n, g)
 
     if g is None:
         badge = '<span class="scale-delta flat">— χωρίς πέρσι</span>'
     elif pending:
         badge = '<span class="scale-delta flat">Σε εξέλιξη</span>'
-    elif done is not None and done >= 100:
-        badge = f'<span class="scale-delta up">✓ {done:.0f}% του στόχου</span>'
+    elif pct is None:
+        badge = '<span class="scale-delta flat">— χωρίς πέρσι</span>'
     else:
-        badge = f'<span class="scale-delta flat">{done:.0f}% του στόχου</span>'
+        cls = "up" if pct > 0 else ("flat" if abs(pct) < 0.05 else "down")
+        arrow = "↑" if pct >= 0 else "↓"
+        badge = f'<span class="scale-delta {cls}">{arrow} {abs(pct):.1f}%</span>'
 
     value = (
         f'<div class="kpi-now pending">Σε εξέλιξη</div>' if pending

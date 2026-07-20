@@ -40,8 +40,7 @@ EDITOR_KEY = "month_editor"
 CASH_SETTING = "cash_on_hand"   # κλειδί στο φύλλο settings για το ταμείο
 
 COLS = ["Ημ. επιταγής", "Επιταγή", "Πωλήσεις περιόδου",
-        "Έξοδα", "Μένει", "Πέρσι επιταγή", "Πέρσι πωλήσεις",
-        "Αρ. επιταγής", "", "Κάλυψη ταμείου"]
+        "Έξοδα", "Μένει", "Αρ. επιταγής", "", "Κάλυψη ταμείου"]
 
 # Ποιες στήλες γράφονται πίσω στο Sheet, και σε ποιο πεδίο.
 EDITABLE = {
@@ -243,8 +242,6 @@ def _editor(rows: list[dict], coverage: dict | None = None) -> None:
             "Πωλήσεις περιόδου": r["sales"],
             "Έξοδα":             r["expenses_raw"],
             "Μένει":             r["balance"],
-            "Πέρσι επιταγή":     r["ly_amount"],
-            "Πέρσι πωλήσεις":    r["ly_sales"],
             "Αρ. επιταγής":      r["check_number"],
             "":                  MARK.get(
                                      (coverage.get(_cov_key(r["check_date"])) or {}).get("status")
@@ -270,8 +267,6 @@ def _editor(rows: list[dict], coverage: dict | None = None) -> None:
         "Επιταγή":           "#FEF2F2",   # απαλό κόκκινο — τι πληρώνεις
         "Πωλήσεις περιόδου": "#EFF6FF",   # απαλό μπλε — τι μπήκε
         "Μένει":             "#F0FDF4",   # απαλό πράσινο — το αποτέλεσμα
-        "Πέρσι επιταγή":     "#FAFAF9",   # ουδέτερο — το περσινό μέτρο
-        "Πέρσι πωλήσεις":    "#FAFAF9",
         "Κάλυψη ταμείου":    "#FFFBEB",   # απαλό κεχριμπάρι — η δεξαμενή
     }
 
@@ -293,8 +288,6 @@ def _editor(rows: list[dict], coverage: dict | None = None) -> None:
             "Επιταγή":           money,
             "Πωλήσεις περιόδου": money,
             "Μένει":             money,
-            "Πέρσι επιταγή":     money,
-            "Πέρσι πωλήσεις":    money,
             "Αρ. επιταγής": st.column_config.TextColumn(
                 help="Ο αριθμός της επιταγής, όπως τον γράφεις στο μπλοκ",
                 width="small",

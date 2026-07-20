@@ -39,7 +39,7 @@ from ui import mobile
 from views import overview, sales, invoices, timologiseis, month, checks
 
 
-VERSION = "7.4"
+VERSION = "7.5"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -430,12 +430,14 @@ def _sync_invoices() -> None:
 
 
 def _sync_timologiseis() -> None:
-    if not INV_PW:
-        c.note("Λείπει το EMAIL_PASS από τα secrets.", "bad")
+    # Οι τιμολογήσεις έρχονται πλέον στο ftoulisgm@gmail.com — ίδιο mailbox με
+    # τις πωλήσεις, άρα ίδιος κωδικός εφαρμογής.
+    if not SALES_PW:
+        c.note("Λείπει το SALES_EMAIL_PASS από τα secrets.", "bad")
         return
 
     with st.spinner("Διάβασμα email…"):
-        records, errors = fetch_timologiseis(INV_PW, limit=200)
+        records, errors = fetch_timologiseis(SALES_PW, limit=200)
 
     if errors:
         c.note(errors[0], "warn")

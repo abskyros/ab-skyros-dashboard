@@ -38,7 +38,13 @@ SALES_EMAIL_USER      = "ftoulisgm@gmail.com"
 SALES_EMAIL_SENDER    = "abf.skyros@gmail.com"
 SALES_SUBJECT_KW      = "ΑΒ ΣΚΥΡΟΣ"
 
-TIMOL_EMAIL_USER      = "abf.skyros@gmail.com"
+# Οι ΤΙΜΟΛΟΓΗΣΕΙΣ έρχονται πλέον στο ftoulisgm@gmail.com (προωθημένες, «Fw:»).
+# Ο αποστολέας δεν άλλαξε. Το φίλτρο θέματος ψάχνει τη λέξη οπουδήποτε μέσα στο
+# θέμα, οπότε το «Fw:» μπροστά δεν ενοχλεί.
+#
+# ΠΡΟΣΟΧΗ: άλλος λογαριασμός = ΑΛΛΟΣ κωδικός εφαρμογής. Οι τιμολογήσεις
+# χρησιμοποιούν πλέον το SALES_EMAIL_PASS (ίδιο mailbox με τις πωλήσεις).
+TIMOL_EMAIL_USER      = "ftoulisgm@gmail.com"
 TIMOL_EMAIL_SENDER    = "fr.georgios.manos.ftoylis@ab.gr"
 TIMOL_SUBJECT_KW      = "ΤΙΜΟΛΟΓΗΣΕΙΣ"
 

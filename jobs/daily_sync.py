@@ -62,16 +62,17 @@ def main() -> int:
         print("  ! Λείπει το EMAIL_PASS — παράλειψη")
 
     # ── ΤΙΜΟΛΟΓΗΣΕΙΣ ──
+    # Έρχονται πλέον στο ftoulisgm@gmail.com — ίδιο mailbox με τις πωλήσεις.
     print("\n· Τιμολογήσεις")
-    if inv_pw:
-        records, errors = fetch_timologiseis(inv_pw, limit=100)
+    if sales_pw:
+        records, errors = fetch_timologiseis(sales_pw, limit=100)
         if errors:
             print(f"  ! {errors[0]}")
         else:
             n = merge_timologiseis(records)
             print(f"  ✓ {n} νέες" if n else "  · Καμία νέα")
     else:
-        print("  ! Λείπει το EMAIL_PASS — παράλειψη")
+        print("  ! Λείπει το SALES_EMAIL_PASS — παράλειψη")
 
     # ── ΠΩΛΗΣΕΙΣ ──
     print("\n· Πωλήσεις")

@@ -31,10 +31,16 @@ def main() -> int:
         print("✗ Λείπει το GOOGLE_KEY_JSON")
         return 1
 
+    # Παραστατικά → abf.skyros@gmail.com  (EMAIL_PASS)
     password = os.environ.get("EMAIL_PASS", "")
     if not password:
         print("✗ Λείπει το EMAIL_PASS")
         return 1
+
+    # Τιμολογήσεις → ftoulisgm@gmail.com  (SALES_EMAIL_PASS)
+    # Άλλαξε το mailbox παραλαβής, άρα χρειάζεται ο κωδικός ΕΚΕΙΝΟΥ του
+    # λογαριασμού. Fallback στο EMAIL_PASS ώστε να μη σπάσει αν λείπει.
+    timol_pw = os.environ.get("SALES_EMAIL_PASS", "") or password
 
     print(f"▶ Παραστατικά & Τιμολογήσεις — {datetime.now():%Y-%m-%d %H:%M}")
 
@@ -54,7 +60,7 @@ def main() -> int:
 
     # ── ΤΙΜΟΛΟΓΗΣΕΙΣ ──
     print("\n· Τιμολογήσεις")
-    records, errors = fetch_timologiseis(password, limit=TIMOL_LIMIT)
+    records, errors = fetch_timologiseis(timol_pw, limit=TIMOL_LIMIT)
 
     if errors:
         # Το «κανένα email δεν ταιριάζει» δεν είναι σφάλμα — απλώς δεν ήρθε τίποτα.

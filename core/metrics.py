@@ -211,22 +211,54 @@ def sales_row(df: pd.DataFrame, d: date) -> dict | None:
 
 def week_to_date(df: pd.DataFrame, today: date) -> dict:
     """
-    Η εβδομάδα ΩΣ ΤΩΡΑ (Δευτέρα → σήμερα) vs οι αντίστοιχες μέρες πέρσι.
+    Η εβδομάδα ΩΣ ΤΩΡΑ vs οι ΙΔΙΕΣ μέρες πέρσι.
 
-    Συγκρίνουμε Δευ–Τετ με Δευ–Τετ πέρσι, όχι Δευ–Τετ με ολόκληρη εβδομάδα.
-    Αλλιώς κάθε Δευτέρα θα φαινόμασταν 85% κάτω.
+    ┌────────────────────────────────────────────────────────────────────────┐
+    │ ΤΟ BUG ΠΟΥ ΕΦΤΙΑΞΕ ΑΥΤΟ                                                │
+    │                                                                        │
+    │ Η αναφορά πωλήσεων έρχεται το βράδυ. Άρα την Τρίτη το πρωί, το Sheet   │
+    │ έχει ΜΟΝΟ τη Δευτέρα.                                                  │
+    │                                                                        │
+    │ Ο παλιός κώδικας συνέκρινε:                                            │
+    │     φέτος  Δευ→Τρι  = 1.000 €  (μόνο η Δευτέρα υπάρχει)               │
+    │     πέρσι  Δευ→Τρι  = 2.000 €  (και οι δύο μέρες υπάρχουν)            │
+    │     → «-50%»  ενώ στην πραγματικότητα είναι ΙΣΟΠΑΛΙΑ.                  │
+    │                                                                        │
+    │ ΛΥΣΗ: κόβουμε ΚΑΙ ΤΑ ΔΥΟ στην τελευταία μέρα που έχει ΠΡΑΓΜΑΤΙΚΑ       │
+    │ δεδομένα φέτος. Μόλις μπει η Τρίτη το βράδυ, η σύγκριση επεκτείνεται   │
+    │ μόνη της σε Δευ–Τρι και για τα δύο χρόνια.                            │
+    │                                                                        │
+    │ Καλύτερα να δείχνεις λιγότερα και σωστά, παρά περισσότερα και λάθος.   │
+    └────────────────────────────────────────────────────────────────────────┘
     """
     start, _ = week_range(today)
-    elapsed = (today - start).days
+
+    # ── ΩΣ ΠΟΥ ΕΧΟΥΜΕ ΠΡΑΓΜΑΤΙΚΑ ΔΕΔΟΜΕΝΑ ΦΕΤΟΣ; ──
+    #
+    # Η τελευταία μέρα ΜΕΣΑ στην τρέχουσα εβδομάδα με καταχωρημένες πωλήσεις.
+    # Αν δεν έχει έρθει τίποτα ακόμη (Δευτέρα πρωί), πέφτουμε πίσω στο «today»
+    # ώστε η κάρτα να μη σπάσει — απλώς θα δείξει 0 και για τα δύο.
+    end = today
+    if not df.empty:
+        d = as_dates(df["date"])
+        in_week = df[(d >= start) & (d <= today)]
+        if not in_week.empty:
+            last = in_week["date"].max()
+            end = last.date() if hasattr(last, "date") else last
+        else:
+            # Καμία μέρα της εβδομάδας δεν έχει έρθει ακόμη.
+            end = start
+
+    elapsed = (end - start).days
 
     ly_start = last_year(start)
-    ly_end = ly_start + timedelta(days=elapsed)
+    ly_end = last_year(end)          # ΙΔΙΟ κόψιμο και πέρσι — αυτό είναι το κλειδί
 
-    cur = sales_between(df, start, today) or 0.0
+    cur = sales_between(df, start, end) or 0.0
     prev = sales_between(df, ly_start, ly_end)
 
     label = day_name(start, short=True) if elapsed == 0 else \
-        f"{day_name(start, short=True)}–{day_name(today, short=True)}"
+        f"{day_name(start, short=True)}–{day_name(end, short=True)}"
 
     return {
         "current": cur,
@@ -235,7 +267,7 @@ def week_to_date(df: pd.DataFrame, today: date) -> dict:
         "days_elapsed": elapsed + 1,
         "label": label,
         "start": start,
-        "end": today,
+        "end": end,
     }
 
 
