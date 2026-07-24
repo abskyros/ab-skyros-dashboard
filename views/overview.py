@@ -40,7 +40,9 @@ from ui import components as c
 def render(df_s: pd.DataFrame, df_i: pd.DataFrame, df_t: pd.DataFrame, today: date) -> None:
     week_start, _ = week_range(today)
 
-    c.title("Επισκόπηση", f"Τρέχουσα εβδομάδα · από {day_name(week_start)} {week_start:%d/%m}")
+    # Χωρίς μεγάλο τίτλο — η πλοήγηση λέει ήδη πού είσαι. Κρατάμε μόνο ποια
+    # εβδομάδα βλέπεις, σε μία διακριτική γραμμή.
+    st.caption(f"Τρέχουσα εβδομάδα · από {day_name(week_start)} {week_start:%d/%m}")
 
     if df_s.empty and df_i.empty and df_t.empty:
         c.empty(

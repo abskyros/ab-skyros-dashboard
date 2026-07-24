@@ -76,8 +76,9 @@ html, body, [class*="css"], .stApp {
 
 .stApp { background: var(--canvas); }
 
+/* Συμπυκνωμένο: ο στόχος είναι η σελίδα να χωράει ΧΩΡΙΣ scroll. */
 .block-container {
-  padding: 1.25rem 1.5rem 6rem !important;
+  padding: .6rem 1.5rem 3.5rem !important;
   max-width: 1180px;
 }
 
@@ -89,6 +90,11 @@ html, body, [class*="css"], .stApp {
 }
 
 [data-testid="stSidebar"] { display: none !important; }
+
+/* Συμπυκνωμένα κάθετα κενά — λιγότερο scroll, ίδια σαφήνεια. */
+[data-testid="stVerticalBlock"] { gap: .5rem !important; }
+[data-testid="stElementContainer"]:empty { display: none; }
+.stCaption, [data-testid="stCaptionContainer"] { margin-bottom: .1rem; }
 
 /* Τα ποσά ΠΡΕΠΕΙ να στοιχίζονται κάθετα. Χωρίς αυτό, μια στήλη με €
    διαβάζεται σαν σκάλα. */
@@ -206,8 +212,8 @@ html, body, [class*="css"], .stApp {
   letter-spacing: .09em;
   text-transform: uppercase;
   color: var(--dim);
-  margin: 1.8rem 0 .7rem;
-  padding-bottom: .45rem;
+  margin: .9rem 0 .5rem;
+  padding-bottom: .35rem;
   border-bottom: 1px solid var(--line-soft);
 }
 
@@ -367,7 +373,7 @@ a:hover > .scale { box-shadow: var(--lift-2); transform: translateY(-1px); }
 }
 
 /* ── ΠΛΕΓΜΑ ──────────────────────────────────────────────────────────────── */
-.grid { display: grid; gap: .85rem; margin-bottom: .85rem; }
+.grid { display: grid; gap: .6rem; margin-bottom: .6rem; }
 .g2 { grid-template-columns: repeat(2, 1fr); }
 .g3 { grid-template-columns: repeat(3, 1fr); }
 .g4 { grid-template-columns: repeat(4, 1fr); }
@@ -806,7 +812,7 @@ button[data-testid="stBaseButton-primary"]:hover {
   .page-sub { font-size: .76rem; margin-bottom: 1rem; }
 
   .eyebrow {
-    margin: 1.3rem 0 .55rem;
+    margin: .75rem 0 .45rem;
     font-size: .62rem;
   }
 

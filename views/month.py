@@ -50,8 +50,6 @@ EDITABLE = {
 
 
 def render(df_t: pd.DataFrame, df_s: pd.DataFrame, today: date) -> None:
-    c.title("Μήνας", "Επιταγές, πωλήσεις και έξοδα ανά περίοδο")
-
     if df_t.empty:
         c.empty("Δεν υπάρχουν τιμολογήσεις ακόμη")
         return

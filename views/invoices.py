@@ -30,17 +30,12 @@ from ui import charts
 
 
 def render(df: pd.DataFrame, today: date) -> None:
-    c.title("Παραστατικά", "Τιμολόγια και πιστωτικά")
-
     if df.empty:
         c.empty(
             "Δεν υπάρχουν παραστατικά ακόμη",
             "Τα παραστατικά έρχονται αυτόματα κάθε 2 ώρες. Για άμεση ενημέρωση, δες το κάτω μέρος."
         )
         return
-
-    _health_warning(df)
-    _tools(df)
 
     weekly, yearly = st.tabs(["Εβδομαδιαία", "Ετήσια"])
 
@@ -49,6 +44,10 @@ def render(df: pd.DataFrame, today: date) -> None:
 
     with yearly:
         _yearly(df, today)
+
+    # Προειδοποίηση και εργαλεία ΚΑΤΩ — πρώτα τα δεδομένα, μετά η συντήρηση.
+    _health_warning(df)
+    _tools(df)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

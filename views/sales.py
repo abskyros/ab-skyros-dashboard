@@ -27,16 +27,12 @@ from ui import components as c
 
 
 def render(df: pd.DataFrame, today: date) -> None:
-    c.title("Πωλήσεις", "Εβδομαδιαία και ετήσια ανάλυση")
-
     if df.empty:
         c.empty(
             "Δεν υπάρχουν πωλήσεις ακόμη",
             "Οι πωλήσεις έρχονται αυτόματα κάθε βράδυ. Για άμεση ενημέρωση, δες το κάτω μέρος της σελίδας."
         )
         return
-
-    _tools(df, today)
 
     weekly, yearly = st.tabs(["Εβδομαδιαία", "Ετήσια"])
 
@@ -45,6 +41,9 @@ def render(df: pd.DataFrame, today: date) -> None:
 
     with yearly:
         _yearly(df, today)
+
+    # Τα εργαλεία διόρθωσης ΚΑΤΩ — τα χρειάζεσαι σπάνια, τα δεδομένα συνέχεια.
+    _tools(df, today)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

@@ -20,8 +20,6 @@ from ui import components as c
 
 
 def render(df_t: pd.DataFrame, df_s: pd.DataFrame, today: date, open_year: str | None) -> None:
-    c.title("Τιμολογήσεις", "Πληρωμές με επιταγή")
-
     if df_t.empty:
         c.empty(
             "Δεν υπάρχουν τιμολογήσεις ακόμη",
