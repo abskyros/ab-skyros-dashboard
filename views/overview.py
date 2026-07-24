@@ -42,7 +42,10 @@ def render(df_s: pd.DataFrame, df_i: pd.DataFrame, df_t: pd.DataFrame, today: da
 
     # Χωρίς μεγάλο τίτλο — η πλοήγηση λέει ήδη πού είσαι. Κρατάμε μόνο ποια
     # εβδομάδα βλέπεις, σε μία διακριτική γραμμή.
-    st.caption(f"Τρέχουσα εβδομάδα · από {day_name(week_start)} {week_start:%d/%m}")
+    c.html(
+        f'<div class="page-note">Τρέχουσα εβδομάδα · από '
+        f'{day_name(week_start)} {week_start:%d/%m}</div>'
+    )
 
     if df_s.empty and df_i.empty and df_t.empty:
         c.empty(
