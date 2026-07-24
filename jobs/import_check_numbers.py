@@ -117,9 +117,17 @@ def main() -> int:
     print()
 
     # ── 3. ΤΑΙΡΙΑΞΕ ──
+    #
+    # Πρώτα με ΑΚΡΙΒΗ ημερομηνία. Αν δεν βρεθεί, δοκιμάζουμε ±3 μέρες — γιατί
+    # καμιά φορά η ίδια επιταγή είναι καταχωρημένη Δευτέρα στο ένα και Τρίτη
+    # στο άλλο. Τα «κοντινά» ταιριάσματα επισημαίνονται ξεχωριστά, ώστε να τα
+    # ελέγξεις με το μάτι πριν γραφτούν.
     to_write = []     # (row, number, date, amount)
     already = 0       # έχουν ήδη αριθμό — δεν τα πειράζουμε
     no_match = []     # δεν βρέθηκαν στο Excel
+    used = set()      # αριθμοί που δόθηκαν ήδη — να μην μπει ο ίδιος 2 φορές
+
+    from datetime import timedelta
 
     for _, r in df.iterrows():
         cd = r["check_date"]
@@ -131,23 +139,58 @@ def main() -> int:
             continue
 
         match = by_date.get(cd)
+        near = False
+
         if not match:
+            # Δοκίμασε ±3 μέρες, ξεκινώντας από την πιο κοντινή.
+            for delta in (1, -1, 2, -2, 3, -3):
+                cand = by_date.get(cd + timedelta(days=delta))
+                if cand and cand["number"] not in used:
+                    match, near = cand, True
+                    break
+
+        if not match or match["number"] in used:
             no_match.append(cd)
             continue
 
+        used.add(match["number"])
         to_write.append({
             "row": int(r["_row"]),
             "number": match["number"],
             "date": cd,
+            "excel_date": match["date"],
+            "near": near,
             "sheet_amount": float(r["amount"]),
             "excel_amount": match["amount"],
         })
 
     # ── 4. ΑΝΑΦΟΡΑ ──
+    exact = [w for w in to_write if not w["near"]]
+    nears = [w for w in to_write if w["near"]]
+
     print(f"  Έχουν ήδη αριθμό (δεν πειράζονται): {already}")
     print(f"  Θα συμπληρωθούν:                    {len(to_write)}")
+    print(f"      · ακριβής ημερομηνία:           {len(exact)}")
+    print(f"      · κοντινή (±3 μέρες):           {len(nears)}")
     print(f"  Χωρίς αντιστοιχία στο Excel:        {len(no_match)}")
     print()
+
+    if nears:
+        print("  ⚠ ΚΟΝΤΙΝΑ ΤΑΙΡΙΑΣΜΑΤΑ — έλεγξέ τα:")
+        for w in nears[:10]:
+            print(f"      Sheet {w['date']:%d/%m/%Y}  ←  Excel {w['excel_date']:%d/%m/%Y}"
+                  f"  →  {w['number']}")
+        if len(nears) > 10:
+            print(f"      …και άλλα {len(nears) - 10}")
+        print()
+
+    if no_match:
+        print(f"  · Ημερομηνίες Sheet χωρίς αριθμό στο Excel (πρώτες 8):")
+        for d in no_match[:8]:
+            print(f"      {d:%d/%m/%Y}")
+        if len(no_match) > 8:
+            print(f"      …και άλλες {len(no_match) - 8}")
+        print()
 
     # Προειδοποίηση αν τα ποσά διαφέρουν — μπορεί να είναι λάθος ταίριασμα.
     mismatched = [
