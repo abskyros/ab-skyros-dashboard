@@ -1,0 +1,40 @@
+name: Μεταφορά αριθμών επιταγής
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Δοκιμή μόνο (χωρίς εγγραφή)'
+        type: boolean
+        default: true
+      excel_file:
+        description: 'Αρχείο Excel'
+        default: 'minas.xlsx'
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Egkatastasi
+        run: |
+          pip install -r requirements.txt
+          pip install openpyxl
+
+      - name: Metafora
+        env:
+          GOOGLE_KEY_JSON: ${{ secrets.GOOGLE_KEY_JSON }}
+        run: |
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            python jobs/import_check_numbers.py --file "${{ inputs.excel_file }}" --dry
+          else
+            python jobs/import_check_numbers.py --file "${{ inputs.excel_file }}"
+          fi
