@@ -205,6 +205,13 @@ html, body, [class*="css"], .stApp {
   margin-bottom: 1.3rem;
 }
 
+/* Διακριτική γραμμή στη θέση του παλιού τίτλου σελίδας. */
+.page-note {
+  font-size: .72rem;
+  color: var(--dim);
+  margin: .1rem 0 .5rem;
+}
+
 .eyebrow {
   font-family: 'Manrope', sans-serif;
   font-size: .66rem;
