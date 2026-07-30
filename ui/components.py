@@ -129,6 +129,36 @@ def spacer(rem: float = 1.0) -> None:
 # ══════════════════════════════════════════════════════════════════════════════
 # Η ΖΥΓΑΡΙΑ
 # ══════════════════════════════════════════════════════════════════════════════
+def _bar(tag: str, val, fmt, cls: str, width: float | None) -> str:
+    """
+    Μια γραμμή σύγκρισης: ετικέτα · λεπτή μπάρα αναλογίας · ποσό.
+
+    Η μπάρα ΔΕΝ είναι γράφημα — είναι η ζυγαριά. Δύο πάχη δίπλα-δίπλα λένε
+    «ποιο είναι μεγαλύτερο» πριν προλάβεις να διαβάσεις τα νούμερα.
+    """
+    fill = (
+        f'<span class="bar-fill" style="width:{width:.0f}%"></span>'
+        if width is not None else ''
+    )
+    return (
+        f'<div class="bar-row {cls}">'
+        f'<span class="bar-tag">{_esc(tag)}</span>'
+        f'<span class="bar-track">{fill}</span>'
+        f'<span class="bar-val">{fmt(val)}</span>'
+        '</div>'
+    )
+
+
+def _widths(now: float, then: float | None) -> tuple[float | None, float | None]:
+    """Τα πάχη των δύο μπαρών, 0–100. None αν δεν υπάρχει σύγκριση."""
+    if then is None or then <= 0:
+        return (100.0 if now > 0 else 0.0), None
+    base = max(now, then)
+    if base <= 0:
+        return 0.0, 0.0
+    return 100.0 * now / base, 100.0 * then / base
+
+
 def scale(
     label: str,
     now: float | None,
@@ -144,8 +174,8 @@ def scale(
     """
     Το νούμερο, και δίπλα του η σύγκριση με πέρσι.
 
-    Χωρίς μπάρες: το ποσοστό στην κορυφή λέει ήδη την ιστορία, και τα δύο ποσά
-    κάθονται δίπλα στις ετικέτες τους — όχι σε απόσταση αναγνώρισης.
+    Η ζυγαριά: δύο λεπτές μπάρες δείχνουν οπτικά ποιο νούμερο είναι μεγαλύτερο,
+    το ποσοστό στην κορυφή λέει πόσο.
     """
     n = 0.0 if now is None or pd.isna(now) else float(now)
     t = None if then is None or pd.isna(then) else float(then)
@@ -159,6 +189,8 @@ def scale(
         arrow = "↑" if pct >= 0 else "↓"
         badge = f'<span class="scale-delta {cls}">{arrow} {abs(pct):.1f}%</span>'
 
+    now_w, then_w = _widths(n, t)
+
     body = (
         '<div class="scale">'
         '<div class="scale-head">'
@@ -167,15 +199,9 @@ def scale(
         '</div>'
         f'<div class="kpi-now">{fmt(now)}</div>'
         '<div class="bars">'
-        '<div class="bar-row now">'
-        f'<span class="bar-tag">{_esc(now_tag)}</span>'
-        f'<span class="bar-val">{fmt(now)}</span>'
-        '</div>'
-        '<div class="bar-row then">'
-        f'<span class="bar-tag">{_esc(then_tag)}</span>'
-        f'<span class="bar-val">{fmt(then)}</span>'
-        '</div>'
-        '</div>'
+        + _bar(now_tag, now, fmt, "now", now_w)
+        + _bar(then_tag, then, fmt, "then", then_w)
+        + '</div>'
         + (f'<div class="scale-foot">{_esc(foot)}</div>' if foot else '')
         + '</div>'
     )
@@ -235,6 +261,8 @@ def target(
         else f'<div class="kpi-now">{eur(now)}</div>'
     )
 
+    now_w, goal_w = _widths(n, g)
+
     body = (
         '<div class="scale target">'
         '<div class="scale-head">'
@@ -243,15 +271,9 @@ def target(
         '</div>'
         f'{value}'
         '<div class="bars">'
-        '<div class="bar-row now">'
-        '<span class="bar-tag">Τώρα</span>'
-        f'<span class="bar-val">{eur(now) if not pending else "—"}</span>'
-        '</div>'
-        '<div class="bar-row then">'
-        '<span class="bar-tag">Στόχος</span>'
-        f'<span class="bar-val">{eur(goal)}</span>'
-        '</div>'
-        '</div>'
+        + _bar("Τώρα", "—" if pending else now, (lambda v: v) if pending else eur, "now", 0.0 if pending else now_w)
+        + _bar("Στόχος", goal, eur, "then", goal_w)
+        + '</div>'
         + (f'<div class="scale-foot">{_esc(foot)}</div>' if foot else '')
         + '</div>'
     )
