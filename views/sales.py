@@ -18,6 +18,7 @@ from core.config import SHEET_SALES
 from core.metrics import (
     week_range, last_year, day_name, as_dates,
     sales_on, sales_row, monthly_breakdown, weekly_series,
+    find_anomalies,
 )
 from core.sheets import (
     load_sales, merge_sales, update_sales,
@@ -34,6 +35,10 @@ def render(df: pd.DataFrame, today: date) -> None:
         )
         return
 
+    # Ο φύλακας: ύποπτες μέρες ΠΑΝΩ απ' όλα — αν κάτι διαβάστηκε λάθος,
+    # πρέπει να το δεις πριν εμπιστευτείς τα νούμερα της σελίδας.
+    _anomalies(df, today)
+
     weekly, yearly = st.tabs(["Εβδομαδιαία", "Ετήσια"])
 
     with weekly:
@@ -44,6 +49,40 @@ def render(df: pd.DataFrame, today: date) -> None:
 
     # Τα εργαλεία διόρθωσης ΚΑΤΩ — τα χρειάζεσαι σπάνια, τα δεδομένα συνέχεια.
     _tools(df, today)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ΑΞΙΟΠΙΣΤΙΑ ΔΕΔΟΜΕΝΩΝ
+# ══════════════════════════════════════════════════════════════════════════════
+def _anomalies(df: pd.DataFrame, today: date) -> None:
+    """
+    Αυτόματος έλεγχος κάθε φόρτωσης. Μια μέρα είναι ύποπτη όταν ξεφεύγει
+    πολύ από τον τύπο της (Δευτέρα με Δευτέρες) — σημάδι λάθους OCR.
+    Δεν διορθώνει τίποτα μόνο του· δείχνει ΠΟΙΑ μέρα να ανοίξεις στη Διόρθωση.
+    """
+    flagged = find_anomalies(df, today)
+    if not flagged:
+        return
+
+    c.note(
+        f"<b>{len(flagged)} {'ημέρα χρειάζεται' if len(flagged) == 1 else 'ημέρες χρειάζονται'} έλεγχο</b> — "
+        f"οι αριθμοί τους αποκλίνουν πολύ από το συνηθισμένο. "
+        f"Διόρθωσέ τις κάτω στο «Διόρθωση · Προσθήκη · Έλεγχος».",
+        "warn",
+    )
+
+    for a in flagged:
+        d = a["date"]
+        net = c.eur(a["net_sales"]) if a["net_sales"] is not None else "—"
+        base = c.eur(a["baseline"]) if a["baseline"] else "—"
+        why = " · ".join(a["reasons"])
+        c.html(
+            f'<div class="flag-row">'
+            f'<div class="flag-date">{day_name(d, short=True)} {d:%d/%m/%Y}</div>'
+            f'<div class="flag-nums">{net} <span class="flag-vs">αντί για ~{base}</span></div>'
+            f'<div class="flag-why">{why}</div>'
+            f'</div>'
+        )
 
 
 # ══════════════════════════════════════════════════════════════════════════════

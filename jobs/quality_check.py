@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core.config import SHEET_SALES, SHEET_INV, SHEET_TIMOL
 from core.sheets import check_quality, load_sales
+from core.metrics import find_anomalies
 
 
 def main() -> int:
@@ -85,6 +86,21 @@ def main() -> int:
     else:
         problems += 1
         print(f"  ⚠ Η {yesterday:%d/%m} ΔΕΝ έχει έρθει")
+
+    # ── ΥΠΟΠΤΕΣ ΜΕΡΕΣ (λάθη OCR) ──
+    # Μια μέρα που αποκλίνει >45% από την τυπική ίδια μέρα της εβδομάδας
+    # μάλλον διαβάστηκε λάθος. Το ίδιο σήμα δείχνει και η εφαρμογή.
+    print("\n· Αξιοπιστία αριθμών")
+    suspicious = find_anomalies(df, date.today())
+    if suspicious:
+        for a in suspicious:
+            problems += 1
+            why = " · ".join(a["reasons"])
+            base = f"~{a['baseline']:,.2f} €" if a["baseline"] else "—"
+            print(f"  ⚠ {a['date']:%d/%m/%Y}: {a['net_sales']:,.2f} € "
+                  f"(τυπικά {base}) — {why}")
+    else:
+        print("  ✓ Καμία μέρα δεν ξεφεύγει από τον τύπο της")
 
     # ── ΣΥΝΟΨΗ ──
     print("\n" + "─" * 56)

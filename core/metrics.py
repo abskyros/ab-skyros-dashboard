@@ -209,6 +209,83 @@ def sales_row(df: pd.DataFrame, d: date) -> dict | None:
     }
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# ΕΝΤΟΠΙΣΜΟΣ ΛΑΘΩΝ OCR
+#
+# Η ιδέα: κάθε Δευτέρα μοιάζει με τις προηγούμενες Δευτέρες. Αν μια μέρα
+# ξεφεύγει πολύ από τον τυπικό της εαυτό, μάλλον το OCR διάβασε λάθος ψηφίο
+# (π.χ. 23.743 → 2.374 ή 237.439).
+#
+# ΔΕΝ διορθώνει τίποτα μόνο του. Σημαίνει «κοίτα αυτή τη μέρα» — η διόρθωση
+# γίνεται από την εφαρμογή (Πωλήσεις → Διόρθωση) ή ξαναδιαβάζοντας το mail.
+# ══════════════════════════════════════════════════════════════════════════════
+ANOMALY_DEVIATION = 45.0   # % απόκλιση από την τυπική ίδια μέρα → ύποπτο
+ANOMALY_LOOKBACK  = 60     # ελέγχονται οι τελευταίες τόσες ημέρες
+ANOMALY_SAMPLES   = 12     # έως τόσες προηγούμενες όμοιες μέρες ως βάση
+ANOMALY_MIN_BASE  = 4      # λιγότερες → δεν υπάρχει αξιόπιστη βάση, δεν κρίνουμε
+
+
+def find_anomalies(df: pd.DataFrame, today: date) -> list[dict]:
+    """
+    → λίστα ύποπτων ημερών, νεότερη πρώτη:
+        {date, net_sales, customers, baseline, deviation, reasons}
+
+    Βάση σύγκρισης: η ΔΙΑΜΕΣΟΣ των (έως 12) προηγούμενων ημερών ΤΗΣ ΙΔΙΑΣ
+    εβδομάδας (Δευτέρα με Δευτέρες). Η διάμεσος αντέχει σε μεμονωμένες
+    ακραίες τιμές — ένα λάθος δεν μολύνει την κρίση για τις επόμενες μέρες.
+
+    Τρία σημάδια:
+      1. Πωλήσεις που αποκλίνουν >45% από την τυπική ίδια μέρα
+      2. Μηδενικές πωλήσεις σε μέρα που το μαγαζί δούλεψε (έχει πελάτες)
+      3. Καλάθι που δεν συμφωνεί με πωλήσεις ÷ πελάτες (ολίσθηση ψηφίου)
+    """
+    if df.empty:
+        return []
+
+    since = today - timedelta(days=ANOMALY_LOOKBACK)
+    dts = as_dates(df["date"])
+    hist = df[dts < today].sort_values("date")          # όλο το παρελθόν, χωρίς σήμερα
+    recent = df[(dts >= since) & (dts < today)]         # μόνο αυτές κρίνονται
+
+    out = []
+    for _, row in recent.iterrows():
+        d = row["date"].date() if hasattr(row["date"], "date") else row["date"]
+        net = float(row["net_sales"]) if pd.notna(row["net_sales"]) else None
+        cust = int(row["customers"]) if pd.notna(row["customers"]) else None
+        basket = float(row["avg_basket"]) if pd.notna(row["avg_basket"]) else None
+
+        # Η βάση: προηγούμενες μέρες με το ίδιο weekday
+        same = hist[hist["date"].dt.weekday == d.weekday()]
+        base = float(same["net_sales"].tail(ANOMALY_SAMPLES).median()) \
+            if len(same) >= ANOMALY_MIN_BASE else None
+
+        reasons, deviation = [], None
+
+        if net is not None and net <= 0 and cust and cust > 0:
+            reasons.append("μηδενικές πωλήσεις με κανονικούς πελάτες")
+
+        if net is not None and base:
+            deviation = (net - base) / base * 100
+            if abs(deviation) > ANOMALY_DEVIATION:
+                reasons.append(
+                    f"{'πάνω' if deviation > 0 else 'κάτω'} {abs(deviation):.0f}% "
+                    f"από την τυπική {day_name(d)}"
+                )
+
+        if net and cust and basket and cust > 0:
+            implied = net / cust
+            if abs(basket - implied) / implied > 0.03:
+                reasons.append("το καλάθι δεν βγαίνει από πωλήσεις ÷ πελάτες")
+
+        if reasons:
+            out.append({
+                "date": d, "net_sales": net, "customers": cust,
+                "baseline": base, "deviation": deviation, "reasons": reasons,
+            })
+
+    return sorted(out, key=lambda a: a["date"], reverse=True)
+
+
 def week_to_date(df: pd.DataFrame, today: date) -> dict:
     """
     Η εβδομάδα ΩΣ ΤΩΡΑ vs οι ΙΔΙΕΣ μέρες πέρσι.

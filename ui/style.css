@@ -1,6 +1,12 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   ΑΒ ΣΚΥΡΟΣ — Executive Light
+   ΑΒ ΣΚΥΡΟΣ — Executive Light · v2
    Ένα εργαλείο που το κοιτάς κάθε πρωί. Πρέπει να διαβάζεται σε 2 δευτερόλεπτα.
+
+   Αρχές:
+     • Το νούμερο είναι ο πρωταγωνιστής — όλα τα άλλα υποστηρικτικοί ρόλοι.
+     • Πράσινο = ταυτότητα. Πράσινο/κόκκινο μικρό = πληροφορία (πάνω/κάτω).
+     • Κάθε επιφάνεια έχει φως από πάνω αριστερά: χείλος, σκιά, βάθος.
+     • Κανένα γράφημα. Η ζυγαριά (Φέτος vs Πέρσι) λέει τα πάντα.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap');
@@ -9,7 +15,7 @@
   /* ══════════════════════════════════════════════════════════════════════════
      ΧΡΩΜΑΤΑ
 
-     Βαθύ navy → φωτεινό μπλε. Επαγγελματικό, ήρεμο, διαβάζεται όλη μέρα.
+     Βαθύ δασικό πράσινο → φρέσκο πράσινο. Η ταυτότητα του μαγαζιού.
 
      ΚΑΝΟΝΑΣ: το πράσινο είναι η ΤΑΥΤΟΤΗΤΑ. Πράσινο/κόκκινο είναι η ΠΛΗΡΟΦΟΡΙΑ.
      Δεν μπερδεύονται ποτέ. Ένα νούμερο δεν βάφεται μπλε επειδή είναι σημαντικό
@@ -58,10 +64,17 @@
   --line:        #E2E8F0;
   --line-soft:   #F1F5F9;
 
-  /* Βάθος */
-  --lift-1: 0 1px 2px rgba(15,23,42,.04), 0 1px 3px rgba(15,23,42,.06);
-  --lift-2: 0 4px 6px -1px rgba(15,23,42,.07), 0 2px 4px -2px rgba(15,23,42,.05);
-  --lift-3: 0 10px 25px -5px rgba(20,83,45,.15);
+  /* Βάθος — πολυεπίπεδο: το φως έρχεται από πάνω αριστερά.
+     Κάθε κάρτα έχει λεπτό «χείλος φωτός» από πάνω (inset), σκιά από κάτω. */
+  --lift-1: 0 1px 2px rgba(15,23,42,.05), 0 2px 6px rgba(15,23,42,.04),
+            inset 0 1px 0 rgba(255,255,255,.9);
+  --lift-2: 0 6px 16px -4px rgba(15,23,42,.10), 0 2px 6px -2px rgba(15,23,42,.06),
+            inset 0 1px 0 rgba(255,255,255,.9);
+  --lift-3: 0 14px 34px -8px rgba(5,46,22,.30), 0 4px 10px -4px rgba(5,46,22,.14);
+
+  /* Δακτύλιος εστίασης & αχνή λάμψη ταυτότητας */
+  --ring: 0 0 0 3px rgba(21,128,61,.16);
+  --glow: 0 0 0 1px rgba(21,128,61,.18), 0 8px 24px -8px rgba(21,128,61,.22);
 
   --r-sm: 8px;
   --r:    12px;
@@ -72,9 +85,20 @@
 html, body, [class*="css"], .stApp {
   font-family: 'Inter', -apple-system, system-ui, sans-serif;
   color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 .stApp { background: var(--canvas); }
+
+/* Το highlight του χρήστη ακολουθεί την ταυτότητα */
+::selection { background: var(--blue-soft); color: var(--navy-deep); }
+
+/* Λεπτή, διακριτική μπάρα κύλισης — όπου υπάρχουν πίνακες */
+*::-webkit-scrollbar { height: 8px; width: 8px; }
+*::-webkit-scrollbar-thumb { background: var(--line); border-radius: 99px; }
+*::-webkit-scrollbar-thumb:hover { background: var(--dim); }
+*::-webkit-scrollbar-track { background: transparent; }
 
 /* Συμπυκνωμένο: ο στόχος είναι η σελίδα να χωράει ΧΩΡΙΣ scroll. */
 .block-container {
@@ -113,40 +137,47 @@ html, body, [class*="css"], .stApp {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  padding: 1.15rem 1.4rem;
+  padding: 1.25rem 1.5rem;
   margin-bottom: 1.1rem;
   border-radius: var(--r-lg);
+  border: 1px solid rgba(255,255,255,.10);
 
-  background: linear-gradient(120deg, var(--navy) 0%, var(--blue) 100%);
+  /* Δύο στρώσεις: αχνή πράσινη λάμψη ψηλά δεξιά ΠΑΝΩ στο βασικό gradient.
+     Έτσι η κεφαλίδα δεν είναι «επίπεδη μπαλαντέζα» — έχει φως και κατεύθυνση. */
+  background:
+    radial-gradient(130% 190% at 88% -30%, rgba(74,222,128,.28) 0%, rgba(74,222,128,0) 52%),
+    linear-gradient(115deg, var(--navy-deep) 0%, var(--navy) 46%, var(--blue) 112%);
   box-shadow: var(--lift-3);
   color: #fff;
 }
 
-.brand { display: flex; flex-direction: column; gap: .12rem; }
+.brand { display: flex; flex-direction: column; gap: .14rem; }
 
 .brand-name {
   font-family: 'Manrope', sans-serif;
   font-weight: 800;
-  font-size: 1.28rem;
+  font-size: 1.36rem;
   color: #fff;
-  line-height: 1.15;
-  letter-spacing: -.025em;
+  line-height: 1.12;
+  letter-spacing: -.028em;
 }
 
 .brand-sub {
-  font-size: .74rem;
-  color: rgba(255,255,255,.72);
+  font-size: .72rem;
+  color: rgba(255,255,255,.68);
   font-weight: 500;
-  letter-spacing: .01em;
+  letter-spacing: .14em;
+  text-transform: uppercase;
 }
 
 .today-stamp {
   font-size: .76rem;
   font-weight: 600;
   color: #fff;
-  padding: .48rem .9rem;
-  background: rgba(255,255,255,.16);
-  border: 1px solid rgba(255,255,255,.2);
+  padding: .5rem .95rem;
+  background: rgba(255,255,255,.13);
+  border: 1px solid rgba(255,255,255,.26);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.16), 0 1px 3px rgba(5,46,22,.25);
   border-radius: 100px;
   white-space: nowrap;
   backdrop-filter: blur(8px);
@@ -155,12 +186,12 @@ html, body, [class*="css"], .stApp {
 /* ── ΠΛΟΗΓΗΣΗ ─────────────────────────────────────────────────────────────── */
 .nav {
   display: flex;
-  gap: .2rem;
-  padding: .25rem;
+  gap: .25rem;
+  padding: .3rem;
   margin-bottom: 1.4rem;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--r);
+  border-radius: 14px;
   box-shadow: var(--lift-1);
   overflow-x: auto;
   scrollbar-width: none;
@@ -169,34 +200,36 @@ html, body, [class*="css"], .stApp {
 
 .nav a {
   flex: 1;
-  padding: .58rem .9rem;
+  padding: .6rem .9rem;
   text-align: center;
   text-decoration: none;
   white-space: nowrap;
-  border-radius: var(--r-sm);
+  border-radius: 10px;
   font-size: .82rem;
   font-weight: 600;
   color: var(--muted);
-  transition: background .13s ease, color .13s ease;
+  transition: background .13s ease, color .13s ease, box-shadow .13s ease;
 }
 
 .nav a:hover { background: var(--sunken); color: var(--text); }
 
 .nav a.on {
-  background: linear-gradient(120deg, var(--navy) 0%, var(--blue) 130%);
+  background: linear-gradient(115deg, var(--navy) 0%, var(--blue) 125%);
   color: #fff;
   font-weight: 700;
-  box-shadow: 0 2px 6px rgba(20,83,45,.3);
+  box-shadow: 0 3px 10px -2px rgba(20,83,45,.45), inset 0 1px 0 rgba(255,255,255,.14);
 }
 
-.nav a.on:hover { background: linear-gradient(120deg, var(--navy-deep) 0%, var(--navy) 130%); }
+.nav a.on:hover { background: linear-gradient(115deg, var(--navy-deep) 0%, var(--navy) 125%); }
+
+.nav a:focus-visible { outline: none; box-shadow: var(--ring); }
 
 /* ── ΤΙΤΛΟΣ ΣΕΛΙΔΑΣ ───────────────────────────────────────────────────────── */
 .page-title {
   font-family: 'Manrope', sans-serif;
   font-weight: 800;
-  font-size: 1.5rem;
-  letter-spacing: -.03em;
+  font-size: 1.6rem;
+  letter-spacing: -.034em;
   color: var(--ink);
   margin: 0 0 .15rem;
 }
@@ -214,16 +247,30 @@ html, body, [class*="css"], .stApp {
   margin: .1rem 0 .5rem;
 }
 
+/* Επικεφαλίδα ενότητας: μικρή πράσινη σφραγίδα + κεφαλαία + hairline.
+   Το τετραγωνάκι είναι το «μόρσιο» της ταυτότητας — επαναλαμβανόμενο, ήσυχο. */
 .eyebrow {
   font-family: 'Manrope', sans-serif;
   font-size: .66rem;
   font-weight: 700;
-  letter-spacing: .09em;
+  letter-spacing: .1em;
   text-transform: uppercase;
-  color: var(--dim);
-  margin: .9rem 0 .5rem;
-  padding-bottom: .35rem;
+  color: var(--muted);
+  margin: 1rem 0 .55rem;
+  padding-bottom: .4rem;
   border-bottom: 1px solid var(--line-soft);
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+}
+
+.eyebrow::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 2px;
+  background: linear-gradient(135deg, var(--navy) 0%, var(--blue) 100%);
+  flex-shrink: 0;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -237,82 +284,86 @@ html, body, [class*="css"], .stApp {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
-  padding: 1rem 1.05rem .9rem;
+  padding: 1.05rem 1.1rem .95rem;
   box-shadow: var(--lift-1);
-  transition: box-shadow .15s ease, transform .15s ease, border-color .15s ease;
+  transition: box-shadow .18s ease, transform .18s ease, border-color .18s ease;
   height: 100%;
 }
 
 a:hover > .scale {
-  box-shadow: var(--lift-2);
+  box-shadow: var(--lift-2), var(--glow);
   transform: translateY(-2px);
-  border-color: var(--blue-light);
+  border-color: var(--blue-soft);
 }
 
 .scale-head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  margin-bottom: .35rem;
+  margin-bottom: .4rem;
 }
 
 .scale-label {
   font-family: 'Manrope', sans-serif;
   font-size: .66rem;
   font-weight: 700;
-  letter-spacing: .05em;
+  letter-spacing: .07em;
   text-transform: uppercase;
   color: var(--muted);
 }
 
+/* Το delta είναι η ΑΠΑΝΤΗΣΗ («κέρδισα ή έχασα;») — του αξίζει δακτύλιος. */
 .scale-delta {
   font-family: 'Manrope', sans-serif;
   font-size: .72rem;
   font-weight: 800;
-  padding: .14rem .42rem;
+  padding: .16rem .5rem;
   border-radius: 100px;
   white-space: nowrap;
+  letter-spacing: .01em;
 }
-.scale-delta.up   { color: var(--pos); background: var(--pos-tint); }
-.scale-delta.down { color: var(--neg); background: var(--neg-tint); }
-.scale-delta.flat { color: var(--dim); background: var(--sunken); }
+.scale-delta.up   { color: var(--pos); background: var(--pos-tint); box-shadow: inset 0 0 0 1px rgba(5,150,105,.22); }
+.scale-delta.down { color: var(--neg); background: var(--neg-tint); box-shadow: inset 0 0 0 1px rgba(220,38,38,.20); }
+.scale-delta.flat { color: var(--dim); background: var(--sunken); box-shadow: inset 0 0 0 1px var(--line); }
 
 /* Το φετινό: ο πρωταγωνιστής της κάρτας. Μεγάλο, σφιχτό, διαβάζεται από απόσταση. */
 .kpi-now {
   font-family: 'Manrope', sans-serif;
-  font-size: 1.8rem;
+  font-size: 1.9rem;
   font-weight: 800;
-  letter-spacing: -.035em;
-  line-height: 1.05;
+  letter-spacing: -.04em;
+  line-height: 1.02;
   color: var(--data);
 }
 
 /* Φέτος / Πέρσι — ετικέτα, λεπτή μπάρα αναλογίας, ποσό.
    Η μπάρα λέει «ποιο είναι μεγαλύτερο» πριν διαβάσεις τα νούμερα. */
-.bars { margin-top: .6rem; }
+.bars { margin-top: .65rem; }
 
 .bar-row {
   display: flex;
   align-items: center;
   gap: .55rem;
-  margin-bottom: .34rem;
+  margin-bottom: .36rem;
 }
 
 .bar-tag {
-  font-size: .72rem;
+  font-size: .7rem;
   font-weight: 700;
   color: var(--dim);
   flex-shrink: 0;
-  letter-spacing: .02em;
+  letter-spacing: .04em;
+  text-transform: uppercase;
   min-width: 44px;
 }
 
 .bar-track {
   flex: 1;
-  height: 5px;
+  height: 6px;
   background: var(--line-soft);
   border-radius: 99px;
   overflow: hidden;
+  box-shadow: inset 0 1px 2px rgba(15,23,42,.06);
 }
 
 .bar-fill {
@@ -320,10 +371,11 @@ a:hover > .scale {
   height: 100%;
   border-radius: 99px;
   background: linear-gradient(90deg, var(--navy) 0%, var(--blue) 100%);
-  transition: width .45s cubic-bezier(.4,0,.2,1);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.22);
+  transition: width .5s cubic-bezier(.4,0,.2,1);
 }
 
-.bar-row.then .bar-fill { background: var(--prev); }
+.bar-row.then .bar-fill { background: var(--prev); box-shadow: none; opacity: .65; }
 
 .bar-val {
   font-family: 'Manrope', sans-serif;
@@ -337,8 +389,8 @@ a:hover > .scale {
 .bar-row.then .bar-val { color: var(--muted); font-weight: 600; }
 
 .scale-foot {
-  margin-top: .45rem;
-  padding-top: .4rem;
+  margin-top: .5rem;
+  padding-top: .45rem;
   border-top: 1px solid var(--line-soft);
   font-size: .66rem;
   color: var(--dim);
@@ -369,14 +421,25 @@ a:hover > .scale {
 
 /* ── ΑΠΛΗ ΜΕΤΡΗΣΗ (χωρίς σύγκριση) ───────────────────────────────────────── */
 .stat {
+  position: relative;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-left: 3px solid var(--accent, var(--blue));
   border-radius: var(--r);
-  padding: .85rem .95rem;
+  padding: .9rem 1rem .85rem 1.1rem;
   box-shadow: var(--lift-1);
   height: 100%;
-  transition: box-shadow .15s ease, transform .15s ease, border-color .15s ease;
+  overflow: hidden;
+  transition: box-shadow .18s ease, transform .18s ease, border-color .18s ease;
+}
+
+/* Η έγχρωμη κορδέλα αριστερά — στρογγυλή, «κολώνα» ταυτότητας */
+.stat::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 12%; bottom: 12%;
+  width: 4px;
+  border-radius: 0 4px 4px 0;
+  background: var(--accent, var(--blue));
 }
 
 a:hover > .stat {
@@ -388,26 +451,26 @@ a:hover > .stat {
   font-family: 'Manrope', sans-serif;
   font-size: .66rem;
   font-weight: 700;
-  letter-spacing: .05em;
+  letter-spacing: .07em;
   text-transform: uppercase;
   color: var(--muted);
-  margin-bottom: .28rem;
+  margin-bottom: .3rem;
 }
 
 .stat-value {
   font-family: 'Manrope', sans-serif;
-  font-size: 1.6rem;
+  font-size: 1.65rem;
   font-weight: 800;
-  letter-spacing: -.032em;
+  letter-spacing: -.036em;
   color: var(--data);
-  line-height: 1.1;
+  line-height: 1.08;
 }
 .stat-value.pos  { color: var(--pos); }
 .stat-value.neg  { color: var(--neg); }
 .stat-value.none { color: var(--dim); font-size: 1.05rem; }
 
 .stat-foot {
-  margin-top: .28rem;
+  margin-top: .3rem;
   font-size: .66rem;
   color: var(--dim);
 }
@@ -430,9 +493,12 @@ a.plain { text-decoration: none; color: inherit; display: block; height: 100%; }
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  padding: 1.05rem 1.25rem;
+  padding: 1.1rem 1.3rem;
   margin-bottom: .9rem;
-  background: linear-gradient(135deg, var(--navy-deep) 0%, var(--navy) 55%, var(--blue) 100%);
+  background:
+    radial-gradient(140% 200% at 92% -40%, rgba(74,222,128,.30) 0%, rgba(74,222,128,0) 50%),
+    linear-gradient(130deg, var(--navy-deep) 0%, var(--navy) 55%, var(--blue) 110%);
+  border: 1px solid rgba(255,255,255,.10);
   border-radius: var(--r-lg);
   box-shadow: var(--lift-3);
   color: #fff;
@@ -469,11 +535,12 @@ a.plain { text-decoration: none; color: inherit; display: block; height: 100%; }
   margin-bottom: .3rem;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--r-sm);
-  transition: border-color .13s ease, background .13s ease;
+  border-radius: 10px;
+  box-shadow: var(--lift-1);
+  transition: border-color .13s ease, background .13s ease, transform .13s ease;
 }
 
-a.plain:hover > .row { border-color: var(--brand); background: var(--surface-alt); }
+a.plain:hover > .row { border-color: var(--blue-soft); background: var(--surface-alt); transform: translateX(2px); }
 .row.open { border-color: var(--brand); background: var(--brand-tint); }
 
 .row-key {
@@ -572,15 +639,63 @@ a.plain:hover > .row { border-color: var(--brand); background: var(--surface-alt
 .note {
   padding: .8rem 1rem;
   margin: .6rem 0;
-  border-radius: var(--r-sm);
-  border-left: 3px solid;
+  border-radius: 10px;
+  border: 1px solid;
   font-size: .84rem;
   line-height: 1.5;
 }
-.note.info { background: var(--brand-tint); border-color: var(--brand); color: var(--brand-dark); }
-.note.ok   { background: var(--pos-tint);   border-color: var(--pos);   color: #04603F; }
-.note.warn { background: var(--warn-tint);  border-color: var(--warn);  color: #8A3A00; }
-.note.bad  { background: var(--neg-tint);   border-color: var(--neg);   color: #971E14; }
+.note.info { background: var(--brand-tint); border-color: var(--blue-soft); color: var(--brand-dark); }
+.note.ok   { background: var(--pos-tint);   border-color: #A7F3D0;        color: #04603F; }
+.note.warn { background: var(--warn-tint);  border-color: #FDE68A;        color: #8A3A00; }
+.note.bad  { background: var(--neg-tint);   border-color: #FECACA;        color: #971E14; }
+
+/* ── ΥΠΟΠΤΕΣ ΜΕΡΕΣ (μηχανισμός λαθών OCR) ──────────────────────────────────
+   Σειρά συναγερμού: η μέρα, τι γράφει το Sheet, τι θα περίμενε κανείς,
+   και ΓΙΑΤΙ σημάνθηκε. Όλα σε μια ματιά. */
+.flag-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: .7rem 1rem;
+  margin-bottom: .35rem;
+  background: var(--warn-tint);
+  border: 1px solid #FDE68A;
+  border-left: 4px solid var(--warn);
+  border-radius: 10px;
+}
+
+.flag-date {
+  font-family: 'Manrope', sans-serif;
+  font-weight: 800;
+  font-size: .88rem;
+  color: var(--ink);
+  min-width: 130px;
+}
+
+.flag-nums {
+  font-family: 'Manrope', sans-serif;
+  font-weight: 800;
+  font-size: .92rem;
+  color: var(--neg);
+  white-space: nowrap;
+}
+
+.flag-vs {
+  font-family: 'Inter', sans-serif;
+  font-weight: 500;
+  font-size: .76rem;
+  color: var(--muted);
+  margin-left: .35rem;
+}
+
+.flag-why {
+  flex: 1;
+  font-size: .76rem;
+  color: #8A3A00;
+  text-align: right;
+  min-width: 180px;
+}
 
 /* Το άδειο δεν είναι σφάλμα — είναι πρόσκληση */
 .empty {
@@ -601,26 +716,31 @@ a.plain:hover > .row { border-color: var(--brand); background: var(--surface-alt
 
 /* ── STREAMLIT OVERRIDES ────────────────────────────────────────────────── */
 
-/* Το κύριο κουμπί δράσης — κόκκινο ΑΒ. Ξεχωρίζει από τα υπόλοιπα. */
+/* Το κύριο κουμπί δράσης — πλήρες πράσινο gradient, σαφής προτεραιότητα. */
 .stButton > button[kind="primary"],
 button[data-testid="stBaseButton-primary"] {
-  background: var(--navy) !important;
-  border-color: var(--navy) !important;
+  background: linear-gradient(115deg, var(--navy) 0%, var(--blue) 125%) !important;
+  border: none !important;
   color: #fff !important;
   font-weight: 700 !important;
+  box-shadow: 0 3px 10px -2px rgba(20,83,45,.4), inset 0 1px 0 rgba(255,255,255,.14) !important;
 }
 .stButton > button[kind="primary"]:hover,
 button[data-testid="stBaseButton-primary"]:hover {
-  background: var(--navy-deep) !important;
-  border-color: var(--navy-deep) !important;
+  background: linear-gradient(115deg, var(--navy-deep) 0%, var(--navy) 125%) !important;
   color: #fff !important;
+  transform: translateY(-1px);
+}
+.stButton > button[kind="primary"]:active,
+button[data-testid="stBaseButton-primary"]:active {
+  transform: translateY(0);
 }
 
 .stButton > button {
   font-family: 'Inter', sans-serif;
   font-weight: 600;
   font-size: .82rem;
-  border-radius: var(--r-sm);
+  border-radius: 10px;
   border: 1px solid var(--line);
   background: var(--surface);
   color: var(--text);
@@ -633,8 +753,18 @@ button[data-testid="stBaseButton-primary"]:hover {
   background: var(--brand-tint);
 }
 .stButton > button:focus-visible {
-  outline: 2px solid var(--brand);
-  outline-offset: 2px;
+  outline: none;
+  box-shadow: var(--ring);
+}
+
+/* Πεδία εισαγωγής — ο δακτύλιος εστίασης λέει «εδώ γράφεις» χωρίς να φωνάζει */
+[data-baseweb="input"], [data-baseweb="select"] > div, [data-baseweb="textarea"] {
+  border-radius: 10px !important;
+}
+[data-baseweb="input"]:focus-within,
+[data-baseweb="select"] > div:focus-within {
+  border-color: var(--brand) !important;
+  box-shadow: var(--ring) !important;
 }
 
 .stTabs [data-baseweb="tab-list"] {
@@ -873,10 +1003,14 @@ button[data-testid="stBaseButton-primary"]:hover {
 
   .scale-foot { font-size: .66rem; }
 
-  .stat { padding: .85rem 1rem; border-radius: 12px; }
+  .stat { padding: .85rem 1rem .85rem 1.1rem; border-radius: 12px; }
   .stat-label { font-size: .64rem; }
   .stat-value { font-size: 1.6rem; }
   .stat-foot { font-size: .66rem; }
+
+  /* Ύποπτες μέρες: στοίβα στο κινητό */
+  .flag-row { flex-direction: column; align-items: flex-start; gap: .2rem; }
+  .flag-why { text-align: left; }
 
   /* ── ΕΠΙΤΑΓΗ ── */
   .check {
@@ -952,10 +1086,11 @@ button[data-testid="stBaseButton-primary"]:hover {
     top: 0; left: 0; right: 0;
     z-index: 999;
     display: flex;
-    background: rgba(255,255,255,.94);
+    background: rgba(255,255,255,.92);
     backdrop-filter: saturate(180%) blur(16px);
     -webkit-backdrop-filter: saturate(180%) blur(16px);
     border-bottom: 1px solid var(--line);
+    box-shadow: 0 4px 16px -6px rgba(15,23,42,.08);
     padding: calc(.3rem + env(safe-area-inset-top)) .2rem .3rem;
   }
 
