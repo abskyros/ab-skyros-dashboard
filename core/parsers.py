@@ -233,6 +233,16 @@ _RE_NET_2  = re.compile(r"Ne[t7][Dd]ay\S+\s+([\d.,]+)", re.IGNORECASE)
 _RE_CUST   = re.compile(r"Num[O0]fCus\s+([\d.,]+)", re.IGNORECASE)
 _RE_BASKET = re.compile(r"Avg[Ss]al[Cc]us\s+([\d.,]+)", re.IGNORECASE)
 
+# Το OCR σπάει μερικές φορές τα σεντς με κενό: «22.331, 34» αντί «22.331,34».
+# Αν περνούσε έτσι, το regex έπιανε μόνο το «22.331,» → 22.331,00 (χαμένα σεντς).
+# Το μοτίβο αυτό τα ξανακολλά: ψηφίο + υποδιαστολή + κενό + 1-2 ψηφία.
+_RE_SPLIT_CENTS = re.compile(r"(\d[.,])\s+(\d{1,2})(?!\d)")
+
+
+def _heal_split_numbers(text: str) -> str:
+    """«22.331, 34» → «22.331,34». Ακίνδυνο: αγγίζει μόνο σπασμένα δεκαδικά."""
+    return _RE_SPLIT_CENTS.sub(r"\1\2", text)
+
 # Λογικά όρια — μια μέρα δεν κάνει 3 ευρώ ούτε 900.000.
 LIMITS = {
     "net_sales":  (500, 500_000),
@@ -264,11 +274,11 @@ def parse_sales_pdf(content: bytes, dpi: int = 300) -> dict:
         # βγάζει ημερομηνία ΚΑΙ πωλήσεις.
         text = ""
         for angle in (90, -90):
-            candidate = tess.image_to_string(
+            candidate = _heal_split_numbers(tess.image_to_string(
                 images[0].rotate(angle, expand=True),
                 lang="ell+eng",
                 config="--psm 6 --oem 3",
-            )
+            ))
             if _ocr_date(candidate) and (
                 _ocr_num(candidate, _RE_NET, "net_sales")
                 or _ocr_num(candidate, _RE_NET_2, "net_sales")
