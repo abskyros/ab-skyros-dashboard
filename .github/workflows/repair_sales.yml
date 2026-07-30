@@ -1,0 +1,47 @@
+name: Επισκευή πωλήσεων (OCR)
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: 'Γράψε τις διορθώσεις στο Sheet; (όχι = μόνο αναφορά)'
+        type: choice
+        options:
+          - 'όχι — dry run'
+          - 'ναι — εκτέλεση'
+        default: 'όχι — dry run'
+
+# ΔΕΝ έχει χρονοδιάγραμμα επίτηδες: γράφει στο Sheet, άρα τρέχει μόνο
+# όταν αποφασίζει ο άνθρωπος — αφού δει το dry run.
+
+concurrency:
+  group: repair-sales
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: OCR (tesseract + poppler + ελληνικά)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq tesseract-ocr tesseract-ocr-ell poppler-utils
+
+      - name: Εγκατάσταση
+        run: pip install -r requirements-ocr.txt
+
+      - name: Επισκευή
+        env:
+          GOOGLE_KEY_JSON: ${{ secrets.GOOGLE_KEY_JSON }}
+          SALES_EMAIL_PASS: ${{ secrets.SALES_EMAIL_PASS }}
+          APPLY: ${{ github.event.inputs.apply == 'ναι — εκτέλεση' && 'yes' || '' }}
+        run: python jobs/repair_sales.py
