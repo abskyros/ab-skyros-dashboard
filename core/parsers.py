@@ -258,11 +258,25 @@ def parse_sales_pdf(content: bytes, dpi: int = 300) -> dict:
         if not images:
             return empty
 
-        text = tess.image_to_string(
-            images[0].rotate(90, expand=True),
-            lang="ell+eng",
-            config="--psm 6 --oem 3",
-        )
+        # Η αναφορά τυπώνεται σε landscape, αλλά η σωστή περιστροφή ΔΕΝ είναι
+        # πάντα η ίδια — βρέθηκε αναφορά (29/07/2026) γραμμένη ανάποδα σε σχέση
+        # με τις συνηθισμένες. Δοκιμάζουμε και τις δύο και κρατάμε αυτή που
+        # βγάζει ημερομηνία ΚΑΙ πωλήσεις.
+        text = ""
+        for angle in (90, -90):
+            candidate = tess.image_to_string(
+                images[0].rotate(angle, expand=True),
+                lang="ell+eng",
+                config="--psm 6 --oem 3",
+            )
+            if _ocr_date(candidate) and (
+                _ocr_num(candidate, _RE_NET, "net_sales")
+                or _ocr_num(candidate, _RE_NET_2, "net_sales")
+            ):
+                text = candidate
+                break
+            if not text:
+                text = candidate
     except Exception:
         return empty
 
