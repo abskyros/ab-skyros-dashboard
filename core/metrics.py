@@ -238,6 +238,11 @@ def find_anomalies(df: pd.DataFrame, today: date) -> list[dict]:
       1. Πωλήσεις που αποκλίνουν >45% από την τυπική ίδια μέρα
       2. Μηδενικές πωλήσεις σε μέρα που το μαγαζί δούλεψε (έχει πελάτες)
       3. Καλάθι που δεν συμφωνεί με πωλήσεις ÷ πελάτες (ολίσθηση ψηφίου)
+
+    ΦΙΛΤΡΟ ΣΕΖΟΝΙΚΟΤΗΤΑΣ: πριν σημειωθεί μέρα για το σημάδι 1, ελέγχεται
+    και η ίδια μέρα ΠΕΡΣΙ. Αν συμφωνεί με εκείνη, η αποκλίση είναι σεζόν
+    (π.χ. Ιούλιος στο νησί) — όχι λάθος. Έτσι δεν σημειώνονται ψευδώς οι
+    υψηλές μέρες της τουριστικής περιόδου.
     """
     if df.empty:
         return []
@@ -267,10 +272,18 @@ def find_anomalies(df: pd.DataFrame, today: date) -> list[dict]:
         if net is not None and base:
             deviation = (net - base) / base * 100
             if abs(deviation) > ANOMALY_DEVIATION:
-                reasons.append(
-                    f"{'πάνω' if deviation > 0 else 'κάτω'} {abs(deviation):.0f}% "
-                    f"από την τυπική {day_name(d)}"
-                )
+                # ΣΕΖΟΝΙΚΟΤΗΤΑ: η τυπική μέρα μετριέται από τις ΠΡΟΣΦΑΤΕΣ
+                # εβδομάδες — αλλά τον Ιούλιο η Σκύρος γεμίζει τουρίστες και
+                # κάθε μέρα είναι πολύ πάνω από τον Ιούνιο ΧΩΡΙΣ να είναι λάθος.
+                # Συγκρίνουμε λοιπόν και με την ΙΔΙΑ μέρα ΠΕΡΣΙ: αν συμφωνεί
+                # με εκείνη, είναι σεζόν — όχι λάθος OCR.
+                ly = sales_on(hist, last_year(d))
+                ly_dev = ((net - ly) / ly * 100) if ly else None
+                if ly_dev is None or abs(ly_dev) > ANOMALY_DEVIATION:
+                    reasons.append(
+                        f"{'πάνω' if deviation > 0 else 'κάτω'} {abs(deviation):.0f}% "
+                        f"από την τυπική {day_name(d)}"
+                    )
 
         if net and cust and basket and cust > 0:
             implied = net / cust
