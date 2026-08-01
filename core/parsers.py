@@ -230,18 +230,27 @@ _RE_RUN_ON = re.compile(r"Run\s+[Oo0]n\s*[:\s]+(\d{1,2})[/.](\d{1,2})[/.](\d{4})
 _RE_FOR    = re.compile(r"\bFor\s+(\d{1,2})[/.](\d{1,2})[/.](\d{4})", re.IGNORECASE)
 _RE_NET    = re.compile(r"Net[Dd]ay[Ss]al[Dd][i1][s5]\s+([\d.,]+)", re.IGNORECASE)
 _RE_NET_2  = re.compile(r"Ne[t7][Dd]ay\S+\s+([\d.,]+)", re.IGNORECASE)
+_RE_TOTSAL = re.compile(r"T[Oo0]t[Ss]al\s+([\d.,]+)", re.IGNORECASE)
 _RE_CUST   = re.compile(r"Num[O0]fCus\s+([\d.,]+)", re.IGNORECASE)
 _RE_BASKET = re.compile(r"Avg[Ss]al[Cc]us\s+([\d.,]+)", re.IGNORECASE)
 
-# Το OCR σπάει μερικές φορές τα σεντς με κενό: «22.331, 34» αντί «22.331,34».
-# Αν περνούσε έτσι, το regex έπιανε μόνο το «22.331,» → 22.331,00 (χαμένα σεντς).
-# Το μοτίβο αυτό τα ξανακολλά: ψηφίο + υποδιαστολή + κενό + 1-2 ψηφία.
-_RE_SPLIT_CENTS = re.compile(r"(\d[.,])\s+(\d{1,2})(?!\d)")
+# Το OCR σπάει τα δεκαδικά με κενό — και έχει ΤΡΕΙΣ τρόπους να το κάνει:
+#   «26.207, 02»   (κενό μετά την υποδιαστολή)
+#   «26.207,0 2»   (κενό ανάμεσα στα δύο δεκαδικά)
+#   «26.207 ,02»   (κενό πριν την υποδιαστολή)
+# Και οι τρεις οδηγούν στο ίδιο σφάλμα: χαμένα σεντς (26.207,02 → 26.207,00).
+# Κανένα νόμιμο κείμενο της αναφοράς δεν έχει ψηφίο+υποδιαστολή+κενό+ψηφία,
+# οπότε τα κολλάμε όλα χωρίς φόβο.
+_RE_SPLIT_A = re.compile(r"(\d[.,])\s+(\d{1,2})(?!\d)")
+_RE_SPLIT_B = re.compile(r"([.,]\d)\s+(\d)(?!\d)")
+_RE_SPLIT_C = re.compile(r"(\d)\s+([.,]\d{1,2})(?!\d)")
 
 
 def _heal_split_numbers(text: str) -> str:
-    """«22.331, 34» → «22.331,34». Ακίνδυνο: αγγίζει μόνο σπασμένα δεκαδικά."""
-    return _RE_SPLIT_CENTS.sub(r"\1\2", text)
+    """Κολλάει σπασμένα δεκαδικά και στους τρεις τρόπους που τα σπάει το OCR."""
+    text = _RE_SPLIT_A.sub(r"\1\2", text)
+    text = _RE_SPLIT_B.sub(r"\1\2", text)
+    return _RE_SPLIT_C.sub(r"\1\2", text)
 
 # Λογικά όρια — μια μέρα δεν κάνει 3 ευρώ ούτε 900.000.
 LIMITS = {
@@ -295,6 +304,17 @@ def parse_sales_pdf(content: bytes, dpi: int = 300) -> dict:
     r["net_sales"]  = _ocr_num(text, _RE_NET, "net_sales") or _ocr_num(text, _RE_NET_2, "net_sales")
     r["customers"]  = _ocr_int(text, _RE_CUST, "customers")
     r["avg_basket"] = _ocr_num(text, _RE_BASKET, "avg_basket")
+
+    # ΔΙΑΣΤΑΥΡΩΣΗ: στην αναφορά TotSal == NetDaySalDis. Αν το NetDaySalDis
+    # βγήκε με μηδενικά σεντς (ύποπτο: έχασε δεκαδικά) αλλά το TotSal έχει
+    # το ίδιο ακέραιο μέρος με ΠΡΑΓΜΑΤΙΚΑ σεντς, κερδίζει το TotSal.
+    # Αντίστοιχα, αν το NetDaySalDis απέτυχε τελείως, το TotSal είναι η εφεδρία.
+    tot = _ocr_num(text, _RE_TOTSAL, "net_sales")
+    if tot:
+        if r["net_sales"] is None:
+            r["net_sales"] = tot
+        elif int(tot) == int(r["net_sales"]) and tot % 1 and not r["net_sales"] % 1:
+            r["net_sales"] = tot
 
     # Αν λείπει το καλάθι αλλά έχουμε τα άλλα δύο, το βγάζουμε μόνοι μας.
     if r["net_sales"] and r["customers"] and not r["avg_basket"]:
