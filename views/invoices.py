@@ -11,7 +11,7 @@ from datetime import date, timedelta
 import pandas as pd
 import streamlit as st
 
-from core.config import SHEET_INV
+from core.config import SHEET_INV, DEEP_SCAN_YEARS
 from core.metrics import (
     week_range, invoice_totals, invoices_in_week, invoices_monthly,
     today_greece,
@@ -19,6 +19,7 @@ from core.metrics import (
 from core.sheets import (
     load_invoices, check_quality, delete_row,
     purge_duplicate_invoices, find_double_charges, find_duplicate_numbers,
+    load_duplicate_alerts, collect_duplicate_alerts, log_duplicate_alerts,
 )
 from core.backfill import (
     repair, apply_repair, rebuild_plan, apply_rebuild, audit, snapshot,
@@ -29,6 +30,8 @@ from ui import components as c
 
 
 def render(df: pd.DataFrame, today: date) -> None:
+    _double_alerts()
+
     if df.empty:
         c.empty(
             "Δεν υπάρχουν παραστατικά ακόμη",
@@ -47,6 +50,87 @@ def render(df: pd.DataFrame, today: date) -> None:
     # Προειδοποίηση και εργαλεία ΚΑΤΩ — πρώτα τα δεδομένα, μετά η συντήρηση.
     _health_warning(df)
     _tools(df)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ΥΠΟΠΤΑ ΔΙΠΛΑ — ΤΟ ΙΔΙΟ ΠΑΡΑΣΤΑΤΙΚΟ ΗΡΘΕ ΞΑΝΑ ΑΠΟ ΤΟ MAIL
+# ══════════════════════════════════════════════════════════════════════════════
+def _double_alerts() -> None:
+    """
+    Η ΛΙΣΤΑ ΣΤΗΝ ΚΟΡΥΦΗ — πριν από οποιοδήποτε νούμερο.
+
+    Κάθε εγγραφή σημαίνει: ο ΙΔΙΟΣ αριθμός παραστατικού ήρθε σε 2+ ΔΙΑΦΟΡΕΤΙΚΑ
+    email. Τα καταγράφουν αυτόματα:
+
+      • ο καθημερινός συγχρονισμός (live) — μόλις ξαναφτάσει γνωστός αριθμός
+      • η βαθιά σάρωση 2 ετών (καρτέλα «Σάρωση mail» στα εργαλεία, ή η ροή
+        «Έλεγχος διπλών παραστατικών» στο GitHub)
+
+    ΔΕΝ ΣΒΗΝΕΤΑΙ ΤΙΠΟΤΑ. Είναι μητρώο υπόπτων για ΔΙΚΟ ΣΟΥ έλεγχο — αν το ίδιο
+    τιμολόγιο χρεώθηκε δύο φορές, το διεκδικείς από τον προμηθευτή.
+    """
+    try:
+        alerts = load_duplicate_alerts()
+    except Exception:
+        return
+
+    if alerts.empty:
+        return
+
+    # Ίδιο ποσό όλες τις φορές → η πιο καθαρή ένδειξη διπλής χρέωσης.
+    same = alerts[~alerts["amounts"].str.contains(",", na=False)]
+    diff = alerts[alerts["amounts"].str.contains(",", na=False)]
+    potential = float((same["value"].abs() * (same["times"] - 1)).sum()) if not same.empty else 0.0
+
+    head = (
+        f"⚠️ <b>{len(alerts)} παραστατικά ήρθαν πάνω από μία φορά</b> — "
+        f"ο ίδιος αριθμός, σε διαφορετικά email.<br>"
+    )
+    if len(same):
+        head += f"• <b>{len(same)} με ακριβώς ίδιο ποσό</b> → πιθανές διπλές χρεώσεις"
+        if potential:
+            head += f" (~<b>{c.eur(potential)}</b>)"
+        head += "<br>"
+    if len(diff):
+        head += f"• {len(diff)} με διαφορετικό ποσό → πιθανές ακυρώσεις/επανεκδόσεις<br>"
+    head += (
+        "<br><b>Δεν σβήνεται τίποτα αυτόματα.</b> Έλεγξέ τα ένα-ένα — "
+        "όπου βρεις διπλή χρέωση, ζήτα πιστωτικό από τον προμηθευτή."
+    )
+    c.note(head, "warn")
+
+    for _, a in alerts.head(25).iterrows():
+        number = str(a["number"])
+        times = int(a["times"])
+        dates = " · ".join(
+            pd.to_datetime(d.strip()).strftime("%d/%m/%Y")
+            for d in str(a["doc_dates"]).split(",") if d.strip()
+        )
+        amounts = [x.strip() for x in str(a["amounts"]).split(",") if x.strip()]
+        typ = str(a["type"])[:38]
+        src = "Live εντοπισμός" if str(a["source"]) == "live" else "Βαθιά σάρωση"
+        detected = pd.to_datetime(a["detected"]).strftime("%d/%m/%Y") if pd.notna(a["detected"]) else ""
+
+        if len(amounts) <= 1:
+            verdict = f"<b>ίδιο ποσό και τις {times} φορές</b> — πιθανή διπλή χρέωση"
+        else:
+            shown = " / ".join(c.eur(float(x)) for x in amounts[:3])
+            verdict = f"<b>διαφορετικά ποσά</b> ({shown}) — έλεγξε για ακύρωση/επανέκδοση"
+
+        c.html(
+            f'<div class="flag-row">'
+            f'<div class="flag-date">#{number}</div>'
+            f'<div class="flag-nums">{c.eur(abs(float(a["value"])))} '
+            f'<span class="flag-vs">× {times} φορές</span></div>'
+            f'<div class="flag-why">{typ} · {verdict}<br>'
+            f'<span style="opacity:.75">{dates} — {src} {detected}</span></div>'
+            f'</div>'
+        )
+
+    if len(alerts) > 25:
+        st.caption(f"…και άλλα {len(alerts) - 25} ύποπτα στο φύλλο «dipla»")
+
+    c.spacer(0.8)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -221,16 +305,21 @@ def _tools(df: pd.DataFrame) -> None:
     # «γύρισε πίσω χωρίς να κάνει τίποτα».
     in_progress = any(
         st.session_state.get(k)
-        for k in ("rb_plan", "rb_done", "vf_done", "chg_checked", "dup_checked")
+        for k in ("rb_plan", "rb_done", "vf_done", "chg_checked", "dup_checked",
+                  "dscan_done")
     )
 
     with st.expander("Έλεγχος δεδομένων", expanded=needs_work or in_progress):
-        dup_tab, clean_tab, verify_tab, charge_tab = st.tabs([
+        scan_tab, dup_tab, clean_tab, verify_tab, charge_tab = st.tabs([
+            "📡 Σάρωση mail (2 έτη)",
             "🔁 Διπλοκαταχωρήσεις (ίδιος αριθμός)",
             "🔄 Ξαναχτίσιμο (όλα τα χρόνια)",
             "✅ Επαλήθευση εβδομάδας",
             "⚠️ Διπλές χρεώσεις",
         ])
+
+        with scan_tab:
+            _mail_scan()
 
         with dup_tab:
             _check_duplicate_numbers(df)
@@ -243,6 +332,95 @@ def _tools(df: pd.DataFrame) -> None:
 
         with charge_tab:
             _check_double_charges(df)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ΒΑΘΙΑ ΣΑΡΩΣΗ MAIL — ΔΙΠΛΑ ΠΑΡΑΣΤΑΤΙΚΑ 2 ΕΤΩΝ
+# ══════════════════════════════════════════════════════════════════════════════
+def _mail_scan() -> None:
+    """
+    Σαρώνει ΟΛΑ τα email παραστατικών και βρίσκει αριθμούς που ήρθαν σε 2+
+    διαφορετικά email — δηλαδή τιμολόγια που κόπηκαν/στάλθηκαν ξανά.
+
+    ΓΙΑΤΙ ΤΟ MAIL ΚΑΙ ΟΧΙ ΤΟ SHEET: ο συγχρονισμός κρατά κάθε αριθμό ΜΙΑ φορά
+    στο Sheet — η δεύτερη αποστολή χάνεται σιωπηλά. Μόνο το αρχείο του mail
+    θυμάται ΚΑΙ τις δύο φορές.
+
+    Δεν σβήνει τίποτα. Τα ευρήματα καταγράφονται στο φύλλο «dipla» και
+    εμφανίζονται στην κορυφή της σελίδας.
+    """
+    st.caption(
+        f"Σαρώνει **όλα τα email παραστατικών των τελευταίων {DEEP_SCAN_YEARS} ετών** "
+        "και βρίσκει τιμολόγια με τον **ίδιο αριθμό** που ήρθαν πάνω από μία φορά "
+        "(ίδιο ή διαφορετικό ποσό). **Δεν σβήνει τίποτα** — τα καταγράφει για έλεγχο "
+        "στην κορυφή της σελίδας."
+    )
+
+    done = st.session_state.get("dscan_done")
+    if done:
+        if done["found"]:
+            c.note(
+                f"Σαρώθηκαν <b>{done['scanned']:,}</b> email "
+                f"({done['records']:,} παραστατικά).<br>"
+                f"Βρέθηκαν <b>{done['found']} ύποπτα διπλά</b> — "
+                f"τα βλέπεις στην κορυφή της σελίδας."
+                .replace(",", "."),
+                "warn",
+            )
+        else:
+            c.note(
+                f"Σαρώθηκαν <b>{done['scanned']:,}</b> email "
+                f"({done['records']:,} παραστατικά).<br>"
+                f"<b>Καμία διπλή αποστολή</b> — κάθε αριθμός ήρθε μία φορά."
+                .replace(",", "."),
+                "ok",
+            )
+
+        if st.button("Νέα σάρωση", key="dscan_reset", width="stretch"):
+            st.session_state.pop("dscan_done", None)
+            st.rerun()
+        return
+
+    pw = _password()
+    if not pw:
+        c.note("Λείπει το EMAIL_PASS από τα secrets.", "bad")
+        return
+
+    if not st.button("Έναρξη σάρωσης 2 ετών", key="dscan_go",
+                     width="stretch", type="primary"):
+        return
+
+    bar = st.progress(0.0, text="Σύνδεση στο Gmail…")
+
+    def tick(scanned, found):
+        bar.progress(min(0.9, scanned / 600),
+                     text=f"{scanned} email · {found} παραστατικά")
+
+    since = today_greece() - timedelta(days=365 * DEEP_SCAN_YEARS)
+    records, errors, scanned = fetch_all_invoices(pw, since=since, on_progress=tick)
+
+    if errors:
+        bar.empty()
+        c.note(errors[0], "bad")
+        return
+
+    if not records:
+        bar.empty()
+        c.note("Δεν βρέθηκε κανένα παραστατικό στα email.", "bad")
+        return
+
+    bar.progress(0.95, text="Ομαδοποίηση ανά αριθμό…")
+    alerts = collect_duplicate_alerts(records, source="scan")
+    written = log_duplicate_alerts(alerts) if alerts else 0
+    bar.empty()
+
+    st.session_state["dscan_done"] = {
+        "scanned": scanned,
+        "records": len(records),
+        "found": len(alerts),
+        "written": written,
+    }
+    st.rerun()
 
 
 # ══════════════════════════════════════════════════════════════════════════════

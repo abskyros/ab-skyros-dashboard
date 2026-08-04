@@ -38,7 +38,9 @@ def fetch_invoices(password: str, limit: int = 60, since: date | None = None) ->
                 for att in msg.attachments:
                     name = att.filename or ""
                     if name.lower().endswith((".xlsx", ".xls", ".csv")):
-                        records.extend(parse_invoices(att.payload, name))
+                        for rec in parse_invoices(att.payload, name):
+                            rec["_uid"] = msg.uid   # ποιο email το έφερε — για τον έλεγχο διπλών
+                            records.append(rec)
     except Exception as e:
         errors.append(_friendly(e))
 
@@ -78,7 +80,9 @@ def fetch_all_invoices(
                 for att in msg.attachments:
                     name = att.filename or ""
                     if name.lower().endswith((".xlsx", ".xls", ".csv")):
-                        records.extend(parse_invoices(att.payload, name))
+                        for rec in parse_invoices(att.payload, name):
+                            rec["_uid"] = msg.uid
+                            records.append(rec)
 
                 if on_progress and scanned % 10 == 0:
                     on_progress(scanned, len(records))
