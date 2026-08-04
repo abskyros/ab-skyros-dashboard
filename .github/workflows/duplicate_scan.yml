@@ -1,0 +1,34 @@
+name: Έλεγχος διπλών παραστατικών
+
+on:
+  workflow_dispatch:            # χειροκίνητα, όποτε θες βαθιά σάρωση
+  schedule:
+    # 1η κάθε μήνα, 08:00 Ελλάδας (06:00 UTC) — αυτόματος μηνιαίος έλεγχος.
+    # Είναι ΑΚΙΝΔΥΝΟΣ: μόνο αναφέρει στο φύλλο «dipla», δεν σβήνει τίποτα.
+    - cron: '0 6 1 * *'
+
+concurrency:
+  group: duplicate-scan
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Εγκατάσταση
+        run: pip install -r requirements.txt
+
+      - name: Σάρωση 2 ετών
+        env:
+          GOOGLE_KEY_JSON: ${{ secrets.GOOGLE_KEY_JSON }}
+          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+        run: python jobs/duplicate_scan.py
