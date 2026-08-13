@@ -31,7 +31,7 @@ import pandas as pd
 import streamlit as st
 
 from core.config import MONTHS_GR
-from core.metrics import as_dates, month_rows, check_period, cash_runway
+from core.metrics import as_dates, month_rows, check_period, cash_runway, cash_forecast
 from core.sheets import update_timologiseis_field, load_setting, save_setting
 from ui import components as c
 
@@ -88,6 +88,11 @@ def render(df_t: pd.DataFrame, df_s: pd.DataFrame, today: date) -> None:
 
     # Μια γραμμή σύνοψης κάτω από τον πίνακα — η γενική εικόνα με μια ματιά.
     _runway_summary(runway)
+
+    # Πρόβλεψη ρευστότητας: τι θα φτάνει ΟΤΑΝ ΛΗΞΕΙ κάθε επιταγή, με βάση τις
+    # πωλήσεις που θα μπουν στο μεταξύ (περσινές, ίδιες μέρες).
+    forecast = cash_forecast(df_t, df_s, today, cash)
+    _forecast_display(forecast)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -162,6 +167,77 @@ def _runway_summary(runway: dict) -> None:
             f"Λείπουν <b>{c.eur(first['amount'] - first['covered'])}</b>.",
             "bad",
         )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ΠΡΟΒΛΕΨΗ ΡΕΥΣΤΟΤΗΤΑΣ — τι θα φτάνει όταν λήξει κάθε επιταγή
+# ══════════════════════════════════════════════════════════════════════════════
+def _forecast_display(forecast: dict) -> None:
+    """
+    Δείχνει πώς εξελίσσεται το ταμείο μπροστά, επιταγή-επιταγή, με βάση τις
+    προβλεπόμενες πωλήσεις (περσινές, ίδιες μέρες).
+    """
+    checks = forecast["checks"]
+    if not checks or forecast["cash"] <= 0:
+        return
+
+    c.spacer(0.8)
+    c.section("🔮 Πρόβλεψη ρευστότητας")
+
+    # Headline: η γενική εικόνα με μια πρόταση.
+    if forecast["all_covered"]:
+        last = checks[-1]
+        c.note(
+            f"<b>Με τον ρυθμό της περσινής χρονιάς, όλες οι επιταγές βγαίνουν.</b> "
+            f"Μετά την τελευταία ({last['date']:%d/%m}), προβλέπεται να σου "
+            f"μένουν <b>{c.eur(last['balance_after'])}</b>.",
+            "ok",
+        )
+    else:
+        gap = forecast["first_gap"]
+        c.note(
+            f"<b>Με τον ρυθμό της περσινής χρονιάς, στις "
+            f"{gap['date']:%d/%m} θα σου λείψουν "
+            f"{c.eur(gap['shortfall'])}</b> για να πληρώσεις την επιταγή των "
+            f"{c.eur(gap['amount'])}.<br>"
+            f"<span style='font-size:.85rem;opacity:.85'>Πρόβλεψη βάσει "
+            f"πωλήσεων {forecast['based_on_year']} — όχι εγγύηση. Ένας καλός "
+            f"μήνας μπορεί να την καλύψει.</span>",
+            "bad",
+        )
+
+    # Αναλυτικά: μία γραμμή ανά επιταγή, με το τρέχον προβλεπόμενο υπόλοιπο.
+    lines = []
+    for i, ch in enumerate(checks, 1):
+        if ch["covered"]:
+            dot = "🟢"
+            after = f"μένουν {c.eur(ch['balance_after'])}"
+            color = "var(--pos)"
+        else:
+            dot = "🔴"
+            after = f"λείπουν {c.eur(ch['shortfall'])}"
+            color = "var(--neg)"
+
+        sales_part = (
+            f"<span style='color:var(--dim)'>+{c.eur(ch['sales_until'])} πωλήσεις</span>"
+            if ch["sales_until"] > 0 else
+            "<span style='color:var(--dim)'>—</span>"
+        )
+
+        lines.append(
+            f"<div style='display:flex;align-items:center;gap:.6rem;padding:.45rem 0;"
+            f"border-bottom:1px solid var(--line-soft)'>"
+            f"<span style='font-size:.9rem'>{dot}</span>"
+            f"<span style='min-width:64px;font-weight:600'>{ch['date']:%d/%m}</span>"
+            f"<span style='min-width:90px'>επιταγή {c.eur(ch['amount'])}</span>"
+            f"<span style='flex:1'>{sales_part}</span>"
+            f"<span style='font-weight:700;color:{color}'>{after}</span>"
+            f"</div>"
+        )
+
+    c.html(
+        "<div style='margin-top:.6rem;font-size:.85rem'>" + "".join(lines) + "</div>"
+    )
 
 
 # ══════════════════════════════════════════════════════════════════════════════

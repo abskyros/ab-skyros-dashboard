@@ -574,6 +574,104 @@ def cash_runway(df: pd.DataFrame, today: date, cash: float) -> dict:
     }
 
 
+def cash_forecast(df_checks: pd.DataFrame, df_sales: pd.DataFrame,
+                  today: date, cash: float) -> dict:
+    """
+    🔮 ΠΡΟΒΛΕΨΗ ΡΕΥΣΤΟΤΗΤΑΣ — θα βγει ο μήνας;
+
+    Η δεξαμενή (cash_runway) δείχνει «τι φτάνει ΤΩΡΑ». Αυτή δείχνει «τι θα
+    φτάνει ΟΤΑΝ ΛΗΞΕΙ κάθε επιταγή», λαμβάνοντας υπόψη τις πωλήσεις που θα
+    μπουν στο μεταξύ.
+
+    ┌────────────────────────────────────────────────────────────────────────┐
+    │ ΠΩΣ ΠΡΟΒΛΕΠΟΥΜΕ ΤΙΣ ΠΩΛΗΣΕΙΣ                                          │
+    │                                                                        │
+    │ «Πόσα θα πουλήσω από σήμερα ως τη λήξη;» → όσα πούλησα ΤΙΣ ΙΔΙΕΣ ΜΕΡΕΣ │
+    │ ΠΕΡΣΙ. Αυτό πιάνει την εποχικότητα: τουριστικό καλοκαίρι, ήσυχος       │
+    │ Νοέμβρης, γιορτές. Είναι η πιο τίμια πρόβλεψη που έχουμε.              │
+    │                                                                        │
+    │ Περπατάμε ΜΕΡΑ-ΜΕΡΑ προς το μέλλον:                                   │
+    │   • κάθε μέρα προσθέτουμε την περσινή πώληση εκείνης της μέρας         │
+    │   • όταν φτάνουμε σε λήξη επιταγής, αφαιρούμε το ποσό της              │
+    │   • αν το υπόλοιπο πέσει κάτω από 0 → ΕΛΛΕΙΜΜΑ εκεί                    │
+    └────────────────────────────────────────────────────────────────────────┘
+
+    → {
+        "cash": float,                    # το ταμείο σήμερα
+        "checks": [                       # μία εγγραφή ανά μελλοντική επιταγή
+            {
+              "date", "amount", "period",
+              "sales_until": float,        # προβλεπόμενες πωλήσεις ως τη λήξη
+              "balance_before": float,     # ταμείο λίγο πριν πληρωθεί
+              "balance_after": float,      # ταμείο αφού πληρωθεί
+              "covered": bool,             # φτάνει;
+              "shortfall": float,          # πόσα λείπουν (αν λείπουν)
+            }, ...
+        ],
+        "first_gap": dict | None,         # η πρώτη επιταγή που ΔΕΝ βγαίνει
+        "all_covered": bool,              # βγαίνουν όλες;
+        "based_on_year": int,             # ποια χρονιά χρησιμοποιήσαμε
+      }
+    """
+    checks = upcoming_checks(df_checks, today)
+    cash = max(0.0, float(cash or 0))
+
+    if not checks:
+        return {
+            "cash": cash, "checks": [], "first_gap": None,
+            "all_covered": True, "based_on_year": today.year - 1,
+        }
+
+    rows = []
+    balance = cash
+    cursor = today            # ως πού έχουμε ήδη «μαζέψει» πωλήσεις
+    first_gap = None
+
+    for ch in checks:
+        cd = ch["date"]
+
+        # Προβλεπόμενες πωλήσεις από cursor ως τη λήξη (περσινές, ίδιες μέρες).
+        # Παίρνουμε [cursor .. cd) — δηλαδή ως την προηγούμενη της λήξης, γιατί
+        # την ημέρα της λήξης πληρώνεις (δεν προλαβαίνεις τις πωλήσεις της).
+        if cd > cursor:
+            ly_start = last_year(cursor)
+            ly_end = last_year(cd - timedelta(days=1))
+            predicted = sales_between(df_sales, ly_start, ly_end) or 0.0
+        else:
+            predicted = 0.0
+
+        balance_before = balance + predicted
+        balance_after = balance_before - ch["amount"]
+        covered = balance_after >= 0
+        shortfall = 0.0 if covered else -balance_after
+
+        row = {
+            **ch,
+            "sales_until": predicted,
+            "balance_before": balance_before,
+            "balance_after": balance_after,
+            "covered": covered,
+            "shortfall": shortfall,
+        }
+        rows.append(row)
+
+        if not covered and first_gap is None:
+            first_gap = row
+
+        # Συνεχίζουμε από εδώ, με ό,τι έμεινε (ακόμη κι αν αρνητικό, για να
+        # δείξουμε τη σωρευτική εικόνα).
+        balance = balance_after
+        cursor = cd
+
+    return {
+        "cash": cash,
+        "checks": rows,
+        "first_gap": first_gap,
+        "all_covered": first_gap is None,
+        "based_on_year": today.year - 1,
+    }
+
+
 def check_this_week(df: pd.DataFrame, today: date) -> pd.Series | None:
     """Η επιταγή που πληρώνεται αυτή την εβδομάδα, αν υπάρχει."""
     if df.empty:
