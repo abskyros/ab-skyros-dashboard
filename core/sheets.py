@@ -26,8 +26,8 @@ import pandas as pd
 
 from core.config import (
     SPREADSHEET_ID, SCOPES, CENTS,
-    SHEET_SALES, SHEET_INV, SHEET_TIMOL, SHEET_DUPS, SHEET_MAILLOG,
-    SALES_COLS, INV_COLS, TIMOL_COLS, DUP_COLS, GREECE_TZ,
+    SHEET_SALES, SHEET_INV, SHEET_TIMOL,
+    SALES_COLS, INV_COLS, TIMOL_COLS,
 )
 
 # Το streamlit είναι optional — τα jobs τρέχουν χωρίς αυτό.
@@ -195,10 +195,6 @@ def from_cents(v) -> float:
 @st.cache_data(ttl=300, max_entries=1, show_spinner=False)
 def load_sales() -> pd.DataFrame:
     """→ DataFrame[date, net_sales, customers, avg_basket] — ποσά σε ΕΥΡΩ."""
-    if os.environ.get("AB_DEMO"):  # ΜΟΝΟ τοπικό preview — δεν πάει στο repo
-        from core._demo import demo_sales
-        from core.metrics import today_greece
-        return demo_sales(today_greece())
     try:
         vals = _ws(SHEET_SALES).get_all_values()
     except Exception as e:
@@ -311,10 +307,6 @@ def load_invoices() -> pd.DataFrame:
     Δεν σπάμε — τα διαβάζουμε με κενό number. Ο έλεγχος ξέρει να τα ξεχωρίζει.
     """
     cols = INV_COLS + ["_row"]
-    if os.environ.get("AB_DEMO"):  # ΜΟΝΟ τοπικό preview — δεν πάει στο repo
-        from core._demo import demo_invoices
-        from core.metrics import today_greece
-        return demo_invoices(today_greece())
     try:
         vals = _ws(SHEET_INV).get_all_values()
     except Exception as e:
@@ -391,307 +383,42 @@ def _key_from_record(rec: dict) -> str:
 
 
 def merge_invoices(records: list) -> int:
-    """
-    Προσθέτει μόνο ό,τι δεν υπάρχει. Κλειδί: ο ΑΡΙΘΜΟΣ ΠΑΡΑΣΤΑΤΙΚΟΥ.
-
-    ┌────────────────────────────────────────────────────────────────────────┐
-    │ ΕΝΤΟΠΙΣΜΟΣ ΔΙΠΛΩΝ — το «σιωπηλό» πρόβλημα                              │
-    │                                                                        │
-    │ Αν ο προμηθευτής κόψει το ίδιο τιμολόγιο ΔΕΥΤΕΡΗ φορά, έρχεται νέο     │
-    │ email με τον ΙΔΙΟ αριθμό. Μέχρι τώρα το key-check το έριχνε σιωπηλά —  │
-    │ σωστό για τα σύνολα, αλλά ο ιδιοκτήτης δεν ΜΑΘΑΙΝΕ ποτέ τη διπλή        │
-    │ χρέωση.                                                                 │
-    │                                                                        │
-    │ Το κλειδί είναι το UID του email. Ο συγχρονισμός ξαναδιαβάζει τα ίδια  │
-    │ ~40 email κάθε φορά — χωρίς μητρώο UID, κάθε εκτέλεση θα φώναζε        │
-    │ «διπλό!» για όλα. Τώρα:                                                │
-    │                                                                        │
-    │   UID γνωστό           → το ξαναδιαβάσαμε · αγνόησέ το                 │
-    │   UID νέο + αριθμός νέος    → κανονικό νέο παραστατικό                 │
-    │   UID νέο + αριθμός ΓΝΩΣΤΟΣ → ΤΟ ΙΔΙΟ ΗΡΘΕ ΞΑΝΑ → καταγραφή στο «dipla»│
-    │                                                                        │
-    │ ΠΡΩΤΗ ΕΚΤΕΛΕΣΗ (bootstrap): το μητρώο είναι άδειο, οπότε ΟΛΑ τα email  │
-    │ φαίνονται «νέα». Καταγράφουμε τα UID σιωπηλά, ΧΩΡΙΣ συναγερμό — αλλιώς │
-    │ θα γεμίζαμε ψεύτικες καταγραφές από την κανονική επικάλυψη.            │
-    └────────────────────────────────────────────────────────────────────────┘
-    """
+    """Προσθέτει μόνο ό,τι δεν υπάρχει. Κλειδί: ο ΑΡΙΘΜΟΣ ΠΑΡΑΣΤΑΤΙΚΟΥ."""
     if not records:
         return 0
 
     ws = _ws(SHEET_INV)
     _ensure_number_column(ws)
 
-    sheet_rows = [r for r in ws.get_all_values()[1:] if len(r) >= 3 and r[0]]
-    existing = {_key_from_sheet(r) for r in sheet_rows}
+    existing = {
+        _key_from_sheet(r)
+        for r in ws.get_all_values()[1:] if len(r) >= 3 and r[0]
+    }
 
-    # Αριθμός → (ημ/νία, λεπτά) της πρώτης καταχώρησης — για σύγκριση ποσών.
-    known: dict[str, tuple[str, int]] = {}
-    for r in sheet_rows:
-        num = str(r[3]).strip() if len(r) > 3 else ""
-        if num and num not in known:
-            known[num] = (str(r[0]).strip(), int(parse_number(r[2])))
-
-    seen_uids = load_mail_log()
-    bootstrap = not seen_uids
-
-    new_rows, new_uids, alerts = [], [], []
+    new_rows = []
     for rec in records:
         d = rec.get("date")
         if d is None or (isinstance(d, float) and pd.isna(d)):
             continue
 
-        uid = str(rec.get("_uid") or "").strip()
-        if uid and uid in seen_uids:
-            continue                      # ίδιο email, ξαναδιαβασμένο
+        key = _key_from_record(rec)
+        if key in existing:
+            continue
+        existing.add(key)
 
         d_str = d.strftime("%Y-%m-%d") if hasattr(d, "strftime") else str(d)[:10]
-        cents = to_cents(rec.get("value", 0))
-        number = _invoice_id(rec.get("number", ""))
-        key = _key_from_record(rec)
-
-        if key in existing:
-            # ΝΕΟ email με ΓΝΩΣΤΟ αριθμό → το παραστατικό ξαναστάλθηκε.
-            if uid and not bootstrap and number:
-                prev_date, prev_cents = known.get(number, ("", 0))
-                alerts.append({
-                    "number": number,
-                    "type": str(rec.get("type", "")).strip(),
-                    "value_cents": cents,
-                    "doc_dates": sorted({x for x in (prev_date, d_str) if x}),
-                    "times": 2,
-                    "amounts": sorted({f"{prev_cents / CENTS:.2f}", f"{cents / CENTS:.2f}"}),
-                    "source": "live",
-                    "note": "",
-                })
-        else:
-            existing.add(key)
-            new_rows.append([
-                d_str,
-                str(rec.get("type", "")).strip(),
-                cents,
-                number,
-            ])
-            if number:
-                known.setdefault(number, (d_str, cents))
-
-        if uid:
-            seen_uids.add(uid)
-            new_uids.append(uid)
+        new_rows.append([
+            d_str,
+            str(rec.get("type", "")).strip(),
+            to_cents(rec.get("value", 0)),
+            str(rec.get("number", "")).strip(),
+        ])
 
     if new_rows:
         ws.append_rows(new_rows, value_input_option="RAW")
         load_invoices.clear()
 
-    if alerts:
-        log_duplicate_alerts(alerts)
-
-    if new_uids:
-        append_mail_log(new_uids)
-
     return len(new_rows)
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# ΥΠΟΠΤΑ ΔΙΠΛΑ — το φύλλο «dipla»
-# ══════════════════════════════════════════════════════════════════════════════
-def _get_or_create_ws(name: str, header: list, rows: int = 200, cols: int = 12):
-    """Φύλλο που φτιάχνεται μόνο του την πρώτη φορά (όπως το settings)."""
-    ss = _client().open_by_key(SPREADSHEET_ID)
-    try:
-        return ss.worksheet(name)
-    except Exception:
-        ws = ss.add_worksheet(title=name, rows=rows, cols=cols)
-        ws.update([header], "A1")
-        return ws
-
-
-def _dups_ws():
-    return _get_or_create_ws(SHEET_DUPS, DUP_COLS, rows=500, cols=len(DUP_COLS))
-
-
-def _maillog_ws():
-    return _get_or_create_ws(SHEET_MAILLOG, ["uid"], rows=2000, cols=1)
-
-
-def _today_greece() -> str:
-    """Σημερινή ημερομηνία Ελλάδας, χωρίς εξάρτηση από metrics (κυκλικό import)."""
-    from zoneinfo import ZoneInfo
-    return datetime.now(ZoneInfo(GREECE_TZ)).date().isoformat()
-
-
-def load_mail_log() -> set[str]:
-    """Τα UID όλων των email παραστατικών που έχουμε ήδη επεξεργαστεί."""
-    try:
-        vals = _maillog_ws().get_all_values()
-        return {str(r[0]).strip() for r in vals[1:] if r and r[0]}
-    except Exception:
-        return set()
-
-
-def append_mail_log(uids: list[str]) -> None:
-    """Καταγράφει νέα UID. Τα διπλά μέσα στη λίστα φεύγουν πριν το γράψιμο."""
-    uids = [u for u in dict.fromkeys(uids) if u]
-    if not uids:
-        return
-    try:
-        _maillog_ws().append_rows([[u] for u in uids], value_input_option="RAW")
-    except Exception:
-        pass   # το μητρώο είναι βοηθητικό — δεν ρίχνει τον συγχρονισμό
-
-
-def collect_duplicate_alerts(records: list[dict], source: str = "scan") -> list[dict]:
-    """
-    Ομαδοποιεί παραστατικά ανά ΑΡΙΘΜΟ και κρατά όσα ήρθαν σε 2+ ΔΙΑΦΟΡΕΤΙΚΑ
-    email → alerts έτοιμα για log_duplicate_alerts.
-
-    Το κριτήριο είναι τα UID των email, όχι οι γραμμές: το ίδιο email μπορεί
-    να ξαναδιαβαστεί χίλιες φορές — ΔΕΝ είναι διπλό. Δύο διαφορετικά email
-    με τον ίδιο αριθμό, είναι.
-
-    Ταξινόμηση: τα πιο «ακριβά» πρώτα (ποσό × επιπλέον φορές).
-    """
-    by_number: dict[str, list] = {}
-    for rec in records:
-        number = str(rec.get("number", "") or "").strip()
-        if not number:
-            continue
-        by_number.setdefault(number, []).append(rec)
-
-    alerts = []
-    for number, group in by_number.items():
-        uids = {str(r.get("_uid", "")) for r in group if r.get("_uid")}
-        times = len(uids) if uids else len(group)
-        if times < 2:
-            continue
-
-        dates = sorted({str(r["date"])[:10] for r in group
-                        if r.get("date") is not None and pd.notna(r["date"])})
-        amounts = sorted({f"{float(r.get('value', 0)):.2f}" for r in group})
-        first = group[0]
-
-        alerts.append({
-            "number": number,
-            "type": str(first.get("type", "")).strip(),
-            "value_cents": round(abs(float(first.get("value", 0))) * CENTS),
-            "doc_dates": dates,
-            "times": times,
-            "amounts": amounts,
-            "source": source,
-            "note": "",
-        })
-
-    alerts.sort(key=lambda a: (a["times"] - 1) * a["value_cents"], reverse=True)
-    return alerts
-
-
-def log_duplicate_alerts(alerts: list[dict]) -> int:
-    """
-    Καταγράφει ύποπτα διπλά στο φύλλο «dipla». UPSERT ανά (αριθμός, πηγή):
-
-      • Νέος αριθμός        → νέα γραμμή
-      • Ξαναεμφανίστηκε     → ενημερώνει ημερομηνίες, φορές, ποσά, «detected»
-
-    ΔΕΝ σβήνει τίποτα από πουθενά — είναι μητρώο αναφοράς, όχι εκκαθάριση.
-    """
-    if not alerts:
-        return 0
-
-    ws = _dups_ws()
-    today = _today_greece()
-
-    # Πρώτα συγχώνευση ΜΕΣΑ στο batch — ίδιο (αριθμός, πηγή) μία φορά.
-    merged: dict[str, dict] = {}
-    for a in alerts:
-        number = str(a.get("number", "")).strip()
-        if not number:
-            continue
-        key = f"{number}|{a.get('source', 'live')}"
-        m = merged.setdefault(key, {
-            "number": number, "type": str(a.get("type", "")),
-            "value_cents": int(a.get("value_cents", 0)),
-            "doc_dates": set(), "amounts": set(),
-            "times": 0, "source": str(a.get("source", "live")),
-            "note": str(a.get("note", "")),
-        })
-        m["doc_dates"] |= {str(x) for x in a.get("doc_dates", []) if x}
-        m["amounts"] |= {str(x) for x in a.get("amounts", []) if x}
-        m["times"] = max(m["times"], int(a.get("times", 2)))
-
-    existing = ws.get_all_values()
-    by_key: dict[str, int] = {}   # "number|source" → γραμμή Sheet
-    for i, r in enumerate(existing[1:], start=2):
-        if len(r) >= 2 and r[1]:
-            by_key[f"{r[1]}|{r[7] if len(r) > 7 else ''}"] = i
-
-    written = 0
-    for key, m in merged.items():
-        dates = sorted(m["doc_dates"])
-        amounts = sorted(m["amounts"])
-        times = m["times"]
-
-        row_idx = by_key.get(key)
-        if row_idx:
-            # Συγχώνευση με την παλιά γραμμή — κρατάμε ΟΛΕΣ τις ημερομηνίες/ποσά.
-            old = existing[row_idx - 1]
-            dates = sorted(set(dates) | {x.strip() for x in (old[4] if len(old) > 4 else "").split(",") if x.strip()})
-            amounts = sorted(set(amounts) | {x.strip() for x in (old[6] if len(old) > 6 else "").split(",") if x.strip()})
-            old_times = parse_number(old[5]) if len(old) > 5 else None
-            times = max(times, int(old_times) if old_times else 0)
-
-        row = [
-            today,
-            m["number"],
-            m["type"],
-            m["value_cents"],
-            ", ".join(dates),
-            times,
-            ", ".join(amounts),
-            m["source"],
-            m["note"],
-        ]
-
-        try:
-            if row_idx:
-                ws.update([row], f"A{row_idx}")
-            else:
-                ws.append_rows([row], value_input_option="RAW")
-            written += 1
-        except Exception:
-            pass
-
-    load_duplicate_alerts.clear()
-    return written
-
-
-@st.cache_data(ttl=300, show_spinner=False)
-def load_duplicate_alerts() -> pd.DataFrame:
-    """
-    → DataFrame[detected, number, type, value, doc_dates, times, amounts, source, note]
-
-    Τα ύποπτα διπλά για εμφάνιση στην εφαρμογή. `value` σε ΕΥΡΩ.
-    """
-    cols = DUP_COLS
-    if os.environ.get("AB_DEMO"):  # ΜΟΝΟ τοπικό preview — δεν πάει στο repo
-        from core._demo import demo_duplicate_alerts
-        return demo_duplicate_alerts()
-
-    try:
-        vals = _dups_ws().get_all_values()
-    except Exception:
-        return pd.DataFrame(columns=cols)
-
-    if len(vals) < 2:
-        return pd.DataFrame(columns=cols)
-
-    rows = [(r + [""] * len(cols))[:len(cols)] for r in vals[1:] if len(r) >= 2 and r[1]]
-    if not rows:
-        return pd.DataFrame(columns=cols)
-
-    df = pd.DataFrame(rows, columns=cols)
-    df["detected"] = pd.to_datetime(df["detected"], errors="coerce")
-    df["value"] = df["value"].map(from_cents).astype("float32")
-    df["times"] = pd.to_numeric(df["times"], errors="coerce").fillna(2).astype(int)
-    return df.sort_values("detected", ascending=False).reset_index(drop=True)
 
 
 def _ensure_number_column(ws) -> None:
@@ -851,9 +578,86 @@ def find_double_charges(df: pd.DataFrame) -> list[dict]:
     return out
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# ΤΙΜΟΛΟΓΗΣΕΙΣ
-# ══════════════════════════════════════════════════════════════════════════════
+def find_repeated_amounts(df: pd.DataFrame, within_days: int = 60) -> list[dict]:
+    """
+    🔁 ΙΔΙΟ ΠΟΣΟ ΣΕ ΔΙΑΦΟΡΕΤΙΚΕΣ ΜΕΡΕΣ — πιθανή διπλή παραγγελία.
+
+    Ψάχνει παραστατικά με ΑΚΡΙΒΩΣ το ίδιο ποσό αλλά ΔΙΑΦΟΡΕΤΙΚΗ ημερομηνία,
+    που απέχουν το πολύ `within_days` μέρες.
+
+    Το σκεπτικό: αν η ίδια παραγγελία τιμολογηθεί δύο φορές (π.χ. λάθος του
+    προμηθευτή, ή διπλή καταχώρηση παραγγελίας), το ΠΟΣΟ θα είναι ίδιο, αλλά
+    σε άλλη μέρα. Δεν είναι το ίδιο με τις «διπλές χρεώσεις» (ίδια μέρα) —
+    εδώ κοιτάμε ΑΝΑ ΔΙΑΣΤΗΜΑ.
+
+    ΔΕΝ ΣΒΗΝΕΤΑΙ ΠΟΤΕ. Δύο τιμολόγια των 1.725,08 € σε διαφορετικές βδομάδες
+    μπορεί κάλλιστα να είναι δύο κανονικές, ξεχωριστές παραγγελίες. Μόνο εσύ
+    ξέρεις — το εργαλείο απλώς τα φέρνει μπροστά σου για έλεγχο.
+
+    → [{
+         "value": float,
+         "count": int,                    # πόσες φορές εμφανίζεται το ποσό
+         "dates": [date, ...],            # οι ημερομηνίες, ταξινομημένες
+         "numbers": [str, ...],           # οι αριθμοί παραστατικών
+         "rows": [int, ...],              # γραμμές στο Sheet
+         "max_gap": int,                  # μέγιστη απόσταση σε μέρες
+         "min_gap": int,                  # ελάχιστη απόσταση (τα πιο κοντινά)
+       }, ...]
+    Ταξινομημένο: πρώτα τα πιο ύποπτα (κοντινές μέρες, μεγάλα ποσά).
+    """
+    if df.empty or "number" not in df.columns:
+        return []
+
+    # Μόνο γραμμές με αριθμό (οι αριθμημένες είναι αξιόπιστες).
+    d = df[df["number"].astype(str).str.strip() != ""].copy()
+    if d.empty:
+        return []
+
+    d["_v"] = d["value"].round(2)
+
+    out = []
+    for v, g in d.groupby("_v"):
+        if float(v) == 0:            # τα μηδενικά (πιστωτικά κ.λπ.) δεν μας νοιάζουν
+            continue
+        if len(g) < 2:               # χρειάζονται τουλάχιστον δύο για σύγκριση
+            continue
+
+        # Ημερομηνίες, ταξινομημένες
+        dates = sorted(
+            (x.date() if hasattr(x, "date") else x)
+            for x in g["date"].tolist()
+        )
+
+        # Υπάρχει έστω ΕΝΑ ζευγάρι μέσα στο παράθυρο; Και ποιο το πιο κοντινό;
+        gaps = [(dates[i + 1] - dates[i]).days for i in range(len(dates) - 1)]
+        if not gaps:
+            continue
+
+        min_gap = min(gaps)
+        # Αν ακόμη και το πιο κοντινό ζευγάρι απέχει πάνω από within_days,
+        # δεν είναι ύποπτο — μάλλον σύμπτωση σε διαφορετικές εποχές.
+        if min_gap == 0 or min_gap > within_days:
+            continue
+
+        # Συνολικό εύρος (πρώτη → τελευταία)
+        max_gap = (dates[-1] - dates[0]).days
+
+        out.append({
+            "value": float(v),
+            "count": len(g),
+            "dates": dates,
+            "numbers": sorted(g["number"].astype(str).tolist()),
+            "rows": sorted(int(x) for x in g["_row"].tolist()) if "_row" in g else [],
+            "max_gap": max_gap,
+            "min_gap": min_gap,
+        })
+
+    # Πιο ύποπτα πρώτα: κοντινές μέρες, μετά μεγάλα ποσά.
+    out.sort(key=lambda x: (x["min_gap"], -x["value"]))
+    return out
+
+
+
 @st.cache_data(ttl=300, max_entries=1, show_spinner=False)
 def load_timologiseis() -> pd.DataFrame:
     """
@@ -861,10 +665,6 @@ def load_timologiseis() -> pd.DataFrame:
     Η στήλη _row είναι ο αριθμός γραμμής στο Sheet — χρειάζεται για edit/delete.
     """
     cols = TIMOL_COLS + ["_row"]
-    if os.environ.get("AB_DEMO"):  # ΜΟΝΟ τοπικό preview — δεν πάει στο repo
-        from core._demo import demo_timologiseis, demo_sales
-        from core.metrics import today_greece
-        return demo_timologiseis(today_greece(), demo_sales(today_greece()))
     try:
         vals = _ws(SHEET_TIMOL).get_all_values()
     except Exception as e:
