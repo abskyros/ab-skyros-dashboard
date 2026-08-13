@@ -432,6 +432,45 @@ def _check_double_charges(df: pd.DataFrame) -> None:
     if len(found) > 30:
         st.caption(f"…και άλλες {len(found) - 30}")
 
+    # ── ΑΥΤΟΜΑΤΕΣ ΕΙΔΟΠΟΙΗΣΕΙΣ ──
+    c.spacer(0.5)
+    st.caption(
+        "📧 Κάθε μέρα στις 10:00, η εφαρμογή στέλνει email αν βρει **νέα** "
+        "διπλή χρέωση — μόνο για τις καινούργιες, όχι ξανά τις ίδιες."
+    )
+    if st.button("Στείλε δοκιμαστικό email τώρα", key="chg_test_mail",
+                 width="stretch"):
+        _send_test_charge_email(found)
+
+
+def _send_test_charge_email(found: list) -> None:
+    """Στέλνει ένα δοκιμαστικό email με τις τρέχουσες διπλές χρεώσεις."""
+    pw = _password()
+    if not pw:
+        c.note("Λείπει το EMAIL_PASS από τα secrets.", "bad")
+        return
+
+    if not found:
+        # Φτιάξε ένα ψεύτικο δείγμα για να δεις πώς μοιάζει
+        sample = [{
+            "date": "—", "type": "ΔΟΚΙΜΗ", "value": 0.0, "count": 2,
+            "numbers": ["ΔΟΚΙΜΗ-1", "ΔΟΚΙΜΗ-2"],
+        }]
+        from core.notify import format_charges_email, send_email
+        subj, body = format_charges_email(sample, c.eur)
+        subj = "✅ Δοκιμή — " + subj
+        ok, err = send_email(subj, body, pw)
+    else:
+        from core.notify import format_charges_email, send_email
+        subj, body = format_charges_email(found[:10], c.eur)
+        subj = "✅ Δοκιμή — " + subj
+        ok, err = send_email(subj, body, pw)
+
+    if ok:
+        c.note("✉ Στάλθηκε! Έλεγξε το email σου (abf.skyros@gmail.com).", "ok")
+    else:
+        c.note(f"Δεν στάλθηκε: {err}", "bad")
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # ΙΔΙΟ ΠΟΣΟ, ΑΛΛΗ ΜΕΡΑ — ΠΙΘΑΝΗ ΔΙΠΛΗ ΠΑΡΑΓΓΕΛΙΑ

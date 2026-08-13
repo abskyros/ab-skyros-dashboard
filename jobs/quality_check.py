@@ -102,6 +102,14 @@ def main() -> int:
     else:
         print("  ✓ Καμία μέρα δεν ξεφεύγει από τον τύπο της")
 
+    # ── ΕΙΔΟΠΟΙΗΣΗ: ΝΕΕΣ ΔΙΠΛΕΣ ΧΡΕΩΣΕΙΣ (email) ──
+    #
+    # Ψάχνει παραστατικά με ίδιο ποσό & μέρα, διαφορετικό αριθμό — πιθανή διπλή
+    # χρέωση. Στέλνει email ΜΟΝΟ για τις ΝΕΕΣ (κρατά μνήμη τι έστειλε), ώστε να
+    # μη γίνεται θόρυβος.
+    print("\n· Ειδοποίηση διπλών χρεώσεων")
+    _notify_double_charges()
+
     # ── ΣΥΝΟΨΗ ──
     print("\n" + "─" * 56)
     if problems:
@@ -122,6 +130,50 @@ def _recent(dups: list, days: int) -> list:
 
 def _is_recent(iso: str, days: int) -> bool:
     return iso >= (date.today() - timedelta(days=days)).isoformat()
+
+
+def _notify_double_charges() -> None:
+    """
+    Βρίσκει νέες διπλές χρεώσεις και στέλνει email γι' αυτές.
+
+    Χρησιμοποιεί το φύλλο «settings» για να θυμάται τι έχει ήδη σταλεί, ώστε να
+    μην ξαναστέλνει τα ίδια. Στέλνει με τον κωδικό EMAIL_PASS (ίδιος με το
+    διάβασμα των παραστατικών).
+    """
+    password = os.environ.get("EMAIL_PASS", "")
+    if not password:
+        print("  · Λείπει το EMAIL_PASS — παράλειψη ειδοποίησης")
+        return
+
+    try:
+        from core.sheets import load_invoices, find_double_charges, load_setting, save_setting
+        from core.notify import notify_new_double_charges
+    except Exception as e:
+        print(f"  ✗ Σφάλμα εισαγωγής: {e}")
+        return
+
+    # Απλή μορφοποίηση ευρώ (το ίδιο στιλ με την εφαρμογή)
+    def eur(v: float) -> str:
+        return f"{v:,.2f} €".replace(",", "@").replace(".", ",").replace("@", ".")
+
+    df = load_invoices()
+    charges = find_double_charges(df)
+
+    SEEN_KEY = "notified_double_charges"
+    result = notify_new_double_charges(
+        charges,
+        password,
+        load_seen=lambda: load_setting(SEEN_KEY, ""),
+        save_seen=lambda v: save_setting(SEEN_KEY, v),
+        eur_fn=eur,
+    )
+
+    if result["error"]:
+        print(f"  ✗ {result['error']}")
+    elif result["sent"]:
+        print(f"  ✉ Στάλθηκε email για {result['new']} νέες διπλές χρεώσεις")
+    elif result["new"] == 0:
+        print("  ✓ Καμία νέα διπλή χρέωση")
 
 
 if __name__ == "__main__":
