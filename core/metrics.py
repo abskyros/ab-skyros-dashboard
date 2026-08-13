@@ -574,65 +574,134 @@ def cash_runway(df: pd.DataFrame, today: date, cash: float) -> dict:
     }
 
 
+def _expand_fixed(fixed: list, start: date, end: date) -> list:
+    """
+    Απλώνει τα μηνιαία πάγια έξοδα σε συγκεκριμένες ημερομηνίες, από start ως end.
+
+    fixed : [{"name": str, "amount": float, "day": int}, ...]
+            day = ημέρα του μήνα (1-31). Αν ο μήνας δεν έχει τόση μέρα (π.χ. 31
+            στον Φλεβάρη), πέφτει στην τελευταία μέρα του μήνα.
+
+    → [{"date": date, "name": str, "amount": float}, ...]  ταξινομημένα
+    """
+    import calendar
+
+    out = []
+    # Ξεκινάμε από τον μήνα του start και προχωράμε μήνα-μήνα ως το end.
+    y, mo = start.year, start.month
+    while date(y, mo, 1) <= end:
+        last_dom = calendar.monthrange(y, mo)[1]
+        for f in fixed:
+            amt = float(f.get("amount", 0) or 0)
+            if amt <= 0:
+                continue
+            day = int(f.get("day", 1) or 1)
+            day = min(max(day, 1), last_dom)   # κράτα το μέσα στα όρια του μήνα
+            d = date(y, mo, day)
+            if start <= d <= end:
+                out.append({"date": d, "name": str(f.get("name", "")), "amount": amt})
+        # επόμενος μήνας
+        mo += 1
+        if mo > 12:
+            mo = 1
+            y += 1
+
+    out.sort(key=lambda x: x["date"])
+    return out
+
+
 def cash_forecast(df_checks: pd.DataFrame, df_sales: pd.DataFrame,
-                  today: date, cash: float) -> dict:
+                  today: date, cash: float, fixed: list | None = None) -> dict:
     """
     🔮 ΠΡΟΒΛΕΨΗ ΡΕΥΣΤΟΤΗΤΑΣ — θα βγει ο μήνας;
 
     Η δεξαμενή (cash_runway) δείχνει «τι φτάνει ΤΩΡΑ». Αυτή δείχνει «τι θα
-    φτάνει ΟΤΑΝ ΛΗΞΕΙ κάθε επιταγή», λαμβάνοντας υπόψη τις πωλήσεις που θα
+    φτάνει ΟΤΑΝ ΛΗΞΕΙ κάθε υποχρέωση», λαμβάνοντας υπόψη τις πωλήσεις που θα
     μπουν στο μεταξύ.
 
     ┌────────────────────────────────────────────────────────────────────────┐
-    │ ΠΩΣ ΠΡΟΒΛΕΠΟΥΜΕ ΤΙΣ ΠΩΛΗΣΕΙΣ                                          │
+    │ ΤΙ ΜΠΑΙΝΕΙ ΣΤΗΝ ΠΡΟΒΛΕΨΗ                                               │
     │                                                                        │
-    │ «Πόσα θα πουλήσω από σήμερα ως τη λήξη;» → όσα πούλησα ΤΙΣ ΙΔΙΕΣ ΜΕΡΕΣ │
-    │ ΠΕΡΣΙ. Αυτό πιάνει την εποχικότητα: τουριστικό καλοκαίρι, ήσυχος       │
-    │ Νοέμβρης, γιορτές. Είναι η πιο τίμια πρόβλεψη που έχουμε.              │
+    │ ΕΚΡΟΕΣ:  οι επιταγές (εβδομαδιαίες) + τα πάγια έξοδα (μηνιαία, π.χ.    │
+    │          μισθοδοσία, ΦΠΑ, ΙΚΑ). Καθένα αφαιρείται τη μέρα που λήγει.   │
+    │ ΕΙΣΡΟΕΣ: οι προβλεπόμενες πωλήσεις = όσα πούλησες ΤΙΣ ΙΔΙΕΣ ΜΕΡΕΣ      │
+    │          ΠΕΡΣΙ (πιάνει την εποχικότητα).                              │
     │                                                                        │
-    │ Περπατάμε ΜΕΡΑ-ΜΕΡΑ προς το μέλλον:                                   │
-    │   • κάθε μέρα προσθέτουμε την περσινή πώληση εκείνης της μέρας         │
-    │   • όταν φτάνουμε σε λήξη επιταγής, αφαιρούμε το ποσό της              │
-    │   • αν το υπόλοιπο πέσει κάτω από 0 → ΕΛΛΕΙΜΜΑ εκεί                    │
+    │ Περπατάμε ΜΕΡΑ-ΜΕΡΑ: προσθέτουμε πωλήσεις, αφαιρούμε κάθε υποχρέωση    │
+    │ στη σειρά που λήγει. Αν το υπόλοιπο πέσει κάτω από 0 → ΕΛΛΕΙΜΜΑ.       │
     └────────────────────────────────────────────────────────────────────────┘
 
+    fixed : προαιρετική λίστα πάγιων [{"name", "amount", "day"}], που
+            επαναλαμβάνονται κάθε μήνα στη μέρα `day`.
+
     → {
-        "cash": float,                    # το ταμείο σήμερα
-        "checks": [                       # μία εγγραφή ανά μελλοντική επιταγή
+        "cash": float,
+        "checks": [                       # μία εγγραφή ανά ΥΠΟΧΡΕΩΣΗ (χρονικά)
             {
               "date", "amount", "period",
-              "sales_until": float,        # προβλεπόμενες πωλήσεις ως τη λήξη
-              "balance_before": float,     # ταμείο λίγο πριν πληρωθεί
-              "balance_after": float,      # ταμείο αφού πληρωθεί
-              "covered": bool,             # φτάνει;
-              "shortfall": float,          # πόσα λείπουν (αν λείπουν)
+              "kind": "check" | "fixed",   # τι είδους εκροή
+              "name": str,                 # όνομα (για τα πάγια)
+              "sales_until": float,        # πωλήσεις από την προηγούμενη εκροή
+              "balance_before", "balance_after",
+              "covered": bool, "shortfall": float,
             }, ...
         ],
-        "first_gap": dict | None,         # η πρώτη επιταγή που ΔΕΝ βγαίνει
-        "all_covered": bool,              # βγαίνουν όλες;
-        "based_on_year": int,             # ποια χρονιά χρησιμοποιήσαμε
+        "first_gap": dict | None,
+        "all_covered": bool,
+        "based_on_year": int,
       }
     """
     checks = upcoming_checks(df_checks, today)
     cash = max(0.0, float(cash or 0))
 
-    if not checks:
+    # ── ΦΤΙΑΞΕ ΕΝΙΑΙΑ ΛΙΣΤΑ ΕΚΡΟΩΝ (επιταγές + πάγια) ──
+    events = []
+    for ch in checks:
+        events.append({
+            "date": ch["date"],
+            "amount": ch["amount"],
+            "period": ch.get("period", ""),
+            "kind": "check",
+            "name": "",
+        })
+
+    # Τα πάγια απλώνονται ως την τελευταία επιταγή (ή +1 μήνα αν δεν υπάρχουν).
+    if fixed:
+        horizon = checks[-1]["date"] if checks else today
+        # δώσε λίγο περιθώριο μπροστά, ώστε να πιάσει και πάγια λίγο μετά
+        from calendar import monthrange
+        hy, hm = horizon.year, horizon.month
+        hm += 1
+        if hm > 12:
+            hm = 1; hy += 1
+        horizon_ext = date(hy, hm, monthrange(hy, hm)[1])
+        for fx in _expand_fixed(fixed, today, horizon_ext):
+            events.append({
+                "date": fx["date"],
+                "amount": fx["amount"],
+                "period": "",
+                "kind": "fixed",
+                "name": fx["name"],
+            })
+
+    if not events:
         return {
             "cash": cash, "checks": [], "first_gap": None,
             "all_covered": True, "based_on_year": today.year - 1,
         }
 
+    # Ταξινόμηση χρονικά. Αν ίδια μέρα, οι επιταγές πρώτα, μετά τα πάγια.
+    events.sort(key=lambda e: (e["date"], 0 if e["kind"] == "check" else 1))
+
     rows = []
     balance = cash
-    cursor = today            # ως πού έχουμε ήδη «μαζέψει» πωλήσεις
+    cursor = today
     first_gap = None
 
-    for ch in checks:
-        cd = ch["date"]
+    for ev in events:
+        cd = ev["date"]
 
-        # Προβλεπόμενες πωλήσεις από cursor ως τη λήξη (περσινές, ίδιες μέρες).
-        # Παίρνουμε [cursor .. cd) — δηλαδή ως την προηγούμενη της λήξης, γιατί
-        # την ημέρα της λήξης πληρώνεις (δεν προλαβαίνεις τις πωλήσεις της).
+        # Πωλήσεις από cursor ως την προηγούμενη της εκροής (περσινές).
         if cd > cursor:
             ly_start = last_year(cursor)
             ly_end = last_year(cd - timedelta(days=1))
@@ -641,12 +710,12 @@ def cash_forecast(df_checks: pd.DataFrame, df_sales: pd.DataFrame,
             predicted = 0.0
 
         balance_before = balance + predicted
-        balance_after = balance_before - ch["amount"]
+        balance_after = balance_before - ev["amount"]
         covered = balance_after >= 0
         shortfall = 0.0 if covered else -balance_after
 
         row = {
-            **ch,
+            **ev,
             "sales_until": predicted,
             "balance_before": balance_before,
             "balance_after": balance_after,
@@ -658,8 +727,6 @@ def cash_forecast(df_checks: pd.DataFrame, df_sales: pd.DataFrame,
         if not covered and first_gap is None:
             first_gap = row
 
-        # Συνεχίζουμε από εδώ, με ό,τι έμεινε (ακόμη κι αν αρνητικό, για να
-        # δείξουμε τη σωρευτική εικόνα).
         balance = balance_after
         cursor = cd
 

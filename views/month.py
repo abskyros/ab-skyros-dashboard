@@ -38,6 +38,7 @@ from ui import components as c
 
 EDITOR_KEY = "month_editor"
 CASH_SETTING = "cash_on_hand"   # κλειδί στο φύλλο settings για το ταμείο
+FIXED_SETTING = "fixed_expenses"  # κλειδί για τα πάγια έξοδα (JSON)
 
 COLS = ["Ημ. επιταγής", "Επιταγή", "Πωλήσεις περιόδου",
         "Έξοδα", "Μένει", "Αρ. επιταγής", "", "Κάλυψη ταμείου"]
@@ -89,9 +90,12 @@ def render(df_t: pd.DataFrame, df_s: pd.DataFrame, today: date) -> None:
     # Μια γραμμή σύνοψης κάτω από τον πίνακα — η γενική εικόνα με μια ματιά.
     _runway_summary(runway)
 
-    # Πρόβλεψη ρευστότητας: τι θα φτάνει ΟΤΑΝ ΛΗΞΕΙ κάθε επιταγή, με βάση τις
-    # πωλήσεις που θα μπουν στο μεταξύ (περσινές, ίδιες μέρες).
-    forecast = cash_forecast(df_t, df_s, today, cash)
+    # Πάγια έξοδα (μηνιαία) — μπαίνουν στην πρόβλεψη, αφαιρούνται στη μέρα τους.
+    fixed = _fixed_expenses_input()
+
+    # Πρόβλεψη ρευστότητας: τι θα φτάνει ΟΤΑΝ ΛΗΞΕΙ κάθε υποχρέωση (επιταγές +
+    # πάγια), με βάση τις πωλήσεις που θα μπουν στο μεταξύ (περσινές).
+    forecast = cash_forecast(df_t, df_s, today, cash, fixed=fixed)
     _forecast_display(forecast)
 
 
@@ -134,6 +138,82 @@ def _cash_input(key: str) -> float:
         st.session_state[f"{ss_key}_saved"] = cash
 
     return cash
+
+
+def _fixed_expenses_input() -> list:
+    """
+    Πάγια μηνιαία έξοδα — μπαίνουν μία φορά, επαναλαμβάνονται κάθε μήνα.
+
+    Επεξεργάσιμος πίνακας: Υποχρέωση | Ποσό (€) | Μέρα μήνα. Ό,τι γράφεις
+    αποθηκεύεται μόνο του (ως JSON στο settings). Η πρόβλεψη τα αφαιρεί στη
+    μέρα τους, κάθε μήνα.
+
+    → [{"name": str, "amount": float, "day": int}, ...]
+    """
+    import json
+
+    if "fixed_exp" not in st.session_state:
+        raw = load_setting(FIXED_SETTING, "")
+        try:
+            data = json.loads(raw) if raw else []
+        except (ValueError, TypeError):
+            data = []
+        if not data:
+            data = [
+                {"name": "Μισθοδοσία", "amount": 0.0, "day": 30},
+                {"name": "ΙΚΑ προσωπικού", "amount": 0.0, "day": 30},
+                {"name": "ΦΠΑ", "amount": 0.0, "day": 25},
+                {"name": "ΦΜΥ", "amount": 0.0, "day": 20},
+                {"name": "Ρεύμα", "amount": 0.0, "day": 15},
+                {"name": "Λογιστής", "amount": 0.0, "day": 10},
+            ]
+        st.session_state["fixed_exp"] = pd.DataFrame(data)
+
+    with st.expander("💳 Πάγια έξοδα μήνα", expanded=False):
+        st.caption(
+            "Γράψε τις μηνιαίες υποχρεώσεις σου (ποσό και μέρα του μήνα). "
+            "Μπαίνουν στην πρόβλεψη και αφαιρούνται στη μέρα τους — κάθε μήνα. "
+            "Άφησε το ποσό 0 για όσες δεν ισχύουν."
+        )
+
+        edited = st.data_editor(
+            st.session_state["fixed_exp"],
+            key="fixed_editor",
+            width="stretch",
+            hide_index=True,
+            num_rows="dynamic",
+            column_config={
+                "name": st.column_config.TextColumn("Υποχρέωση", width="medium"),
+                "amount": st.column_config.NumberColumn(
+                    "Ποσό (€)", min_value=0.0, step=100.0, format="%.0f"
+                ),
+                "day": st.column_config.NumberColumn(
+                    "Μέρα μήνα", min_value=1, max_value=31, step=1, format="%d"
+                ),
+            },
+        )
+
+        records = edited.to_dict("records")
+        as_json = json.dumps(records, ensure_ascii=False)
+        if as_json != st.session_state.get("fixed_exp_saved"):
+            save_setting(FIXED_SETTING, as_json)
+            st.session_state["fixed_exp_saved"] = as_json
+
+        total = sum(float(r.get("amount", 0) or 0) for r in records)
+        if total > 0:
+            c.html(
+                f"<div style='margin-top:.5rem;font-size:.85rem;color:var(--muted)'>"
+                f"Σύνολο πάγιων/μήνα: <b>{c.eur(total)}</b></div>"
+            )
+
+    out = []
+    for r in edited.to_dict("records"):
+        name = str(r.get("name", "") or "").strip()
+        amt = float(r.get("amount", 0) or 0)
+        day = int(r.get("day", 1) or 1)
+        if name and amt > 0:
+            out.append({"name": name, "amount": amt, "day": day})
+    return out
 
 
 def _runway_summary(runway: dict) -> None:
@@ -206,9 +286,10 @@ def _forecast_display(forecast: dict) -> None:
             "bad",
         )
 
-    # Αναλυτικά: μία γραμμή ανά επιταγή, με το τρέχον προβλεπόμενο υπόλοιπο.
+    # Αναλυτικά: μία γραμμή ανά υποχρέωση, με το τρέχον προβλεπόμενο υπόλοιπο.
+    # ΑΝΑΠΟΔΗ σειρά — τα πιο μακρινά (τελευταία) πρώτα.
     lines = []
-    for i, ch in enumerate(checks, 1):
+    for ch in reversed(checks):
         if ch["covered"]:
             dot = "🟢"
             after = f"μένουν {c.eur(ch['balance_after'])}"
@@ -217,6 +298,15 @@ def _forecast_display(forecast: dict) -> None:
             dot = "🔴"
             after = f"λείπουν {c.eur(ch['shortfall'])}"
             color = "var(--neg)"
+
+        # Επιταγή ή πάγιο; Τα πάγια δείχνουν το όνομά τους, σε άλλο χρώμα.
+        if ch.get("kind") == "fixed":
+            label = (
+                f"<span style='color:#7C3AED'>💳 {ch.get('name', 'πάγιο')} "
+                f"{c.eur(ch['amount'])}</span>"
+            )
+        else:
+            label = f"επιταγή {c.eur(ch['amount'])}"
 
         sales_part = (
             f"<span style='color:var(--dim)'>+{c.eur(ch['sales_until'])} πωλήσεις</span>"
@@ -229,7 +319,7 @@ def _forecast_display(forecast: dict) -> None:
             f"border-bottom:1px solid var(--line-soft)'>"
             f"<span style='font-size:.9rem'>{dot}</span>"
             f"<span style='min-width:64px;font-weight:600'>{ch['date']:%d/%m}</span>"
-            f"<span style='min-width:90px'>επιταγή {c.eur(ch['amount'])}</span>"
+            f"<span style='min-width:140px'>{label}</span>"
             f"<span style='flex:1'>{sales_part}</span>"
             f"<span style='font-weight:700;color:{color}'>{after}</span>"
             f"</div>"

@@ -39,7 +39,7 @@ from ui import mobile
 from views import overview, sales, invoices, timologiseis, month, checks
 
 
-VERSION = "8.3"
+VERSION = "8.4"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
