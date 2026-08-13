@@ -665,17 +665,12 @@ def cash_forecast(df_checks: pd.DataFrame, df_sales: pd.DataFrame,
             "name": "",
         })
 
-    # Τα πάγια απλώνονται ως την τελευταία επιταγή (ή +1 μήνα αν δεν υπάρχουν).
-    if fixed:
-        horizon = checks[-1]["date"] if checks else today
-        # δώσε λίγο περιθώριο μπροστά, ώστε να πιάσει και πάγια λίγο μετά
-        from calendar import monthrange
-        hy, hm = horizon.year, horizon.month
-        hm += 1
-        if hm > 12:
-            hm = 1; hy += 1
-        horizon_ext = date(hy, hm, monthrange(hy, hm)[1])
-        for fx in _expand_fixed(fixed, today, horizon_ext):
+    # Τα πάγια απλώνονται ΜΟΝΟ ως την τελευταία επιταγή — τίποτα πέρα από αυτήν.
+    # Κάθε εβδομάδα έρχεται νέα τιμολόγηση, οπότε η πρόβλεψη ξαναχτίζεται· δεν
+    # έχει νόημα να δείχνουμε πάγια πέρα από τον ορίζοντα που ξέρουμε.
+    if fixed and checks:
+        horizon = checks[-1]["date"]
+        for fx in _expand_fixed(fixed, today, horizon):
             events.append({
                 "date": fx["date"],
                 "amount": fx["amount"],
