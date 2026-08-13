@@ -15,15 +15,6 @@ SHEET_SALES  = "sales"
 SHEET_INV    = "invoices"
 SHEET_TIMOL  = "timologiseis"
 
-# Ύποπτα διπλά παραστατικά — ίδιος αριθμός που ήρθε ξανά από το mail.
-# Γράφει ο συγχρονισμός (live) και η βαθιά σάρωση (scan). ΔΕΝ σβήνει τίποτα.
-SHEET_DUPS   = "dipla"
-
-# Μητρώο email που έχουν ήδη επεξεργαστεί (UID ανά μήνυμα).
-# Χωρίς αυτό, κάθε συγχρονισμός ξαναδιαβάζει τα ίδια email και δεν μπορούμε
-# να ξεχωρίσουμε το «το ξαναδιάβασα» από το «Η ΑΒ ΤΟ ΕΣΤΕΙΛΕ ΔΕΥΤΕΡΗ ΦΟΡΑ».
-SHEET_MAILLOG = "mail_log"
-
 SALES_COLS = ["date", "net_sales", "customers", "avg_basket"]
 
 # ΝΕΑ ΣΤΗΛΗ: number → ο ΑΡΙΘΜΟΣ ΠΑΡΑΣΤΑΤΙΚΟΥ.
@@ -34,11 +25,6 @@ SALES_COLS = ["date", "net_sales", "customers", "avg_basket"]
 INV_COLS   = ["date", "type", "value", "number"]
 
 TIMOL_COLS = ["check_date", "period", "amount", "check_number", "expenses"]
-
-# Μία γραμμή = ένα παραστατικό που εντοπίστηκε να έρχεται ξανά.
-# value σε ΛΕΠΤΑ · doc_dates = όλες οι ημερομηνίες που το είδαμε, χωρισμένες με κόμμα
-# source = «live» (συγχρονισμός) ή «scan» (βαθιά σάρωση 2 ετών)
-DUP_COLS   = ["detected", "number", "type", "value", "doc_dates", "times", "amounts", "source", "note"]
 
 # ΣΗΜΑΝΤΙΚΟ: όλα τα ποσά αποθηκεύονται στο Sheet ως ΛΕΠΤΑ (ακέραιοι, ×100).
 # Αυτό αποφεύγει προβλήματα με το ελληνικό locale (κόμμα vs τελεία).
