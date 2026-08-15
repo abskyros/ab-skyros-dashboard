@@ -32,7 +32,7 @@ from core.metrics import (
     week_range, last_year, day_name,
     sales_on, sales_row, week_to_date,
     invoice_totals, invoices_in_week,
-    check_this_week,
+    check_this_week, checks_ahead_with_number,
 )
 from ui import components as c
 
@@ -54,8 +54,46 @@ def render(df_s: pd.DataFrame, df_i: pd.DataFrame, df_t: pd.DataFrame, today: da
         )
         return
 
+    # Ειδοποίηση: πόσες επιταγές έχουμε ακόμα μπροστά (με αριθμό).
+    _check_supply_alert(df_t, today)
+
     _sales(df_s, today)
     _week_and_check(df_s, df_i, df_t, today)
+
+
+def _check_supply_alert(df_t: pd.DataFrame, today: date) -> None:
+    """
+    Προειδοποίηση αν κοντεύουν να τελειώσουν οι σταλμένες επιταγές.
+
+    🟠 στις 3 μπροστά · 🔴 στις 2 ή λιγότερες. Πάνω-πάνω, να το δεις αμέσως.
+    """
+    info = checks_ahead_with_number(df_t, today)
+    ahead = info["ahead"]
+    level = info["level"]
+
+    # Αν έχουμε άνετο απόθεμα (4+), καμία ειδοποίηση — μη γεμίζουμε την οθόνη.
+    if level == "ok":
+        return
+
+    last = info["last_numbered"]
+    last_str = f"{last:%d/%m}" if last else "—"
+
+    if level == "urgent":
+        c.note(
+            f"🔴 <b>Μένουν μόνο {ahead} επιταγές με αριθμό μπροστά σου</b> "
+            f"(τελευταία: {last_str}). "
+            f"<b>Επίσπευσε την αποστολή νέων επιταγών</b> — αλλιώς θα βρεθείς "
+            f"χωρίς έτοιμη επιταγή.",
+            "bad",
+        )
+    else:  # warn
+        c.note(
+            f"🟠 <b>Έχεις {ahead} επιταγές με αριθμό μπροστά σου</b> "
+            f"(τελευταία: {last_str}). "
+            f"Καλό είναι να ετοιμάσεις και τις επόμενες, ώστε να μη μείνεις "
+            f"χωρίς απόθεμα.",
+            "warn",
+        )
 
 
 # ══════════════════════════════════════════════════════════════════════════════

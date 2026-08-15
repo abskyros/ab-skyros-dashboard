@@ -471,6 +471,49 @@ def check_falls_in_week(check_date: date, week_start: date) -> bool:
     return week_start == payment_week
 
 
+def checks_ahead_with_number(df: pd.DataFrame, today: date) -> dict:
+    """
+    📮 ΠΟΣΕΣ ΕΠΙΤΑΓΕΣ ΕΧΟΥΜΕ ΑΚΟΜΑ ΜΠΡΟΣΤΑ — με βάση τους αριθμούς.
+
+    Οι επιταγές έχουν διαδοχικούς αριθμούς. Όσες ΜΕΛΛΟΝΤΙΚΕΣ επιταγές έχουν ήδη
+    αριθμό, τόσες έχεις «στείλει» και είναι εξασφαλισμένες. Όταν λίγες μένουν με
+    αριθμό, πρέπει να στείλεις νέες — αλλιώς θα βρεθείς χωρίς επιταγή έτοιμη.
+
+    → {
+        "ahead": int,          # πόσες μελλοντικές επιταγές έχουν αριθμό
+        "last_numbered": date, # η πιο μακρινή επιταγή με αριθμό
+        "level": str,          # "ok" | "warn" (≤3) | "urgent" (≤2)
+      }
+    """
+    empty = {"ahead": 0, "last_numbered": None, "level": "urgent"}
+    if df.empty or "check_number" not in df.columns:
+        return empty
+
+    future = df[df["check_date"] >= pd.Timestamp(today)].copy()
+    if future.empty:
+        return empty
+
+    # Πόσες μελλοντικές έχουν συμπληρωμένο αριθμό;
+    has_num = future[
+        future["check_number"].astype(str).str.strip().replace("nan", "") != ""
+    ]
+    ahead = len(has_num)
+
+    last_numbered = None
+    if not has_num.empty:
+        ld = has_num["check_date"].max()
+        last_numbered = ld.date() if hasattr(ld, "date") else ld
+
+    if ahead <= 2:
+        level = "urgent"
+    elif ahead <= 3:
+        level = "warn"
+    else:
+        level = "ok"
+
+    return {"ahead": ahead, "last_numbered": last_numbered, "level": level}
+
+
 def next_check(df: pd.DataFrame, today: date) -> pd.Series | None:
     """Η αμέσως επόμενη επιταγή."""
     if df.empty:
@@ -690,17 +733,27 @@ def cash_forecast(df_checks: pd.DataFrame, df_sales: pd.DataFrame,
 
     rows = []
     balance = cash
-    cursor = today
     first_gap = None
 
     for ev in events:
         cd = ev["date"]
 
-        # Πωλήσεις από cursor ως την προηγούμενη της εκροής (περσινές).
-        if cd > cursor:
-            ly_start = last_year(cursor)
-            ly_end = last_year(cd - timedelta(days=1))
-            predicted = sales_between(df_sales, ly_start, ly_end) or 0.0
+        # ── ΠΩΛΗΣΕΙΣ: ΜΟΝΟ ΣΤΙΣ ΕΠΙΤΑΓΕΣ, ΑΝΑ ΕΒΔΟΜΑΔΑ ──
+        #
+        # Την ημέρα που πληρώνεις μια επιταγή (Δευτέρα), έχει ήδη μπει στο ταμείο
+        # η ΠΡΟΗΓΟΥΜΕΝΗ ολόκληρη εβδομάδα πωλήσεων. Την προβλέπουμε από πέρσι:
+        # τις ίδιες 7 μέρες (Δευτέρα ως Κυριακή) της περασμένης εβδομάδας.
+        #
+        # Τα πάγια (μισθοδοσία, ΦΠΑ κλπ) που πέφτουν ΜΕΣΑ στην εβδομάδα ΔΕΝ
+        # προσθέτουν πωλήσεις — απλώς αφαιρούνται από το τρέχον υπόλοιπο. Έτσι
+        # οι πωλήσεις μετρώνται μία φορά ανά εβδομάδα, στο σημείο της επιταγής.
+        if ev["kind"] == "check":
+            # Η περασμένη εβδομάδα: [cd-7 .. cd-1]. Πέρσι: -364 μέρες.
+            wk_start = cd - timedelta(days=7)
+            wk_end = cd - timedelta(days=1)
+            predicted = sales_between(
+                df_sales, last_year(wk_start), last_year(wk_end)
+            ) or 0.0
         else:
             predicted = 0.0
 
@@ -723,7 +776,6 @@ def cash_forecast(df_checks: pd.DataFrame, df_sales: pd.DataFrame,
             first_gap = row
 
         balance = balance_after
-        cursor = cd
 
     return {
         "cash": cash,
