@@ -194,12 +194,21 @@ def _fixed_expenses_input() -> list:
         )
 
         records = edited.to_dict("records")
-        as_json = json.dumps(records, ensure_ascii=False)
+        # Καθάρισε τιμές NaN/None πριν το JSON — αλλιώς σκάει η αποθήκευση.
+        clean_records = [
+            {
+                "name": str(r.get("name", "") or "").strip(),
+                "amount": _safe_float(r.get("amount")),
+                "day": _safe_int(r.get("day"), 1),
+            }
+            for r in records
+        ]
+        as_json = json.dumps(clean_records, ensure_ascii=False)
         if as_json != st.session_state.get("fixed_exp_saved"):
             save_setting(FIXED_SETTING, as_json)
             st.session_state["fixed_exp_saved"] = as_json
 
-        total = sum(float(r.get("amount", 0) or 0) for r in records)
+        total = sum(_safe_float(r.get("amount")) for r in records)
         if total > 0:
             c.html(
                 f"<div style='margin-top:.5rem;font-size:.85rem;color:var(--muted)'>"
@@ -209,11 +218,43 @@ def _fixed_expenses_input() -> list:
     out = []
     for r in edited.to_dict("records"):
         name = str(r.get("name", "") or "").strip()
-        amt = float(r.get("amount", 0) or 0)
-        day = int(r.get("day", 1) or 1)
+        amt = _safe_float(r.get("amount"))
+        day = _safe_int(r.get("day"), 1)
+        # Κράτα το day μέσα σε λογικά όρια (1-31).
+        day = min(max(day, 1), 31)
         if name and amt > 0:
             out.append({"name": name, "amount": amt, "day": day})
     return out
+
+
+def _safe_float(v) -> float:
+    """Μετατρέπει σε float ό,τι κι αν είναι — None, κενό, NaN, κόμμα-δεκαδικό."""
+    if v is None:
+        return 0.0
+    try:
+        # NaN (από κενά κελιά pandas) → 0
+        if isinstance(v, float) and v != v:
+            return 0.0
+    except Exception:
+        pass
+    s = str(v).strip().replace(",", ".")
+    if not s or s.lower() in ("nan", "none"):
+        return 0.0
+    try:
+        return float(s)
+    except (ValueError, TypeError):
+        return 0.0
+
+
+def _safe_int(v, default: int = 0) -> int:
+    """Μετατρέπει σε int ό,τι κι αν είναι — None, κενό, NaN, δεκαδικό."""
+    f = _safe_float(v)
+    if f == 0.0 and default:
+        # Ξεχώρισε «πραγματικό 0» από «κενό» — αν ήταν κενό, βάλε default.
+        s = str(v).strip() if v is not None else ""
+        if not s or s.lower() in ("nan", "none"):
+            return default
+    return int(f)
 
 
 def _runway_summary(runway: dict) -> None:
