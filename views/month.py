@@ -305,6 +305,10 @@ def _forecast_display(forecast: dict) -> None:
     c.spacer(0.8)
     c.section("🔮 Πρόβλεψη ρευστότητας")
 
+    # Πόσες επιταγές είναι πραγματικές και πόσες πρόβλεψη;
+    n_real = sum(1 for ch in checks if ch.get("kind") == "check" and not ch.get("estimated"))
+    n_est = sum(1 for ch in checks if ch.get("kind") == "check" and ch.get("estimated"))
+
     # Headline: η γενική εικόνα με μια πρόταση.
     if forecast["all_covered"]:
         last = checks[-1]
@@ -327,6 +331,16 @@ def _forecast_display(forecast: dict) -> None:
             "bad",
         )
 
+    # Υπόμνημα: εξήγησε πραγματικές vs προβλεπόμενες επιταγές.
+    if n_est > 0:
+        c.html(
+            f"<div style='font-size:.78rem;color:var(--muted);margin:.4rem 0 .2rem'>"
+            f"<b>{n_real}</b> πραγματικές επιταγές (σταλμένες) · "
+            f"<span style='color:var(--prev)'><b>{n_est}</b> ~προβλεπόμενες (πέρσι)</span> "
+            f"ως το τέλος του έτους"
+            f"</div>"
+        )
+
     # Αναλυτικά: μία γραμμή ανά υποχρέωση, με το τρέχον προβλεπόμενο υπόλοιπο.
     # ΑΝΑΠΟΔΗ σειρά — τα πιο μακρινά (τελευταία) πρώτα.
     lines = []
@@ -341,10 +355,17 @@ def _forecast_display(forecast: dict) -> None:
             color = "var(--neg)"
 
         # Επιταγή ή πάγιο; Τα πάγια δείχνουν το όνομά τους, σε άλλο χρώμα.
+        is_est = ch.get("estimated", False)
         if ch.get("kind") == "fixed":
             label = (
                 f"<span style='color:#7C3AED'>💳 {ch.get('name', 'πάγιο')} "
                 f"{c.eur(ch['amount'])}</span>"
+            )
+        elif is_est:
+            # ΠΡΟΒΛΕΠΟΜΕΝΗ επιταγή (περσινή) — ξεθωριασμένη, με «~» και ένδειξη.
+            label = (
+                f"<span style='color:var(--prev)'>~επιταγή {c.eur(ch['amount'])} "
+                f"<span style='font-size:.72rem;opacity:.8'>(πέρσι)</span></span>"
             )
         else:
             label = f"επιταγή {c.eur(ch['amount'])}"
@@ -355,9 +376,12 @@ def _forecast_display(forecast: dict) -> None:
             "<span style='color:var(--dim)'>—</span>"
         )
 
+        # Οι προβλεπόμενες γραμμές λίγο πιο διάφανες, να ξεχωρίζουν με μια ματιά.
+        row_opacity = "opacity:.72;" if is_est else ""
+
         lines.append(
             f"<div style='display:flex;align-items:center;gap:.6rem;padding:.45rem 0;"
-            f"border-bottom:1px solid var(--line-soft)'>"
+            f"border-bottom:1px solid var(--line-soft);{row_opacity}'>"
             f"<span style='font-size:.9rem'>{dot}</span>"
             f"<span style='min-width:64px;font-weight:600'>{ch['date']:%d/%m}</span>"
             f"<span style='min-width:140px'>{label}</span>"
