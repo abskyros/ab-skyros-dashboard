@@ -653,8 +653,40 @@ def _expand_fixed(fixed: list, start: date, end: date) -> list:
     return out
 
 
+def project_checks_to_year_end(df_checks: pd.DataFrame, today: date,
+                                last_real: date) -> list[dict]:
+    """
+    Προβλεπόμενες επιταγές από την τελευταία πραγματική ως το τέλος του έτους.
+
+    Όπου ΔΕΝ έχουμε πραγματική επιταγή (μετά την τελευταία που ξέρουμε), «γεμίζουμε»
+    με την ΠΕΡΣΙΝΗ επιταγή της αντίστοιχης εβδομάδας — ακριβώς όπως κάνουμε με τις
+    πωλήσεις. Έτσι βλέπουμε ΟΛΗ τη χρονιά μπροστά, με μέτρο σύγκρισης το πέρσι.
+
+    → [{"date": date, "amount": float, "estimated": True}, ...]
+    """
+    if df_checks.empty:
+        return []
+
+    # Οι πραγματικές επιταγές συνήθως πέφτουν σε σταθερή μέρα (Δευτέρα). Βρες
+    # το βήμα από τις υπάρχουσες — συνήθως 7 μέρες.
+    out = []
+    year_end = date(today.year, 12, 31)
+
+    # Ξεκίνα μία εβδομάδα μετά την τελευταία πραγματική.
+    d = last_real + timedelta(days=7)
+    while d <= year_end:
+        # Ψάξε την περσινή επιταγή αυτής της εβδομάδας.
+        amount = match_last_year_check(df_checks, d)
+        if amount and amount > 0:
+            out.append({"date": d, "amount": amount, "estimated": True})
+        d += timedelta(days=7)
+
+    return out
+
+
 def cash_forecast(df_checks: pd.DataFrame, df_sales: pd.DataFrame,
-                  today: date, cash: float, fixed: list | None = None) -> dict:
+                  today: date, cash: float, fixed: list | None = None,
+                  project_to_year_end: bool = True) -> dict:
     """
     🔮 ΠΡΟΒΛΕΨΗ ΡΕΥΣΤΟΤΗΤΑΣ — θα βγει ο μήνας;
 
@@ -706,13 +738,30 @@ def cash_forecast(df_checks: pd.DataFrame, df_sales: pd.DataFrame,
             "period": ch.get("period", ""),
             "kind": "check",
             "name": "",
+            "estimated": False,   # ΠΡΑΓΜΑΤΙΚΗ επιταγή
         })
 
-    # Τα πάγια απλώνονται ΜΟΝΟ ως την τελευταία επιταγή — τίποτα πέρα από αυτήν.
-    # Κάθε εβδομάδα έρχεται νέα τιμολόγηση, οπότε η πρόβλεψη ξαναχτίζεται· δεν
-    # έχει νόημα να δείχνουμε πάγια πέρα από τον ορίζοντα που ξέρουμε.
-    if fixed and checks:
-        horizon = checks[-1]["date"]
+    # ── ΠΡΟΒΛΕΠΟΜΕΝΕΣ ΕΠΙΤΑΓΕΣ (ως το τέλος του έτους) ──
+    #
+    # Όπου δεν έχουμε πραγματική επιταγή, γεμίζουμε με την περσινή της ίδιας
+    # εβδομάδας — ίδια λογική με τις πωλήσεις. Έτσι βλέπουμε όλη τη χρονιά.
+    if project_to_year_end and checks:
+        last_real = checks[-1]["date"]
+        for pc in project_checks_to_year_end(df_checks, today, last_real):
+            events.append({
+                "date": pc["date"],
+                "amount": pc["amount"],
+                "period": "",
+                "kind": "check",
+                "name": "",
+                "estimated": True,    # ΠΡΟΒΛΕΠΟΜΕΝΗ (περσινή)
+            })
+
+    # Ο ορίζοντας των πάγιων: αν προβλέπουμε ως το τέλος του έτους, τα πάγια
+    # απλώνονται κι αυτά ως εκεί. Αλλιώς, μόνο ως την τελευταία πραγματική.
+    if fixed and events:
+        check_dates = [e["date"] for e in events if e["kind"] == "check"]
+        horizon = max(check_dates) if check_dates else today
         for fx in _expand_fixed(fixed, today, horizon):
             events.append({
                 "date": fx["date"],
@@ -720,6 +769,7 @@ def cash_forecast(df_checks: pd.DataFrame, df_sales: pd.DataFrame,
                 "period": "",
                 "kind": "fixed",
                 "name": fx["name"],
+                "estimated": False,
             })
 
     if not events:
