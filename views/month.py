@@ -31,7 +31,7 @@ import pandas as pd
 import streamlit as st
 
 from core.config import MONTHS_GR
-from core.metrics import as_dates, month_rows, check_period, cash_runway, cash_forecast
+from core.metrics import as_dates, month_rows, check_period, cash_runway
 from core.sheets import update_timologiseis_field, load_setting, save_setting
 from ui import components as c
 
@@ -70,34 +70,22 @@ def render(df_t: pd.DataFrame, df_s: pd.DataFrame, today: date) -> None:
 
     _summary(rows)
 
-    # ── ΤΑΜΕΙΟ + ΠΑΓΙΑ (κοινές είσοδοι, πάνω από τις καρτέλες) ──
+    # ── ΤΑΜΕΙΟ + ΚΑΛΥΨΗ ──
     #
-    # Το ταμείο και τα πάγια χρειάζονται και στις δύο καρτέλες, οπότε μπαίνουν
-    # μία φορά, πάνω.
+    # Το ταμείο μπαίνει πάνω από τον πίνακα. Η κάλυψη κάθε επιταγής μπαίνει
+    # ΜΕΣΑ στον πίνακα, ως στήλη με μπάρα — δίπλα στον αριθμό επιταγής.
     cash = _cash_input(key="month")
-    fixed = _fixed_expenses_input()
-
     runway = cash_runway(df_t, today, cash)
 
-    # Χάρτης: ημερομηνία επιταγής → κάλυψη.
+    # Χάρτης: ημερομηνία επιταγής → κάλυψη. Ο πίνακας δείχνει ΤΟΝ ΜΗΝΑ που
+    # διάλεξες, ενώ η κάλυψη υπολογίζεται σε ΟΛΕΣ τις μελλοντικές επιταγές.
     coverage = {
         _cov_key(ch["date"]): ch
         for ch in runway["checks"]
     }
 
-    # ── ΔΥΟ ΚΑΡΤΕΛΕΣ: Ανά περίοδο | Πρόβλεψη ρευστότητας ──
-    tab_period, tab_forecast = st.tabs([
-        "📋 Ανά περίοδο",
-        "🔮 Πρόβλεψη ρευστότητας",
-    ])
-
-    with tab_period:
-        _editor(rows, coverage)
-        _runway_summary(runway)
-
-    with tab_forecast:
-        forecast = cash_forecast(df_t, df_s, today, cash, fixed=fixed)
-        _forecast_display(forecast)
+    _editor(rows, coverage)
+    _runway_summary(runway)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
