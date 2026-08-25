@@ -15,6 +15,15 @@ SHEET_SALES  = "sales"
 SHEET_INV    = "invoices"
 SHEET_TIMOL  = "timologiseis"
 
+# Ιστορικό ενημερώσεων ανά εξωτερικό προμηθευτή (email/τηλέφωνο, ημέρες
+# παραγγελίας/παράδοσης). Κάθε αλλαγή είναι ΝΕΑ γραμμή, ποτέ αντικατάσταση —
+# βλ. core/sheets.py, current_suppliers().
+SHEET_SUPPLIERS = "suppliers"
+
+# Ιστορικό του εσωτερικού προγράμματος παραγγελιών/παραδόσεων ΑΒ ανά
+# κατηγορία προϊόντων (π.χ. το «Θερινό πρόγραμμα» — αλλάζει εποχιακά).
+SHEET_ORDER_SCHEDULE = "order_schedule"
+
 SALES_COLS = ["date", "net_sales", "customers", "avg_basket"]
 
 # ΝΕΑ ΣΤΗΛΗ: number → ο ΑΡΙΘΜΟΣ ΠΑΡΑΣΤΑΤΙΚΟΥ.
@@ -25,6 +34,22 @@ SALES_COLS = ["date", "net_sales", "customers", "avg_basket"]
 INV_COLS   = ["date", "type", "value", "number"]
 
 TIMOL_COLS = ["check_date", "period", "amount", "check_number", "expenses"]
+
+# Μία γραμμή = μία ενημέρωση για έναν προμηθευτή. effective_from = από πότε
+# ισχύει αυτή η ρύθμιση. source = από πού μάθαμε την ενημέρωση (ίχνος, για
+# επαλήθευση — π.χ. "email 2/7/2026 par-alexandris@otenet.gr").
+SUPPLIERS_COLS = [
+    "supplier", "category", "contact_person", "email", "phone",
+    "order_days", "order_deadline", "delivery_days", "order_method",
+    "notes", "effective_from", "source",
+]
+
+# Μία γραμμή = μία ενημέρωση για μία κατηγορία προϊόντων του εσωτερικού
+# προγράμματος ΑΒ (π.χ. το xlsx «Θερινό πρόγραμμα παραγγελιών»).
+ORDER_SCHEDULE_COLS = [
+    "category", "warehouse_code", "warehouse_num", "store_code", "session",
+    "order_days", "delivery_days", "effective_from", "source",
+]
 
 # ΣΗΜΑΝΤΙΚΟ: όλα τα ποσά αποθηκεύονται στο Sheet ως ΛΕΠΤΑ (ακέραιοι, ×100).
 # Αυτό αποφεύγει προβλήματα με το ελληνικό locale (κόμμα vs τελεία).

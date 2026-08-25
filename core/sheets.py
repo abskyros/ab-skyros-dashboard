@@ -27,7 +27,9 @@ import pandas as pd
 from core.config import (
     SPREADSHEET_ID, SCOPES, CENTS,
     SHEET_SALES, SHEET_INV, SHEET_TIMOL,
+    SHEET_SUPPLIERS, SHEET_ORDER_SCHEDULE,
     SALES_COLS, INV_COLS, TIMOL_COLS,
+    SUPPLIERS_COLS, ORDER_SCHEDULE_COLS,
 )
 
 # Το streamlit είναι optional — τα jobs τρέχουν χωρίς αυτό.
@@ -144,6 +146,113 @@ def save_setting(key: str, value: str) -> bool:
         ws.append_row([key, str(value)])
         return True
     except Exception:
+        return False
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ΠΡΟΜΗΘΕΥΤΕΣ & ΠΡΟΓΡΑΜΜΑ ΠΑΡΑΓΓΕΛΙΩΝ
+#
+# Και τα δύο φύλλα είναι ΙΣΤΟΡΙΚΟ, όχι στιγμιότυπο: κάθε ενημέρωση (π.χ. ένας
+# προμηθευτής αλλάζει μέρα παράδοσης) προστίθεται σαν ΝΕΑ γραμμή με το δικό
+# της effective_from — ποτέ δεν διορθώνουμε ή σβήνουμε την παλιά γραμμή.
+#
+# Το «τρέχον» πρόγραμμα είναι απλά η πιο πρόσφατη γραμμή ανά προμηθευτή/
+# κατηγορία με effective_from έως σήμερα. Έτσι:
+#   • Ξέρουμε ΠΑΝΤΑ τι ίσχυε σε μια δεδομένη ημερομηνία στο παρελθόν.
+#   • Μια αλλαγή που ισχύει «από την επόμενη Δευτέρα» μπαίνει ΤΩΡΑ στο ιστορικό
+#     αλλά δεν γίνεται «τρέχουσα» πριν έρθει η μέρα της — δεν χρειάζεται να
+#     θυμάται κανείς να αλλάξει κάτι χειροκίνητα.
+# ══════════════════════════════════════════════════════════════════════════════
+def _ensure_sheet(name: str, cols: list[str]):
+    """Ζωντανό worksheet. Αν δεν υπάρχει το φύλλο, το φτιάχνει με την επικεφαλίδα."""
+    ss = _client().open_by_key(SPREADSHEET_ID)
+    try:
+        return ss.worksheet(name)
+    except Exception:
+        ws = ss.add_worksheet(title=name, rows=200, cols=len(cols))
+        ws.update([cols], "A1")
+        return ws
+
+
+def _load_history(sheet: str, cols: list[str]) -> pd.DataFrame:
+    """Διαβάζει ένα ιστορικό φύλλο (προμηθευτές ή πρόγραμμα) ως DataFrame."""
+    try:
+        vals = _ensure_sheet(sheet, cols).get_all_values()
+    except Exception as e:
+        _warn(f"Δεν φόρτωσε το φύλλο «{sheet}»: {e}")
+        return pd.DataFrame(columns=cols)
+
+    if len(vals) < 2:
+        return pd.DataFrame(columns=cols)
+
+    n = len(cols)
+    rows = [(r + [""] * n)[:n] for r in vals[1:] if r and r[0]]
+    if not rows:
+        return pd.DataFrame(columns=cols)
+
+    df = pd.DataFrame(rows, columns=cols)
+    df["effective_from"] = pd.to_datetime(df["effective_from"], errors="coerce")
+    return df
+
+
+def _current_rows(df: pd.DataFrame, key_col: str) -> pd.DataFrame:
+    """Από ένα ιστορικό, κρατάει τη ΠΙΟ ΠΡΟΣΦΑΤΗ γραμμή ανά key_col, μόνο όσες
+    ήδη ισχύουν (effective_from <= σήμερα)."""
+    if df.empty:
+        return df
+    today = pd.Timestamp.now().normalize()
+    df = df[df["effective_from"].notna() & (df["effective_from"] <= today)]
+    if df.empty:
+        return df
+    df = df.sort_values("effective_from")
+    return df.groupby(key_col, as_index=False).last()
+
+
+@st.cache_data(ttl=300, max_entries=1, show_spinner=False)
+def load_suppliers() -> pd.DataFrame:
+    """→ ΟΛΟ το ιστορικό προμηθευτών. Για το τρέχον πρόγραμμα, δες current_suppliers()."""
+    return _load_history(SHEET_SUPPLIERS, SUPPLIERS_COLS)
+
+
+def current_suppliers() -> pd.DataFrame:
+    """→ μία γραμμή ανά προμηθευτή: η πιο πρόσφατη ήδη ισχύουσα ενημέρωση."""
+    return _current_rows(load_suppliers(), "supplier")
+
+
+def add_supplier_update(row: dict) -> bool:
+    """Προσθέτει ΜΙΑ νέα ενημέρωση προμηθευτή (νέα γραμμή — ποτέ αντικατάσταση)."""
+    try:
+        ws = _ensure_sheet(SHEET_SUPPLIERS, SUPPLIERS_COLS)
+        ws.append_row([str(row.get(c, "") or "") for c in SUPPLIERS_COLS],
+                      value_input_option="RAW")
+        load_suppliers.clear()
+        return True
+    except Exception as e:
+        _warn(f"Δεν αποθηκεύτηκε η ενημέρωση προμηθευτή: {e}")
+        return False
+
+
+@st.cache_data(ttl=300, max_entries=1, show_spinner=False)
+def load_order_schedule() -> pd.DataFrame:
+    """→ ΟΛΟ το ιστορικό του προγράμματος ΑΒ ανά κατηγορία."""
+    return _load_history(SHEET_ORDER_SCHEDULE, ORDER_SCHEDULE_COLS)
+
+
+def current_order_schedule() -> pd.DataFrame:
+    """→ μία γραμμή ανά κατηγορία: το πρόγραμμα που ισχύει σήμερα."""
+    return _current_rows(load_order_schedule(), "category")
+
+
+def add_order_schedule_update(row: dict) -> bool:
+    """Προσθέτει ΜΙΑ νέα ενημέρωση προγράμματος (νέα γραμμή — ποτέ αντικατάσταση)."""
+    try:
+        ws = _ensure_sheet(SHEET_ORDER_SCHEDULE, ORDER_SCHEDULE_COLS)
+        ws.append_row([str(row.get(c, "") or "") for c in ORDER_SCHEDULE_COLS],
+                      value_input_option="RAW")
+        load_order_schedule.clear()
+        return True
+    except Exception as e:
+        _warn(f"Δεν αποθηκεύτηκε η ενημέρωση προγράμματος: {e}")
         return False
 
 
@@ -1040,3 +1149,5 @@ def clear_all_caches() -> None:
     load_sales.clear()
     load_invoices.clear()
     load_timologiseis.clear()
+    load_suppliers.clear()
+    load_order_schedule.clear()
