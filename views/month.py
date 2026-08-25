@@ -70,33 +70,34 @@ def render(df_t: pd.DataFrame, df_s: pd.DataFrame, today: date) -> None:
 
     _summary(rows)
 
-    # ── ΤΑΜΕΙΟ + ΚΑΛΥΨΗ ──
+    # ── ΤΑΜΕΙΟ + ΠΑΓΙΑ (κοινές είσοδοι, πάνω από τις καρτέλες) ──
     #
-    # Το ταμείο μπαίνει πάνω από τον πίνακα. Η κάλυψη κάθε επιταγής μπαίνει
-    # ΜΕΣΑ στον πίνακα, ως στήλη με μπάρα — δίπλα στον αριθμό επιταγής.
+    # Το ταμείο και τα πάγια χρειάζονται και στις δύο καρτέλες, οπότε μπαίνουν
+    # μία φορά, πάνω.
     cash = _cash_input(key="month")
+    fixed = _fixed_expenses_input()
+
     runway = cash_runway(df_t, today, cash)
 
-    # Χάρτης: ημερομηνία επιταγής → κάλυψη. Ο πίνακας δείχνει ΤΟΝ ΜΗΝΑ που
-    # διάλεξες, ενώ η κάλυψη υπολογίζεται σε ΟΛΕΣ τις μελλοντικές επιταγές.
-    # Έτσι, όποιον μήνα κι αν δεις, η μπάρα λέει την αλήθεια.
+    # Χάρτης: ημερομηνία επιταγής → κάλυψη.
     coverage = {
         _cov_key(ch["date"]): ch
         for ch in runway["checks"]
     }
 
-    _editor(rows, coverage)
+    # ── ΔΥΟ ΚΑΡΤΕΛΕΣ: Ανά περίοδο | Πρόβλεψη ρευστότητας ──
+    tab_period, tab_forecast = st.tabs([
+        "📋 Ανά περίοδο",
+        "🔮 Πρόβλεψη ρευστότητας",
+    ])
 
-    # Μια γραμμή σύνοψης κάτω από τον πίνακα — η γενική εικόνα με μια ματιά.
-    _runway_summary(runway)
+    with tab_period:
+        _editor(rows, coverage)
+        _runway_summary(runway)
 
-    # Πάγια έξοδα (μηνιαία) — μπαίνουν στην πρόβλεψη, αφαιρούνται στη μέρα τους.
-    fixed = _fixed_expenses_input()
-
-    # Πρόβλεψη ρευστότητας: τι θα φτάνει ΟΤΑΝ ΛΗΞΕΙ κάθε υποχρέωση (επιταγές +
-    # πάγια), με βάση τις πωλήσεις που θα μπουν στο μεταξύ (περσινές).
-    forecast = cash_forecast(df_t, df_s, today, cash, fixed=fixed)
-    _forecast_display(forecast)
+    with tab_forecast:
+        forecast = cash_forecast(df_t, df_s, today, cash, fixed=fixed)
+        _forecast_display(forecast)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -342,9 +343,9 @@ def _forecast_display(forecast: dict) -> None:
         )
 
     # Αναλυτικά: μία γραμμή ανά υποχρέωση, με το τρέχον προβλεπόμενο υπόλοιπο.
-    # ΑΝΑΠΟΔΗ σειρά — τα πιο μακρινά (τελευταία) πρώτα.
+    # ΧΡΟΝΟΛΟΓΙΚΑ — από σήμερα (πάνω) προς το τέλος του έτους (κάτω).
     lines = []
-    for ch in reversed(checks):
+    for ch in checks:
         if ch["covered"]:
             dot = "🟢"
             after = f"μένουν {c.eur(ch['balance_after'])}"
