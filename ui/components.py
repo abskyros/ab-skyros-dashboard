@@ -61,6 +61,39 @@ def html(markup: str) -> None:
 def load_css() -> None:
     css = (Path(__file__).parent / "style.css").read_text(encoding="utf-8")
     st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
+    _apply_day_night()
+
+
+def _apply_day_night() -> None:
+    """
+    Νυχτερινή εμφάνιση αυτόματα, ανάλογα με την ώρα Ελλάδας.
+
+    Μέρα (07:00–20:00) → φωτεινό. Νύχτα (20:00–07:00) → σκούρο, να μην κουράζει.
+
+    Το Streamlit τρέχει σε iframe, οπότε βάζουμε την κλάση `.dark` με JavaScript
+    στο σωστό στοιχείο (το body της σελίδας που περιέχει το iframe).
+    """
+    from core.metrics import now_greece
+
+    hour = now_greece().hour
+    is_night = hour >= 20 or hour < 7
+
+    # Εφάρμοσε και στο τρέχον έγγραφο ΚΑΙ στο parent (έξω από το iframe).
+    mode = "add" if is_night else "remove"
+    st.markdown(
+        f"""
+        <script>
+        (function() {{
+            function apply(doc) {{
+                if (doc && doc.body) doc.body.classList.{mode}('dark');
+            }}
+            apply(document);
+            try {{ apply(window.parent.document); }} catch (e) {{}}
+        }})();
+        </script>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def topbar(today: date) -> None:
