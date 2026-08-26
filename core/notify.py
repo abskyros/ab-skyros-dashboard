@@ -147,6 +147,79 @@ def format_charges_email(new_charges: list[dict], eur_fn) -> tuple[str, str]:
     return subject, body
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# ΕΙΔΟΠΟΙΗΣΗ: ΠΑΡΑΓΓΕΛΙΕΣ ΠΟΥ ΠΡΕΠΕΙ ΝΑ ΦΥΓΟΥΝ ΣΗΜΕΡΑ
+# ══════════════════════════════════════════════════════════════════════════════
+def format_order_reminder_email(
+    suppliers_today: list[dict], categories_today: list[dict], today_label: str,
+) -> tuple[str, str]:
+    """
+    Φτιάχνει θέμα + σώμα HTML για το πρωινό email παραγγελιών.
+
+    suppliers_today   : γραμμές από core.sheets.current_suppliers(), ήδη
+                         φιλτραρισμένες σε όσες έχουν order_days σήμερα.
+    categories_today   : ίδιο, από current_order_schedule().
+    today_label        : π.χ. "Δευτέρα 26/8"
+
+    → (subject, body_html)
+    """
+    n = len(suppliers_today) + len(categories_today)
+    subject = f"📦 Παραγγελίες σήμερα · {today_label} ({n})"
+
+    rows = []
+    for s in suppliers_today:
+        method = str(s.get("order_method") or "email")
+        contact = s.get("phone") if method == "phone" else s.get("email")
+        deadline = f' · έως {s["order_deadline"]}' if s.get("order_deadline") else ""
+        notes = f'<div style="color:#94a3b8;font-size:12px;margin-top:2px">{s["notes"]}</div>' if s.get("notes") else ""
+        rows.append(
+            f'<tr><td style="padding:10px 12px;border-bottom:1px solid #eee">'
+            f'<b>{s["supplier"]}</b>{notes}</td>'
+            f'<td style="padding:10px 12px;border-bottom:1px solid #eee;font-size:13px">'
+            f'{method}: {contact or "—"}{deadline}</td></tr>'
+        )
+    for c in categories_today:
+        rows.append(
+            f'<tr><td style="padding:10px 12px;border-bottom:1px solid #eee">'
+            f'<b>{c["category"]}</b><div style="color:#94a3b8;font-size:12px">εσωτερική παραγγελία ΑΒ</div></td>'
+            f'<td style="padding:10px 12px;border-bottom:1px solid #eee;font-size:13px">αποθήκη {c.get("warehouse_code","")}</td></tr>'
+        )
+
+    body = f"""\
+<div style="font-family:-apple-system,system-ui,Arial,sans-serif;max-width:600px;margin:0 auto">
+  <div style="background:#1e3a5f;color:#fff;padding:20px 24px;border-radius:12px 12px 0 0">
+    <div style="font-size:18px;font-weight:800">AB Σκύρος</div>
+    <div style="opacity:.85;font-size:13px;margin-top:2px">Παραγγελίες · {today_label}</div>
+  </div>
+
+  <div style="border:1px solid #e2e8f0;border-top:none;padding:24px;border-radius:0 0 12px 12px">
+    <p style="font-size:15px;color:#1e293b;margin:0 0 16px">
+      Σήμερα πρέπει να φύγουν <b>{n}</b> παραγγελί{"α" if n == 1 else "ες"}.
+    </p>
+
+    <table style="width:100%;border-collapse:collapse;font-size:14px">
+      <thead>
+        <tr style="text-align:left;color:#94a3b8;font-size:12px;text-transform:uppercase">
+          <th style="padding:8px 12px">Ποιος</th>
+          <th style="padding:8px 12px">Πώς / πότε</th>
+        </tr>
+      </thead>
+      <tbody>
+        {"".join(rows)}
+      </tbody>
+    </table>
+
+    <p style="font-size:12px;color:#94a3b8;margin:24px 0 0;padding-top:16px;
+              border-top:1px solid #f1f5f9">
+      Αυτόματη υπενθύμιση από την εφαρμογή AB Σκύρος. Δες τη σελίδα «Προμηθευτές»
+      για τα πλήρη στοιχεία.
+    </p>
+  </div>
+</div>"""
+
+    return subject, body
+
+
 def notify_new_double_charges(all_charges: list[dict], password: str,
                               load_seen, save_seen, eur_fn) -> dict:
     """
