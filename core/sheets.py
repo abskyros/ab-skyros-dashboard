@@ -28,8 +28,10 @@ from core.config import (
     SPREADSHEET_ID, SCOPES, CENTS,
     SHEET_SALES, SHEET_INV, SHEET_TIMOL,
     SHEET_SUPPLIERS, SHEET_ORDER_SCHEDULE,
+    SHEET_HACCP_CLEANING, SHEET_HACCP_TEMP, SHEET_HACCP_RECEIVING,
     SALES_COLS, INV_COLS, TIMOL_COLS,
     SUPPLIERS_COLS, ORDER_SCHEDULE_COLS,
+    HACCP_CLEANING_COLS, HACCP_TEMP_COLS, HACCP_RECEIVING_COLS,
 )
 
 # Το streamlit είναι optional — τα jobs τρέχουν χωρίς αυτό.
@@ -254,6 +256,92 @@ def add_order_schedule_update(row: dict) -> bool:
     except Exception as e:
         _warn(f"Δεν αποθηκεύτηκε η ενημέρωση προγράμματος: {e}")
         return False
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ΠΟΙΟΤΙΚΟΣ ΕΛΕΓΧΟΣ / HACCP — καθαριότητα, θερμοκρασίες, παραλαβή
+#
+# Και τα τρία φύλλα είναι ΚΑΘΑΡΑ LOG: κάθε καταχώρηση είναι μια νέα γραμμή.
+# Δεν υπάρχει «τρέχουσα κατάσταση» να διορθωθεί — το ιστορικό ΕΙΝΑΙ η απόδειξη
+# συμμόρφωσης, ακριβώς όπως το χάρτινο έντυπο που αντικαθιστούν.
+# ══════════════════════════════════════════════════════════════════════════════
+def _load_log(sheet: str, cols: list[str]) -> pd.DataFrame:
+    try:
+        vals = _ensure_sheet(sheet, cols).get_all_values()
+    except Exception as e:
+        _warn(f"Δεν φόρτωσε το φύλλο «{sheet}»: {e}")
+        return pd.DataFrame(columns=cols)
+
+    if len(vals) < 2:
+        return pd.DataFrame(columns=cols)
+
+    n = len(cols)
+    rows = [(r + [""] * n)[:n] for r in vals[1:] if r and r[0]]
+    if not rows:
+        return pd.DataFrame(columns=cols)
+
+    return pd.DataFrame(rows, columns=cols)
+
+
+def _append_log(sheet: str, cols: list[str], row: dict) -> bool:
+    try:
+        ws = _ensure_sheet(sheet, cols)
+        ws.append_row([str(row.get(c, "") or "") for c in cols], value_input_option="RAW")
+        return True
+    except Exception as e:
+        _warn(f"Δεν αποθηκεύτηκε η καταχώρηση: {e}")
+        return False
+
+
+@st.cache_data(ttl=60, max_entries=1, show_spinner=False)
+def load_haccp_cleaning() -> pd.DataFrame:
+    return _load_log(SHEET_HACCP_CLEANING, HACCP_CLEANING_COLS)
+
+
+def log_cleaning_done(date_str: str, department: str, item: str, done_by: str = "") -> bool:
+    """Καταγράφει ότι ένα σημείο καθαρίστηκε μια δεδομένη μέρα. Δεν ξαναγράφει
+    αν υπάρχει ήδη ίδια (date, department, item) — το κουτάκι μένει τσεκαρισμένο
+    ακόμα κι αν ξαναπατηθεί."""
+    existing = load_haccp_cleaning()
+    if not existing.empty:
+        dup = existing[
+            (existing["date"] == date_str)
+            & (existing["department"] == department)
+            & (existing["item"] == item)
+        ]
+        if not dup.empty:
+            return True
+
+    ok = _append_log(SHEET_HACCP_CLEANING, HACCP_CLEANING_COLS, {
+        "date": date_str, "department": department, "item": item, "done_by": done_by,
+    })
+    if ok:
+        load_haccp_cleaning.clear()
+    return ok
+
+
+@st.cache_data(ttl=60, max_entries=1, show_spinner=False)
+def load_haccp_temperature() -> pd.DataFrame:
+    return _load_log(SHEET_HACCP_TEMP, HACCP_TEMP_COLS)
+
+
+def log_temperature(row: dict) -> bool:
+    ok = _append_log(SHEET_HACCP_TEMP, HACCP_TEMP_COLS, row)
+    if ok:
+        load_haccp_temperature.clear()
+    return ok
+
+
+@st.cache_data(ttl=60, max_entries=1, show_spinner=False)
+def load_haccp_receiving() -> pd.DataFrame:
+    return _load_log(SHEET_HACCP_RECEIVING, HACCP_RECEIVING_COLS)
+
+
+def log_receiving(row: dict) -> bool:
+    ok = _append_log(SHEET_HACCP_RECEIVING, HACCP_RECEIVING_COLS, row)
+    if ok:
+        load_haccp_receiving.clear()
+    return ok
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1151,3 +1239,6 @@ def clear_all_caches() -> None:
     load_timologiseis.clear()
     load_suppliers.clear()
     load_order_schedule.clear()
+    load_haccp_cleaning.clear()
+    load_haccp_temperature.clear()
+    load_haccp_receiving.clear()

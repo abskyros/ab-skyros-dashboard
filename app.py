@@ -36,7 +36,7 @@ from core.github import trigger_workflow, last_run, available as gh_available
 from ui import components as c
 from ui import mobile
 
-from views import overview, sales, invoices, timologiseis, month, checks, forecast, suppliers
+from views import overview, sales, invoices, timologiseis, month, checks, forecast, suppliers, haccp
 
 
 VERSION = "9.1"
@@ -131,6 +131,9 @@ def main() -> None:
 
     elif page == "Προμηθευτές":
         suppliers.render(today)
+
+    elif page == "Ποιοτικός Έλεγχος":
+        haccp.render(today)
 
     sync_panel(df_s)
     footer()

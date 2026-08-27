@@ -24,6 +24,22 @@ SHEET_SUPPLIERS = "suppliers"
 # κατηγορία προϊόντων (π.χ. το «Θερινό πρόγραμμα» — αλλάζει εποχιακά).
 SHEET_ORDER_SCHEDULE = "order_schedule"
 
+# ── ΠΟΙΟΤΙΚΟΣ ΕΛΕΓΧΟΣ / HACCP ─────────────────────────────────────────────────
+# Ψηφιακά αντίστοιχα των χάρτινων εντύπων Ε1 (καθαριότητα), Ε3 (θερμοκρασίες
+# ψυχόμενων χώρων) και Ε5 (παραλαβή) του εγχειριδίου «Κανόνες Υγιεινής» ΑΒ.
+# Κάθε φύλλο είναι log — προστίθεται γραμμή, ποτέ δεν διορθώνεται η παλιά.
+SHEET_HACCP_CLEANING  = "haccp_cleaning"
+SHEET_HACCP_TEMP      = "haccp_temperature"
+SHEET_HACCP_RECEIVING = "haccp_receiving"
+
+HACCP_CLEANING_COLS  = ["date", "department", "item", "done_by"]
+HACCP_TEMP_COLS      = ["date", "time", "unit", "reading", "status", "notes"]
+HACCP_RECEIVING_COLS = [
+    "date", "supplier", "product",
+    "temp_ok", "vehicle_ok", "expiry_ok", "packaging_ok", "organoleptic_ok",
+    "corrective_action", "received_by",
+]
+
 SALES_COLS = ["date", "net_sales", "customers", "avg_basket"]
 
 # ΝΕΑ ΣΤΗΛΗ: number → ο ΑΡΙΘΜΟΣ ΠΑΡΑΣΤΑΤΙΚΟΥ.
@@ -131,6 +147,7 @@ PAGES = {
     "Μήνας":        "calendar",
     "Πρόβλεψη":     "trending-up",
     "Προμηθευτές":  "truck",
+    "Ποιοτικός Έλεγχος": "shield-check",
     # «Επιταγές» — η δεξαμενή. ΜΟΝΟ στο κινητό (βλ. MOBILE_ONLY_PAGES).
     # Στο desktop η ίδια μπάρα ζει μέσα στη σελίδα «Μήνας», δεξιά του πίνακα.
     "Επιταγές":     "wallet",
