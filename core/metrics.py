@@ -129,6 +129,37 @@ def today_greece() -> date:
     return now_greece().date()
 
 
+# Ώρα που πληρώνονται οι επιταγές (πρωί). Πριν από αυτήν, η σημερινή επιταγή
+# μετράει ακόμη ως «μπροστά»· μετά, θεωρείται πληρωμένη.
+CHECK_PAY_HOUR = 10
+
+
+def check_cutoff(today: date) -> pd.Timestamp:
+    """
+    Η ημερομηνία-όριο για το «ποιες επιταγές είναι ακόμη μπροστά».
+
+    Οι επιταγές πληρώνονται το πρωί (10:00), όχι στην αλλαγή της ημέρας. Άρα:
+      • Πριν τις 10:00 → η σημερινή επιταγή μετράει ΑΚΟΜΗ (όριο = σήμερα)
+      • Από τις 10:00 και μετά → η σημερινή θεωρείται πληρωμένη (όριο = αύριο)
+
+    Έτσι η γραμμή της επιταγής φεύγει από την πρόβλεψη στις 10:00 το πρωί της
+    ημέρας της, όχι τα μεσάνυχτα της προηγούμενης νύχτας.
+
+    ΔΕΝ αλλάζει κανέναν υπολογισμό — μόνο ΠΟΤΕ μια επιταγή θεωρείται περασμένη.
+    """
+    now = now_greece()
+
+    # Το «today» που περνιέται είναι κανονικά η σημερινή μέρα Ελλάδας. Αν όμως
+    # για κάποιο λόγο δεν είναι (π.χ. δοκιμή), βασιζόμαστε στην ώρα μόνο όταν
+    # ταιριάζει με τη σημερινή — αλλιώς κρατάμε την κλασική συμπεριφορά.
+    if today == now.date() and now.hour < CHECK_PAY_HOUR:
+        # Πριν τις 10:00 — κράτα και τη σημερινή (όριο = σήμερα το πρωί).
+        return pd.Timestamp(today)
+
+    # Από τις 10:00 και μετά — η σημερινή έφυγε (όριο = αύριο).
+    return pd.Timestamp(today) + pd.Timedelta(days=1)
+
+
 def week_range(d: date) -> tuple[date, date]:
     """Δευτέρα → Κυριακή της εβδομάδας που περιέχει τη d."""
     start = d - timedelta(days=d.weekday())
@@ -489,7 +520,7 @@ def checks_ahead_with_number(df: pd.DataFrame, today: date) -> dict:
     if df.empty or "check_number" not in df.columns:
         return empty
 
-    future = df[df["check_date"] >= pd.Timestamp(today)].copy()
+    future = df[df["check_date"] >= check_cutoff(today)].copy()
     if future.empty:
         return empty
 
@@ -518,7 +549,7 @@ def next_check(df: pd.DataFrame, today: date) -> pd.Series | None:
     """Η αμέσως επόμενη επιταγή."""
     if df.empty:
         return None
-    future = df[df["check_date"] >= pd.Timestamp(today)].sort_values("check_date")
+    future = df[df["check_date"] >= check_cutoff(today)].sort_values("check_date")
     return future.iloc[0] if not future.empty else None
 
 
@@ -534,7 +565,7 @@ def upcoming_checks(df: pd.DataFrame, today: date) -> list[dict]:
     if df.empty:
         return []
 
-    future = df[df["check_date"] >= pd.Timestamp(today)].sort_values("check_date")
+    future = df[df["check_date"] >= check_cutoff(today)].sort_values("check_date")
 
     out = []
     for _, r in future.iterrows():
