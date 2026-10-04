@@ -92,9 +92,57 @@ def _client():
     return gspread.authorize(creds)
 
 
+@st.cache_resource(show_spinner=False)
+def _spreadsheet():
+    """
+    Το ΑΝΟΙΧΤΟ spreadsheet — singleton, όπως ο client.
+
+    ΓΙΑΤΙ: το .open_by_key() είναι ΜΙΑ κλήση στο API. Αν το καλούσαμε σε κάθε
+    _ws(), κάθε ανάγνωση πλήρωνε μία κλήση παραπάνω. Με 3 φύλλα × κάθε rerun,
+    αυτό μόνο του έφτανε να χτυπήσει το όριο 60/λεπτό. Ανοίγουμε μία φορά.
+
+    ΔΕΝ μπαίνει σε cache_data (δεν γίνεται pickle) — μόνο cache_resource.
+    """
+    return _client().open_by_key(SPREADSHEET_ID)
+
+
 def _ws(name: str):
-    """Ζωντανό worksheet — ΠΟΤΕ δεν μπαίνει σε cache."""
-    return _client().open_by_key(SPREADSHEET_ID).worksheet(name)
+    """Ζωντανό worksheet — ΠΟΤΕ δεν μπαίνει σε cache_data. Το spreadsheet όμως
+    είναι singleton, άρα εδώ πληρώνουμε μόνο την .worksheet() κλήση."""
+    return _spreadsheet().worksheet(name)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# RETRY — ανθεκτικότητα στο όριο 60 αναγνώσεων/λεπτό (σφάλμα 429)
+# ══════════════════════════════════════════════════════════════════════════════
+def _is_quota_error(e: Exception) -> bool:
+    """Αναγνωρίζει το 429 (quota exceeded) από το gspread APIError ή το μήνυμα."""
+    code = getattr(getattr(e, "response", None), "status_code", None)
+    if code == 429:
+        return True
+    s = str(e)
+    return "429" in s or "Quota exceeded" in s or "RATE_LIMIT" in s.upper()
+
+
+def _with_retry(fn, *, tries: int = 2, base_wait: float = 2.5):
+    """
+    Τρέχει το fn()· αν φάει 429, περιμένει και ξαναδοκιμάζει.
+
+    Το όριο του Sheets είναι «ανά λεπτό». Μια σύντομη αναμονή συχνά αρκεί: όταν
+    το Action κι η εφαρμογή διαβάζουν ταυτόχρονα, το σφάλμα είναι στιγμιαίο.
+    Καλύτερα να περιμένεις 2-4 δευτ. παρά να δείξεις κίτρινο σφάλμα στον χρήστη.
+    """
+    last = None
+    for attempt in range(tries):
+        try:
+            return fn()
+        except Exception as e:  # noqa: BLE001
+            last = e
+            if not _is_quota_error(e) or attempt == tries - 1:
+                raise
+            time.sleep(base_wait * (attempt + 1))   # 2.5s, μετά 5s
+    if last:
+        raise last
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -109,8 +157,10 @@ def _settings_ws():
 
     Έτσι το ταμείο θυμάται την τελευταία τιμή ακόμα κι αν κλείσεις τον browser
     ή ανοίξεις την εφαρμογή από άλλο κινητό.
+
+    Χρησιμοποιεί το singleton _spreadsheet() — δεν ξανανοίγει το αρχείο.
     """
-    ss = _client().open_by_key(SPREADSHEET_ID)
+    ss = _spreadsheet()
     try:
         return ss.worksheet(SHEET_SETTINGS)
     except Exception:
@@ -119,29 +169,66 @@ def _settings_ws():
         return ws
 
 
-def load_setting(key: str, default: str = "") -> str:
-    """Διαβάζει μια ρύθμιση. Επιστρέφει default αν λείπει ή αν κάτι πάει στραβά."""
+@st.cache_data(ttl=120, max_entries=1, show_spinner=False)
+def _load_settings() -> dict:
+    """
+    ΟΛΕΣ οι ρυθμίσεις μαζί, σε dict {key: value} — cached.
+
+    ΓΙΑΤΙ: πριν, κάθε load_setting() άνοιγε το φύλλο και το διάβαζε ξεχωριστά
+    (2 κλήσεις). Το ταμείο και τα πάγια έξοδα είναι δύο κλειδιά — 4 κλήσεις
+    μόνο για ρυθμίσεις, σε κάθε πρώτο φόρτωμα των σελίδων «Μήνας/Πρόβλεψη».
+
+    Τώρα: μία ανάγνωση, όλα τα κλειδιά, cached για 2 λεπτά. Το save_setting()
+    καθαρίζει αυτό το cache, ώστε η επόμενη ανάγνωση να δει τη νέα τιμή.
+
+    Το 429 εδώ δεν σπάει τίποτα — επιστρέφουμε κενό dict και ο καλών βάζει το
+    default. Αλλά ΔΕΝ το καταπίνουμε σιωπηλά: ειδοποιούμε διακριτικά.
+    """
+    def _fetch():
+        return _settings_ws().get_all_values()
+
     try:
-        ws = _settings_ws()
-        for row in ws.get_all_values()[1:]:   # παράλειψε την επικεφαλίδα
-            if row and row[0] == key:
-                return row[1] if len(row) > 1 else default
-    except Exception:
-        pass
-    return default
+        vals = _with_retry(_fetch)
+    except Exception as e:  # noqa: BLE001
+        if _is_quota_error(e):
+            _warn("Προσωρινό όριο Google Sheets — οι ρυθμίσεις (π.χ. ταμείο) "
+                  "ίσως δείχνουν προηγούμενη τιμή για λίγο.")
+        return {}
+
+    out = {}
+    for row in (vals or [])[1:]:          # παράλειψε την επικεφαλίδα
+        if row and row[0]:
+            out[row[0]] = row[1] if len(row) > 1 else ""
+    return out
+
+
+def load_setting(key: str, default: str = "") -> str:
+    """Διαβάζει μια ρύθμιση από το cached dict. Default αν λείπει."""
+    return _load_settings().get(key, default)
+
+
+# Για το clear_all_caches() — ώστε να μπορεί να γράψει load_setting.clear().
+load_setting.clear = _load_settings.clear  # type: ignore[attr-defined]
 
 
 def save_setting(key: str, value: str) -> bool:
-    """Γράφει μια ρύθμιση (ενημερώνει αν υπάρχει, προσθέτει αν λείπει)."""
+    """
+    Γράφει μια ρύθμιση (ενημερώνει αν υπάρχει, προσθέτει αν λείπει).
+
+    ΚΡΙΣΙΜΟ: μετά την εγγραφή καθαρίζει το cache ρυθμίσεων. Αλλιώς θα έγραφες
+    νέο ταμείο, θα γινόταν rerun, και θα διάβαζες την ΠΑΛΙΑ cached τιμή.
+    """
     try:
         ws = _settings_ws()
         rows = ws.get_all_values()
         for i, row in enumerate(rows[1:], start=2):   # 1-indexed, μετά την επικεφαλίδα
             if row and row[0] == key:
                 ws.update_cell(i, 2, str(value))
+                _load_settings.clear()
                 return True
         # Δεν υπάρχει — πρόσθεσέ το
         ws.append_row([key, str(value)])
+        _load_settings.clear()
         return True
     except Exception:
         return False
@@ -190,16 +277,58 @@ def from_cents(v) -> float:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# ΚΟΙΝΟ ΔΙΑΒΑΣΜΑ — ΟΛΑ ΤΑ ΦΥΛΛΑ ΜΕ ΜΙΑ ΚΛΗΣΗ (batch)
+# ══════════════════════════════════════════════════════════════════════════════
+@st.cache_data(ttl=600, max_entries=1, show_spinner=False)
+def _load_all_sheets() -> dict:
+    """
+    Διαβάζει sales + invoices + timologiseis με ΜΙΑ κλήση στο API.
+
+    ┌────────────────────────────────────────────────────────────────────────┐
+    │ ΓΙΑΤΙ ΑΥΤΟ ΛΥΝΕΙ ΤΟ 429                                                 │
+    │                                                                        │
+    │ Πριν: load_sales() + load_invoices() + load_timologiseis() = 3 ξεχωρι- │
+    │ στές κλήσεις get_all_values(), η καθεμία σε κάθε φόρτωμα σελίδας.       │
+    │                                                                        │
+    │ Τώρα: ΜΙΑ κλήση values_batch_get για όλα τα εύρη μαζί. Το Sheets API    │
+    │ τη μετράει ως μία ανάγνωση. 3 → 1.                                      │
+    │                                                                        │
+    │ Το cache (ttl=600) είναι ΚΟΙΝΟ: οι τρεις loaders τραβάνε από εδώ, άρα  │
+    │ ένα μόνο «κλειδί» στη μνήμη, ένα refresh κάθε 10 λεπτά.                 │
+    └────────────────────────────────────────────────────────────────────────┘
+
+    → {"sales": [[...]], "invoices": [[...]], "timologiseis": [[...]]}
+      (ωμές λίστες γραμμών, ΜΕ την κεφαλίδα — ώστε το _row = index+2 να ισχύει)
+    """
+    ranges = [f"{SHEET_SALES}!A:D", f"{SHEET_INV}!A:D", f"{SHEET_TIMOL}!A:E"]
+
+    def _fetch():
+        # values_batch_get: μία κλήση, πολλά εύρη. Επιστρέφει τις τιμές με τη
+        # σειρά που ζητήθηκαν.
+        resp = _spreadsheet().values_batch_get(ranges)
+        return [vr.get("values", []) for vr in resp.get("valueRanges", [])]
+
+    try:
+        sales_v, inv_v, timol_v = _with_retry(_fetch)
+    except Exception as e:  # noqa: BLE001
+        _warn(f"Δεν φόρτωσαν τα δεδομένα: {e}")
+        return {"sales": [], "invoices": [], "timologiseis": []}
+
+    return {"sales": sales_v, "invoices": inv_v, "timologiseis": timol_v}
+
+
+def _clear_all() -> None:
+    """Καθαρίζει το κοινό cache ανάγνωσης. Το καλούν όλα τα merge/delete."""
+    _load_all_sheets.clear()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # ΠΩΛΗΣΕΙΣ
 # ══════════════════════════════════════════════════════════════════════════════
-@st.cache_data(ttl=300, max_entries=1, show_spinner=False)
+@st.cache_data(ttl=600, max_entries=1, show_spinner=False)
 def load_sales() -> pd.DataFrame:
     """→ DataFrame[date, net_sales, customers, avg_basket] — ποσά σε ΕΥΡΩ."""
-    try:
-        vals = _ws(SHEET_SALES).get_all_values()
-    except Exception as e:
-        _warn(f"Δεν φόρτωσαν οι πωλήσεις: {e}")
-        return pd.DataFrame(columns=SALES_COLS)
+    vals = _load_all_sheets().get("sales", [])
 
     if len(vals) < 2:
         return pd.DataFrame(columns=SALES_COLS)
@@ -262,7 +391,7 @@ def merge_sales(records: list) -> int:
     if new_rows:
         ws.append_rows(new_rows, value_input_option="RAW")
         _sort_by_date(ws, cols="A:D")
-        load_sales.clear()
+        load_sales.clear(); _clear_all()
 
     return len(new_rows)
 
@@ -288,7 +417,7 @@ def update_sales(target_date, net_sales=None, customers=None, avg_basket=None) -
     if avg_basket is not None:
         ws.update_cell(row_idx, 4, to_cents(avg_basket))
 
-    load_sales.clear()
+    load_sales.clear(); _clear_all()
     return True, f"Η {d_str} ενημερώθηκε."
 
 
@@ -307,11 +436,7 @@ def load_invoices() -> pd.DataFrame:
     Δεν σπάμε — τα διαβάζουμε με κενό number. Ο έλεγχος ξέρει να τα ξεχωρίζει.
     """
     cols = INV_COLS + ["_row"]
-    try:
-        vals = _ws(SHEET_INV).get_all_values()
-    except Exception as e:
-        _warn(f"Δεν φόρτωσαν τα παραστατικά: {e}")
-        return pd.DataFrame(columns=cols)
+    vals = _load_all_sheets().get("invoices", [])
 
     if len(vals) < 2:
         return pd.DataFrame(columns=cols)
@@ -416,7 +541,7 @@ def merge_invoices(records: list) -> int:
 
     if new_rows:
         ws.append_rows(new_rows, value_input_option="RAW")
-        load_invoices.clear()
+        load_invoices.clear(); _clear_all()
 
     return len(new_rows)
 
@@ -488,7 +613,7 @@ def purge_duplicate_invoices() -> tuple[int, int, int]:
     for start, end in reversed(_group_runs(doomed)):
         ws.delete_rows(start, end)
 
-    load_invoices.clear()
+    load_invoices.clear(); _clear_all()
     return len(doomed), len(seen), no_number
 
 
@@ -665,11 +790,7 @@ def load_timologiseis() -> pd.DataFrame:
     Η στήλη _row είναι ο αριθμός γραμμής στο Sheet — χρειάζεται για edit/delete.
     """
     cols = TIMOL_COLS + ["_row"]
-    try:
-        vals = _ws(SHEET_TIMOL).get_all_values()
-    except Exception as e:
-        _warn(f"Δεν φόρτωσαν οι τιμολογήσεις: {e}")
-        return pd.DataFrame(columns=cols)
+    vals = _load_all_sheets().get("timologiseis", [])
 
     if len(vals) < 2:
         return pd.DataFrame(columns=cols)
@@ -734,7 +855,7 @@ def merge_timologiseis(records: list) -> int:
 
     if new_rows:
         ws.append_rows(new_rows, value_input_option="RAW")
-        load_timologiseis.clear()
+        load_timologiseis.clear(); _clear_all()
 
     return len(new_rows)
 
@@ -746,7 +867,7 @@ def update_timologiseis_field(row: int, field: str, value: str) -> bool:
         return False
     try:
         _ws(SHEET_TIMOL).update_cell(int(row), col, str(value or ""))
-        load_timologiseis.clear()
+        load_timologiseis.clear(); _clear_all()
         return True
     except Exception:
         return False
@@ -796,7 +917,7 @@ def purge_duplicate_timologiseis() -> tuple[int, int]:
     for start, end in reversed(_group_runs(doomed)):
         ws.delete_rows(start, end)
 
-    load_timologiseis.clear()
+    load_timologiseis.clear(); _clear_all()
     return len(doomed), len(groups)
 
 
@@ -826,7 +947,7 @@ def purge_duplicate_sales() -> tuple[int, int]:
     for start, end in reversed(_group_runs(doomed)):
         ws.delete_rows(start, end)
 
-    load_sales.clear()
+    load_sales.clear(); _clear_all()
     return len(doomed), len(seen)
 
 
@@ -934,6 +1055,7 @@ def delete_row(sheet: str, row: int) -> tuple[bool, str]:
         {SHEET_SALES: load_sales,
          SHEET_INV: load_invoices,
          SHEET_TIMOL: load_timologiseis}[sheet].clear()
+        _clear_all()
         return True, f"Η γραμμή {row} διαγράφηκε."
     except Exception as e:
         return False, f"Δεν διαγράφηκε: {e}"
@@ -976,6 +1098,7 @@ def delete_rows_safe(sheet: str, rows: list[int]) -> tuple[int, list[str]]:
     {SHEET_SALES: load_sales,
      SHEET_INV: load_invoices,
      SHEET_TIMOL: load_timologiseis}[sheet].clear()
+    _clear_all()
 
     return deleted, errors
 
@@ -1040,3 +1163,5 @@ def clear_all_caches() -> None:
     load_sales.clear()
     load_invoices.clear()
     load_timologiseis.clear()
+    _load_all_sheets.clear()
+    load_setting.clear()
