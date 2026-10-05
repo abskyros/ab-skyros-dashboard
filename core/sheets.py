@@ -145,6 +145,32 @@ def _with_retry(fn, *, tries: int = 2, base_wait: float = 2.5):
         raise last
 
 
+# ── Τυλίγματα πράξεων Sheets με retry ──────────────────────────────────────────
+#
+# Οι εγγραφές (merge_*) και οι καθαρισμοί (purge_*) ΔΕΝ πιάνουν σφάλματα: ένα
+# στιγμιαίο 429 εκεί ρίχνει όλο το job. Αντί να τυλίξουμε δεκάδες κλήσεις μία-
+# μία, περνάμε τις τρεις πράξεις που χτυπάνε το API από αυτούς τους helpers.
+#
+# ΓΙΑΤΙ ΠΕΡΙΣΣΟΤΕΡΕΣ ΠΡΟΣΠΑΘΕΙΕΣ ΕΔΩ: το όριο του Sheets είναι «ανά λεπτό». Ένα
+# job (GitHub Actions) δεν έχει χρήστη που περιμένει — μπορεί άνετα να περιμένει
+# ως ~30 δευτ. ώσπου να «ανοίξει» το παράθυρο, αντί να αποτύχει το run.
+def _get_all(ws) -> list:
+    """ws.get_all_values() με retry στο 429."""
+    return _with_retry(ws.get_all_values, tries=4, base_wait=5.0)
+
+
+def _append(ws, rows: list) -> None:
+    """ws.append_rows(...) με retry στο 429."""
+    _with_retry(lambda: ws.append_rows(rows, value_input_option="RAW"),
+                tries=4, base_wait=5.0)
+
+
+def _delete(ws, start: int, end: int) -> None:
+    """ws.delete_rows(start, end) με retry στο 429."""
+    _with_retry(lambda: ws.delete_rows(int(start), int(end)),
+                tries=4, base_wait=5.0)
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # ΡΥΘΜΙΣΕΙΣ — μικρές τιμές που θυμάται η εφαρμογή (π.χ. το ταμείο)
 # ══════════════════════════════════════════════════════════════════════════════
@@ -367,7 +393,7 @@ def merge_sales(records: list) -> int:
         return 0
 
     ws = _ws(SHEET_SALES)
-    existing = {str(r[0]).strip() for r in ws.get_all_values()[1:] if r and r[0]}
+    existing = {str(r[0]).strip() for r in _get_all(ws)[1:] if r and r[0]}
 
     new_rows = []
     for rec in records:
@@ -389,7 +415,7 @@ def merge_sales(records: list) -> int:
         ])
 
     if new_rows:
-        ws.append_rows(new_rows, value_input_option="RAW")
+        _append(ws, new_rows)
         _sort_by_date(ws, cols="A:D")
         load_sales.clear(); _clear_all()
 
@@ -517,7 +543,7 @@ def merge_invoices(records: list) -> int:
 
     existing = {
         _key_from_sheet(r)
-        for r in ws.get_all_values()[1:] if len(r) >= 3 and r[0]
+        for r in _get_all(ws)[1:] if len(r) >= 3 and r[0]
     }
 
     new_rows = []
@@ -540,7 +566,7 @@ def merge_invoices(records: list) -> int:
         ])
 
     if new_rows:
-        ws.append_rows(new_rows, value_input_option="RAW")
+        _append(ws, new_rows)
         load_invoices.clear(); _clear_all()
 
     return len(new_rows)
@@ -583,7 +609,7 @@ def purge_duplicate_invoices() -> tuple[int, int, int]:
     λάθος. Ανάποδα, οι πάνω δεν κουνιούνται.
     """
     ws = _ws(SHEET_INV)
-    vals = ws.get_all_values()
+    vals = _get_all(ws)
 
     if len(vals) < 3:
         return 0, max(0, len(vals) - 1), 0
@@ -611,7 +637,7 @@ def purge_duplicate_invoices() -> tuple[int, int, int]:
         return 0, len(seen), no_number
 
     for start, end in reversed(_group_runs(doomed)):
-        ws.delete_rows(start, end)
+        _delete(ws, start, end)
 
     load_invoices.clear(); _clear_all()
     return len(doomed), len(seen), no_number
@@ -836,7 +862,7 @@ def merge_timologiseis(records: list) -> int:
     # "21351" και το 21351 να δίνουν το ίδιο κλειδί.
     existing = {
         f"{str(r[0]).strip()}|{int(parse_number(r[2]))}"
-        for r in ws.get_all_values()[1:] if len(r) >= 3 and r[0]
+        for r in _get_all(ws)[1:] if len(r) >= 3 and r[0]
     }
 
     new_rows = []
@@ -854,7 +880,7 @@ def merge_timologiseis(records: list) -> int:
         new_rows.append([cd_str, str(rec.get("period", "")), v, "", ""])
 
     if new_rows:
-        ws.append_rows(new_rows, value_input_option="RAW")
+        _append(ws, new_rows)
         load_timologiseis.clear(); _clear_all()
 
     return len(new_rows)
@@ -882,7 +908,7 @@ def purge_duplicate_timologiseis() -> tuple[int, int]:
     αλλιώς χάνεται η δουλειά σου.
     """
     ws = _ws(SHEET_TIMOL)
-    vals = ws.get_all_values()
+    vals = _get_all(ws)
 
     if len(vals) < 3:
         return 0, max(0, len(vals) - 1)
@@ -915,7 +941,7 @@ def purge_duplicate_timologiseis() -> tuple[int, int]:
         return 0, len(groups)
 
     for start, end in reversed(_group_runs(doomed)):
-        ws.delete_rows(start, end)
+        _delete(ws, start, end)
 
     load_timologiseis.clear(); _clear_all()
     return len(doomed), len(groups)
@@ -924,7 +950,7 @@ def purge_duplicate_timologiseis() -> tuple[int, int]:
 def purge_duplicate_sales() -> tuple[int, int]:
     """Σβήνει διπλές ημέρες πωλήσεων. Κρατάει την πρώτη."""
     ws = _ws(SHEET_SALES)
-    vals = ws.get_all_values()
+    vals = _get_all(ws)
 
     if len(vals) < 3:
         return 0, max(0, len(vals) - 1)
@@ -945,7 +971,7 @@ def purge_duplicate_sales() -> tuple[int, int]:
         return 0, len(seen)
 
     for start, end in reversed(_group_runs(doomed)):
-        ws.delete_rows(start, end)
+        _delete(ws, start, end)
 
     load_sales.clear(); _clear_all()
     return len(doomed), len(seen)
