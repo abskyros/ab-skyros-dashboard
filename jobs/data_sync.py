@@ -54,9 +54,17 @@ def main() -> int:
         print(f"  ✗ {errors[0]}")
         failed = True
     else:
-        saved = merge_invoices(records)
-        print(f"  ✓ {saved} νέα (από {len(records)} εγγραφές)" if saved
-              else f"  · Κανένα νέο ({len(records)} εγγραφές, όλες γνωστές)")
+        # Το merge γράφει στο Sheets. Αν χτυπήσει όριο (429) ή οτιδήποτε άλλο,
+        # το τυπώνουμε ΑΝΑΛΥΤΙΚΑ — αλλιώς φαίνεται μόνο «exit code 1» χωρίς αιτία.
+        try:
+            saved = merge_invoices(records)
+            print(f"  ✓ {saved} νέα (από {len(records)} εγγραφές)" if saved
+                  else f"  · Κανένα νέο ({len(records)} εγγραφές, όλες γνωστές)")
+        except Exception as e:
+            import traceback
+            print(f"  ✗ Αποτυχία εγγραφής παραστατικών: {e}")
+            traceback.print_exc()
+            failed = True
 
     # ── ΤΙΜΟΛΟΓΗΣΕΙΣ ──
     print("\n· Τιμολογήσεις")
@@ -66,26 +74,44 @@ def main() -> int:
         # Το «κανένα email δεν ταιριάζει» δεν είναι σφάλμα — απλώς δεν ήρθε τίποτα.
         print(f"  ! {errors[0]}")
     else:
-        saved = merge_timologiseis(records)
-        print(f"  ✓ {saved} νέες (από {len(records)} που βρέθηκαν)" if saved
-              else f"  · Καμία νέα ({len(records)} βρέθηκαν, όλες γνωστές)")
+        # Οι τιμολογήσεις ΔΕΝ είναι κρίσιμες — αν το merge αποτύχει, το τυπώνουμε
+        # αλλά δεν ρίχνουμε το run (τα παραστατικά είναι ο κύριος σκοπός).
+        try:
+            saved = merge_timologiseis(records)
+            print(f"  ✓ {saved} νέες (από {len(records)} που βρέθηκαν)" if saved
+                  else f"  · Καμία νέα ({len(records)} βρέθηκαν, όλες γνωστές)")
+        except Exception as e:
+            import traceback
+            print(f"  ! Αποτυχία εγγραφής τιμολογήσεων: {e}")
+            traceback.print_exc()
 
     # ── ΑΥΤΟΜΑΤΟΣ ΚΑΘΑΡΙΣΜΑΣ ──
     # Σβήνει ΜΟΝΟ όσα έχουν τον ΙΔΙΟ ΑΡΙΘΜΟ ΠΑΡΑΣΤΑΤΙΚΟΥ. Τα δύο πραγματικά
     # τιμολόγια ίδιου ποσού (διαφορετικός αριθμός) μένουν άθικτα.
+    # Ο καθαρισμός είναι ΔΕΥΤΕΡΕΥΩΝ. Κάνει πολλές διαδοχικές κλήσεις delete στο
+    # Sheets, άρα είναι το πιο πιθανό σημείο να χτυπήσει το όριο (429). Αν
+    # αποτύχει, ΔΕΝ ρίχνουμε το run — τα δεδομένα μπήκαν ήδη, ο καθαρισμός θα
+    # ξανατρέξει στο επόμενο cron. Κάθε purge σε δικό του try, να μην μπλοκάρει
+    # το ένα το άλλο.
     print("\n· Καθαρισμός")
 
-    killed, kept, skipped = purge_duplicate_invoices()
-    if killed:
-        print(f"  ✓ Παραστατικά: σβήστηκαν {killed} διπλοκαταχωρήσεις, έμειναν {kept}")
-    else:
-        print(f"  · Παραστατικά: καθαρά ({kept} μοναδικά)")
-    if skipped:
-        print(f"    ({skipped} παλιά χωρίς αριθμό — δεν πειράχτηκαν)")
+    try:
+        killed, kept, skipped = purge_duplicate_invoices()
+        if killed:
+            print(f"  ✓ Παραστατικά: σβήστηκαν {killed} διπλοκαταχωρήσεις, έμειναν {kept}")
+        else:
+            print(f"  · Παραστατικά: καθαρά ({kept} μοναδικά)")
+        if skipped:
+            print(f"    ({skipped} παλιά χωρίς αριθμό — δεν πειράχτηκαν)")
+    except Exception as e:
+        print(f"  ! Ο καθαρισμός παραστατικών παραλείφθηκε (θα ξαναγίνει): {e}")
 
-    killed, kept = purge_duplicate_timologiseis()
-    print(f"  ✓ Τιμολογήσεις: σβήστηκαν {killed}, έμειναν {kept}" if killed
-          else f"  · Τιμολογήσεις: καθαρές ({kept} εγγραφές)")
+    try:
+        killed, kept = purge_duplicate_timologiseis()
+        print(f"  ✓ Τιμολογήσεις: σβήστηκαν {killed}, έμειναν {kept}" if killed
+              else f"  · Τιμολογήσεις: καθαρές ({kept} εγγραφές)")
+    except Exception as e:
+        print(f"  ! Ο καθαρισμός τιμολογήσεων παραλείφθηκε (θα ξαναγίνει): {e}")
 
     print("\n✓ Ολοκληρώθηκε.")
     return 1 if failed else 0
