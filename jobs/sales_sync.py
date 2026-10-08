@@ -39,11 +39,18 @@ def main() -> int:
     # Γίνεται ΠΡΙΝ από κάθε τι άλλο: πριν το Gmail, πριν το Sheet, πριν το OCR.
     # Μια πρόωρη εκτέλεση τελειώνει σε 1 δευτερόλεπτο.
     now = now_greece()
+
+    # ΧΕΙΡΟΚΙΝΗΤΗ ΕΚΤΕΛΕΣΗ (κουμπί): FORCE_RUN=1 → αγνόησε το ωράριο, τρέξε τώρα.
+    force = os.environ.get("FORCE_RUN", "").strip() in ("1", "true", "yes")
+
     open_, why = sales_window_open(now)
 
-    if not open_:
+    if not open_ and not force:
         print(f"⏸  {why}")
         return 0
+
+    if force and not open_:
+        print(f"▶ ΧΕΙΡΟΚΙΝΗΤΗ εκτέλεση — αγνοώ το ωράριο ({now:%H:%M} Ελλάδας).")
 
     if not os.environ.get("GOOGLE_KEY_JSON"):
         print("✗ Λείπει το GOOGLE_KEY_JSON")
@@ -135,3 +142,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+

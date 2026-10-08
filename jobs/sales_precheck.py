@@ -48,15 +48,26 @@ def main() -> int:
     now = now_greece()
     tz = now.tzname() or "EET/EEST"
 
+    # ── ΧΕΙΡΟΚΙΝΗΤΗ ΕΚΤΕΛΕΣΗ: ΑΓΝΟΗΣΕ ΤΟ ΩΡΑΡΙΟ ──
+    #
+    # Όταν ο χρήστης πατάει το κουμπί (workflow_dispatch), το workflow περνάει
+    # FORCE_RUN=1. Τότε τρέχουμε ΟΠΟΙΑ ΩΡΑ — ο χρήστης ξέρει πότε υπάρχει
+    # αναφορά, δεν τον μπλοκάρουμε με το παράθυρο.
+    force = os.environ.get("FORCE_RUN", "").strip() in ("1", "true", "yes")
+
     # ── 1. ΩΡΑ ──
     open_, why = sales_window_open(now)
 
-    if not open_:
+    if not open_ and not force:
         print(f"⏸  {why}")
         print("   Δεν εγκαθιστώ OCR.")
         return 1
 
-    print(f"▶ {now:%H:%M} ώρα Ελλάδας ({tz}) — παράθυρο ανοιχτό")
+    if force and not open_:
+        print(f"▶ {now:%H:%M} ώρα Ελλάδας ({tz}) — ΧΕΙΡΟΚΙΝΗΤΗ εκτέλεση "
+              f"(αγνοώ το ωράριο).")
+    else:
+        print(f"▶ {now:%H:%M} ώρα Ελλάδας ({tz}) — παράθυρο ανοιχτό")
 
     # ── 2. ΥΠΑΡΧΕΙ ΗΔΗ Η ΑΝΑΦΟΡΑ; ──
     if not os.environ.get("GOOGLE_KEY_JSON"):
@@ -99,3 +110,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
