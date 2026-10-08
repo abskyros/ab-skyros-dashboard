@@ -39,7 +39,7 @@ from ui import mobile
 from views import overview, sales, invoices, timologiseis, month, checks, forecast
 
 
-VERSION = "9.2"
+VERSION = "9.3"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -166,6 +166,77 @@ def sync_panel(df_s) -> None:
         with d:
             if st.button("Τιμολογήσεις", key="sync_timol", width="stretch"):
                 _sync_timologiseis()
+
+    # ── ΕΛΕΓΧΟΣ ΣΥΝΔΕΣΗΣ EMAIL ──
+    #
+    # Ο συγχρονισμός πωλήσεων ανοίγει μόνο μετά τις 21:00. Πριν απ' αυτό, όποιον
+    # κωδικό κι αν βάλεις, το σύστημα φαίνεται «ΟΚ» αλλά δεν δοκιμάζει τίποτα.
+    # Αυτό το κουμπί δοκιμάζει τη σύνδεση ΤΩΡΑ, όποια ώρα, και στα τρία κανάλια.
+    with st.expander("🔧 Έλεγχος σύνδεσης email (δοκιμή κωδικών)"):
+        st.caption(
+            "Δοκιμάζει **τώρα** αν οι κωδικοί email δουλεύουν — ανεξάρτητα από "
+            "την ώρα. Χρήσιμο όταν άλλαξες κωδικό και θες να δεις αν μπήκε σωστά."
+        )
+        if st.button("Δοκιμή σύνδεσης τώρα", key="diag_email", width="stretch"):
+            _run_email_diagnostics()
+
+
+def _run_email_diagnostics() -> None:
+    """
+    Δοκιμάζει τη σύνδεση IMAP και στα τρία κανάλια, ΤΩΡΑ.
+
+    Δείχνει για το καθένα: αν ο κωδικός δουλεύει, πόσα email βλέπει, πόσα
+    έχουν το σωστό συνημμένο. Έτσι ξεχωρίζεις «λάθος κωδικός» από «ο κωδικός
+    είναι σωστός αλλά δεν βρίσκει το email».
+    """
+    from core.diag import run_all
+
+    with st.spinner("Δοκιμή σύνδεσης και στα τρία κανάλια…"):
+        results = run_all(INV_PW, SALES_PW)
+
+    for item in results:
+        r = item["result"]
+        label = item["label"]
+        secret_name = item["secret"]
+        mailbox = item["mailbox"]
+
+        if not r["ok"]:
+            # Το login απέτυχε — λάθος κωδικός ή πρόβλημα λογαριασμού.
+            c.note(
+                f"<b>{label}</b> — {mailbox}<br>"
+                f"{r['error']}<br><br>"
+                f"Διόρθωσε το <b>{secret_name}</b> στα Streamlit secrets "
+                f"(κωδικός εφαρμογής 16 χαρακτήρων, <b>χωρίς κενά</b>).",
+                "bad",
+            )
+            continue
+
+        # Το login πέτυχε. Τι βρήκε;
+        if r["matched"] == 0:
+            c.note(
+                f"<b>{label}</b> — {mailbox}<br>"
+                f"✓ Ο κωδικός δουλεύει, αλλά <b>δεν βρέθηκε κανένα σχετικό email</b> "
+                f"τις τελευταίες μέρες.<br>"
+                f"Είδε {r['total_seen']} email από τον αποστολέα, αλλά κανένα δεν "
+                f"πέρασε το φίλτρο θέματος.",
+                "warn",
+            )
+        elif r["with_file"] == 0:
+            c.note(
+                f"<b>{label}</b> — {mailbox}<br>"
+                f"✓ Ο κωδικός δουλεύει. Βρέθηκαν {r['matched']} σχετικά email, "
+                f"αλλά <b>κανένα δεν έχει το σωστό συνημμένο</b>.<br>"
+                f"Τελευταίο: {r['latest']}",
+                "warn",
+            )
+        else:
+            c.note(
+                f"<b>{label}</b> — {mailbox}<br>"
+                f"✓ Όλα καλά. Ο κωδικός δουλεύει, βρέθηκαν <b>{r['with_file']}</b> "
+                f"email με συνημμένο (από {r['matched']} σχετικά).<br>"
+                f"Τελευταίο: {r['latest']}",
+                "ok",
+            )
 
 
 def _workflow_status() -> None:
@@ -476,3 +547,4 @@ def footer() -> None:
 
 if __name__ == "__main__":
     main()
+
