@@ -193,26 +193,50 @@ def _widths(now: float, then: float | None) -> tuple[float | None, float | None]
     return 100.0 * now / base, 100.0 * then / base
 
 
+def _widths3(
+    now: float, then: float | None, then2: float | None
+) -> tuple[float | None, float | None, float | None]:
+    """
+    Τα πάχη ΤΡΙΩΝ μπαρών (φέτος/πέρσι/πρόπερσι), 0–100, με κοινή βάση το
+    μεγαλύτερο. Όποια τιμή λείπει → None (δεν σχεδιάζεται μπάρα).
+    """
+    vals = [v for v in (now, then, then2) if v is not None and v > 0]
+    base = max(vals) if vals else 0.0
+
+    def w(v):
+        if v is None:
+            return None
+        return (100.0 * v / base) if base > 0 else 0.0
+
+    return w(now), w(then), w(then2)
+
+
 def scale(
     label: str,
     now: float | None,
     then: float | None,
     *,
+    then2: float | None = None,
     fmt=eur,
     now_tag: str = "Φέτος",
     then_tag: str = "Πέρσι",
+    then2_tag: str = "Πρόπερσι",
     foot: str = "",
     href: str | None = None,
     lower_is_better: bool = False,
 ) -> str:
     """
-    Το νούμερο, και δίπλα του η σύγκριση με πέρσι.
+    Το νούμερο, και δίπλα του η σύγκριση με πέρσι (και προαιρετικά πρόπερσι).
 
-    Η ζυγαριά: δύο λεπτές μπάρες δείχνουν οπτικά ποιο νούμερο είναι μεγαλύτερο,
-    το ποσοστό στην κορυφή λέει πόσο.
+    Η ζυγαριά: λεπτές μπάρες δείχνουν οπτικά ποιο νούμερο είναι μεγαλύτερο,
+    το ποσοστό στην κορυφή λέει πόσο (φέτος vs πέρσι).
+
+    then2 (πρόπερσι): αν δοθεί ΚΑΙ δεν είναι None, προστίθεται ΤΡΙΤΗ μπάρα.
+    Αν λείπει (δεν υπάρχουν δεδομένα 2 χρόνια πίσω), η κάρτα μένει με 2 μπάρες.
     """
     n = 0.0 if now is None or pd.isna(now) else float(now)
     t = None if then is None or pd.isna(then) else float(then)
+    t2 = None if then2 is None or pd.isna(then2) else float(then2)
 
     pct = pct_change(n, t)
     if pct is None:
@@ -223,7 +247,18 @@ def scale(
         arrow = "↑" if pct >= 0 else "↓"
         badge = f'<span class="scale-delta {cls}">{arrow} {abs(pct):.1f}%</span>'
 
-    now_w, then_w = _widths(n, t)
+    # Αν υπάρχει πρόπερσι, 3 μπάρες με κοινή βάση· αλλιώς 2 (όπως πριν).
+    bars = '<div class="bars">'
+    if t2 is not None:
+        now_w, then_w, then2_w = _widths3(n, t, t2)
+        bars += _bar(now_tag, now, fmt, "now", now_w)
+        bars += _bar(then_tag, then, fmt, "then", then_w)
+        bars += _bar(then2_tag, then2, fmt, "then2", then2_w)
+    else:
+        now_w, then_w = _widths(n, t)
+        bars += _bar(now_tag, now, fmt, "now", now_w)
+        bars += _bar(then_tag, then, fmt, "then", then_w)
+    bars += '</div>'
 
     body = (
         '<div class="scale">'
@@ -232,10 +267,7 @@ def scale(
         f'{badge}'
         '</div>'
         f'<div class="kpi-now">{fmt(now)}</div>'
-        '<div class="bars">'
-        + _bar(now_tag, now, fmt, "now", now_w)
-        + _bar(then_tag, then, fmt, "then", then_w)
-        + '</div>'
+        + bars
         + (f'<div class="scale-foot">{_esc(foot)}</div>' if foot else '')
         + '</div>'
     )
@@ -248,6 +280,8 @@ def target(
     now: float | None,
     goal: float | None,
     *,
+    goal2: float | None = None,
+    goal2_tag: str = "Πρόπερσι",
     foot: str = "",
     href: str | None = None,
 ) -> str:
@@ -262,11 +296,15 @@ def target(
       • Τι έκανες την ίδια μέρα πέρσι — ΑΥΤΟΣ είναι ο στόχος
       • Πόσο έχεις φτάσει, ως ποσοστό
 
+    goal2 (πρόπερσι): αν δοθεί ΚΑΙ δεν είναι None, προστίθεται ΤΡΙΤΗ μπάρα με
+    το ταμείο της ίδιας μέρας πριν 2 χρόνια. Αν λείπει, η κάρτα μένει 2 μπάρες.
+
     Η αναφορά πωλήσεων έρχεται με email το βράδυ. Μέχρι τότε η κάρτα λέει
     «να τι πρέπει να πιάσεις σήμερα».
     """
     n = 0.0 if now is None or pd.isna(now) else float(now)
     g = None if goal is None or pd.isna(goal) else float(goal)
+    g2 = None if goal2 is None or pd.isna(goal2) else float(goal2)
 
     pending = n == 0
 
@@ -295,7 +333,21 @@ def target(
         else f'<div class="kpi-now">{eur(now)}</div>'
     )
 
-    now_w, goal_w = _widths(n, g)
+    # Μπάρες: αν υπάρχει πρόπερσι (g2), 3 μπάρες με κοινή βάση· αλλιώς 2.
+    if g2 is not None:
+        now_w, goal_w, goal2_w = _widths3(n, g, g2)
+    else:
+        now_w, goal_w = _widths(n, g)
+        goal2_w = None
+
+    bars = (
+        '<div class="bars">'
+        + _bar("Τώρα", "—" if pending else now, (lambda v: v) if pending else eur, "now", 0.0 if pending else now_w)
+        + _bar("Στόχος", goal, eur, "then", goal_w)
+    )
+    if g2 is not None:
+        bars += _bar(goal2_tag, goal2, eur, "then2", goal2_w)
+    bars += '</div>'
 
     body = (
         '<div class="scale target">'
@@ -304,10 +356,7 @@ def target(
         f'{badge}'
         '</div>'
         f'{value}'
-        '<div class="bars">'
-        + _bar("Τώρα", "—" if pending else now, (lambda v: v) if pending else eur, "now", 0.0 if pending else now_w)
-        + _bar("Στόχος", goal, eur, "then", goal_w)
-        + '</div>'
+        + bars
         + (f'<div class="scale-foot">{_esc(foot)}</div>' if foot else '')
         + '</div>'
     )
@@ -546,3 +595,4 @@ def cash_runway_card(runway: dict) -> None:
         f'<div class="rw-summary {tone}">{summary}</div>'
         '</div>'
     )
+

@@ -462,6 +462,10 @@ a:hover > .scale {
 
 .bar-row.then .bar-fill { background: var(--prev); box-shadow: none; opacity: .65; }
 
+/* Πρόπερσι — πιο ξεθωριασμένο από το πέρσι, ώστε να ξεχωρίζει η σειρά των ετών.
+   Χρυσό-γκρι απόχρωση, χαμηλή αδιαφάνεια: «δύο χρόνια πριν, αναφορά». */
+.bar-row.then2 .bar-fill { background: var(--gold-deep); box-shadow: none; opacity: .38; }
+
 .bar-val {
   font-family: 'Manrope', sans-serif;
   font-size: .88rem;
@@ -472,6 +476,8 @@ a:hover > .scale {
   text-align: right;
 }
 .bar-row.then .bar-val { color: var(--muted); font-weight: 600; }
+.bar-row.then2 .bar-val { color: var(--dim); font-weight: 600; }
+.bar-row.then2 .bar-tag { color: var(--dim); }
 
 .scale-foot {
   margin-top: .5rem;
@@ -643,6 +649,85 @@ a.plain:hover > .row { border-color: var(--blue-soft); background: var(--surface
   font-size: .92rem;
   color: var(--ink);
 }
+
+/* ── ΤΡΙ-ΕΤΗΣ ΠΙΝΑΚΑΣ (Φέτος · Πέρσι · Πρόπερσι) ─────────────────────────────
+   Δικό μας HTML table — ΟΧΙ pandas Styler (ρίχνει το cloud). Το περιτύλιγμα
+   κάνει σκρολ δεξιά στο κινητό, ώστε να χωρούν όλες οι χρονιές. */
+.tbl3-wrap {
+  width: 100%;
+  overflow-x: auto;                 /* ← σκρολ δεξιά στο κινητό */
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--lift-1);
+  background: var(--surface);
+}
+
+.tbl3 {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 560px;                 /* κάτω απ' αυτό → σκρολ αντί για στρίμωγμα */
+  font-family: 'Manrope', sans-serif;
+  font-size: .86rem;
+}
+
+.tbl3 thead th {
+  padding: .5rem .55rem;
+  text-align: right;
+  font-weight: 800;
+  white-space: nowrap;
+  background: var(--surface-alt);
+  border-bottom: 1px solid var(--line);
+}
+.tbl3 thead tr.grp th {
+  text-align: center;
+  font-size: .8rem;
+  color: var(--ink);
+  border-left: 1px solid var(--line-soft);
+}
+.tbl3 thead tr.yrs th {
+  font-size: .72rem;
+  font-weight: 700;
+  padding: .3rem .55rem;
+}
+/* Χρώμα χρονιάς στην κεφαλίδα — ίδιο λεξιλόγιο με τις μπάρες */
+.tbl3 thead th.now   { color: var(--brand); }
+.tbl3 thead th.then  { color: var(--muted); }
+.tbl3 thead th.then2 { color: var(--dim); }
+.tbl3 thead th.day   { text-align: left; }
+
+.tbl3 tbody td {
+  padding: .5rem .55rem;
+  text-align: right;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--line-soft);
+}
+.tbl3 tbody tr:last-child td { border-bottom: none; }
+.tbl3 tbody tr:hover td { background: var(--surface-alt); }
+
+.tbl3 td.day {
+  text-align: left;
+  color: var(--ink);
+  font-weight: 700;
+  position: sticky;                 /* η μέρα μένει ορατή όταν σκρολάρεις δεξιά */
+  left: 0;
+  background: var(--surface);
+  z-index: 1;
+}
+.tbl3 tbody tr:hover td.day { background: var(--surface-alt); }
+.tbl3 td.day .dt {
+  display: block;
+  font-size: .72rem;
+  font-weight: 600;
+  color: var(--dim);
+}
+
+/* Οι τιμές, ανά χρονιά — χρώμα για να ξεχωρίζει ποιο είναι ποιανού έτους */
+.tbl3 td.v.now   { color: var(--text); font-weight: 700; }
+.tbl3 td.v.then  { color: var(--muted); }
+.tbl3 td.v.then2 { color: var(--dim); font-size: .82rem; }
+/* Λεπτή γραμμή πριν από κάθε «Φέτος» → οπτικός διαχωρισμός των τριών μέτρων */
+.tbl3 td.v.now, .tbl3 thead tr.yrs th.now { border-left: 1px solid var(--line-soft); }
 
 .chip {
   display: inline-block;
@@ -1247,3 +1332,4 @@ button[data-testid="stBaseButton-primary"]:active {
     transition-duration: .01ms !important;
   }
 }
+
