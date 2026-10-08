@@ -177,6 +177,16 @@ def last_year(d: date) -> date:
     return d - timedelta(days=YOY_OFFSET_DAYS)
 
 
+def two_years_ago(d: date) -> date:
+    """
+    Η αντίστοιχη μέρα ΠΡΟΠΕΡΣΙ — 2×364 = 728 μέρες πίσω.
+
+    Ίδια λογική με το last_year: κρατάμε την ίδια μέρα της εβδομάδας, ώστε
+    Σάββατο να συγκρίνεται με Σάββατο.
+    """
+    return d - timedelta(days=2 * YOY_OFFSET_DAYS)
+
+
 def day_name(d: date, short: bool = False) -> str:
     return (DAYS_GR_SHORT if short else DAYS_GR)[d.weekday()]
 
@@ -375,8 +385,14 @@ def week_to_date(df: pd.DataFrame, today: date) -> dict:
     ly_start = last_year(start)
     ly_end = last_year(end)          # ΙΔΙΟ κόψιμο και πέρσι — αυτό είναι το κλειδί
 
+    # Πρόπερσι: ΙΔΙΟ κόψιμο, 2 χρόνια πίσω. Επιστρέφει None αν δεν υπάρχουν
+    # δεδομένα τόσο παλιά — τότε η κάρτα δεν δείχνει τρίτη μπάρα.
+    ly2_start = two_years_ago(start)
+    ly2_end = two_years_ago(end)
+
     cur = sales_between(df, start, end) or 0.0
     prev = sales_between(df, ly_start, ly_end)
+    prev2 = sales_between(df, ly2_start, ly2_end)
 
     label = day_name(start, short=True) if elapsed == 0 else \
         f"{day_name(start, short=True)}–{day_name(end, short=True)}"
@@ -384,6 +400,7 @@ def week_to_date(df: pd.DataFrame, today: date) -> dict:
     return {
         "current": cur,
         "previous": prev,
+        "two_previous": prev2,
         "pct": pct_change(cur, prev),
         "days_elapsed": elapsed + 1,
         "label": label,
@@ -951,3 +968,4 @@ def _to_float(v) -> float:
         return float(str(v).replace("€", "").replace(",", ".").strip())
     except ValueError:
         return 0.0
+
