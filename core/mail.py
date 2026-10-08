@@ -157,6 +157,7 @@ def fetch_sales(
     limit: int = 80,
     want: int | None = None,
     skip_dates: set | None = None,
+    deep: bool = False,
 ) -> tuple[list, list, int]:
     """
     → (records, errors, emails_seen)
@@ -210,7 +211,14 @@ def fetch_sales(
                 #
                 # Η αναφορά αφορά τη μέρα του email ή την προηγούμενη. Αν ΚΑΙ ΟΙ
                 # ΔΥΟ υπάρχουν ήδη στο Sheet, το PDF δεν έχει τίποτα νέο.
-                if skip_dates and sent:
+                #
+                # ΒΑΘΙΑ ΣΑΡΩΣΗ (deep=True): ΠΑΡΑΚΑΜΠΤΟΥΜΕ αυτόν τον έλεγχο.
+                # Γιατί: μπορεί να έρθει email ΣΗΜΕΡΑ με αναφορά ΠΕΡΑΣΜΕΝΗΣ μέρας
+                # (π.χ. ξεχάστηκε να σταλεί νωρίτερα). Τότε η μέρα-email είναι
+                # «γνωστή», αλλά το PDF ΜΕΣΑ έχει άλλη, παλιότερη ημερομηνία που
+                # λείπει. Ανοίγουμε ΟΛΑ τα PDF και αφήνουμε το merge_sales να
+                # κρατήσει μόνο ό,τι πραγματικά λείπει (δεν μπαίνουν διπλά).
+                if not deep and skip_dates and sent:
                     candidates = {sent, sent - timedelta(days=1)}
                     if candidates <= skip_dates:
                         skipped += 1
@@ -253,3 +261,4 @@ def _friendly(e: Exception) -> str:
     if "timed out" in msg.lower():
         return "Το Gmail δεν απάντησε. Δοκίμασε ξανά σε λίγο."
     return msg
+
