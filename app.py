@@ -39,7 +39,7 @@ from ui import mobile
 from views import overview, sales, invoices, timologiseis, month, checks, forecast
 
 
-VERSION = "9.4"
+VERSION = "9.5"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -166,6 +166,34 @@ def sync_panel(df_s) -> None:
         with d:
             if st.button("Τιμολογήσεις", key="sync_timol", width="stretch"):
                 _sync_timologiseis()
+
+        # ── ΒΑΘΙΑ ΣΑΡΩΣΗ ΠΩΛΗΣΕΩΝ ──
+        #
+        # Διαφορά από το κουμπί «Πωλήσεις»: ανοίγει ΟΛΑ τα email αναφοράς μέσα
+        # στο διάστημα που διαλέγεις — ακόμα κι αν η μέρα-email είναι γνωστή.
+        # Έτσι πιάνει και ΚΑΘΥΣΤΕΡΗΜΕΝΕΣ αναφορές (π.χ. email σήμερα με αναφορά
+        # περασμένης μέρας). Εσύ ορίζεις από ποια μέρα να ξεκινήσει το ψάξιμο,
+        # ώστε να μη σαρώνει άσκοπα μήνες/χρόνια πίσω.
+        st.divider()
+        st.caption(
+            "**Βαθιά σάρωση πωλήσεων** — ανοίγει **όλα** τα email αναφοράς από "
+            "τη μέρα που θα διαλέξεις και μετά. Χρήσιμο αν έστειλες καθυστερημένα "
+            "μια αναφορά παλιάς μέρας. Πρόσθετει μόνο ό,τι λείπει."
+        )
+        from datetime import date as _date
+        default_since = today_greece() - timedelta(days=7)
+        deep_since = st.date_input(
+            "Ψάξε αναφορές από:",
+            value=default_since,
+            max_value=today_greece(),
+            min_value=today_greece() - timedelta(days=90),
+            format="DD/MM/YYYY",
+            key="deep_since",
+            help="Από αυτή τη μέρα και μετά. Όριο: 90 μέρες πίσω, για να μην "
+                 "ανοίγει εκατοντάδες παλιά PDF.",
+        )
+        if st.button("Βαθιά σάρωση πωλήσεων", key="deep_sales", width="stretch"):
+            _deep_sync_sales(df_s, deep_since)
 
     # ── ΕΛΕΓΧΟΣ ΣΥΝΔΕΣΗΣ EMAIL ──
     #
@@ -558,6 +586,99 @@ def _sync_sales(df_s) -> None:
             f"Ανανέωσε το `GITHUB_TOKEN` στα Streamlit secrets για να ξαναδουλέψει "
             f"το κουμπί."
         )
+
+
+def _deep_sync_sales(df_s, since_date) -> None:
+    """
+    ΒΑΘΙΑ ΣΑΡΩΣΗ — ανοίγει ΟΛΑ τα email αναφοράς από `since_date` και μετά.
+
+    Διαφορά από το κανονικό κουμπί «Πωλήσεις»:
+      • ΔΕΝ παραλείπει email με «γνωστή» μέρα-αποστολής → πιάνει καθυστερημένες
+        αναφορές (email σήμερα με αναφορά περασμένης μέρας μέσα στο PDF).
+      • Εσύ ορίζεις την αρχική ημερομηνία → δεν σαρώνει άσκοπα μήνες πίσω.
+
+    Το merge_sales κρατάει μόνο ό,τι λείπει — δεν μπαίνουν διπλά.
+    """
+    # Κανονικοποίηση ημερομηνίας
+    since = since_date.date() if hasattr(since_date, "date") else since_date
+
+    have_dates: set = set()
+    if not df_s.empty:
+        have_dates = {
+            (x.date() if hasattr(x, "date") else x) for x in df_s["date"]
+        }
+
+    days_back = (today_greece() - since).days
+    st.caption(f"Βαθιά σάρωση από **{since:%d/%m/%Y}** "
+               f"({days_back} μέρες πίσω) — ανοίγει κάθε αναφορά.")
+
+    # ── ΤΟΠΙΚΟ OCR (Codespaces/τοπικός υπολογιστής) ──
+    if ocr_available():
+        with st.spinner(f"Βαθιά σάρωση: άνοιγμα όλων των αναφορών από "
+                        f"{since:%d/%m}…"):
+            records, errors, seen = fetch_sales(
+                SALES_PW,
+                since=since,
+                limit=300,
+                skip_dates=have_dates,   # περνιέται, αλλά το deep το παρακάμπτει
+                deep=True,               # ← ΑΝΟΙΞΕ ΟΛΑ ΤΑ PDF
+            )
+
+        if errors:
+            c.note(errors[0], "bad")
+            return
+
+        saved = merge_sales(records)
+
+        if saved:
+            days = sorted(
+                {(r["date"].date() if hasattr(r["date"], "date") else r["date"])
+                 for r in records}
+            )
+            lst = ", ".join(f"{d:%d/%m}" for d in days[:15])
+            more = f" +{len(days) - 15}" if len(days) > 15 else ""
+            c.note(f"<b>{saved} νέες ημέρες καταχωρήθηκαν.</b><br>{lst}{more}", "ok")
+            st.rerun()
+        elif seen == 0:
+            c.note("Δεν βρέθηκε καμία αναφορά πωλήσεων σ' αυτό το διάστημα.", "info")
+        else:
+            c.note(f"Ανοίχτηκαν {seen} αναφορές, αλλά όλες οι ημέρες υπάρχουν ήδη.",
+                   "info")
+        return
+
+    # ── STREAMLIT CLOUD: ξεκινάμε το GitHub Action με βαθιά σάρωση ──
+    #
+    # Περνάμε inputs στο workflow: deep=yes + since=ISO ημερομηνία. Το workflow
+    # τα δίνει ως env στο script, που κάνει βαθιά σάρωση γι' αυτό το διάστημα.
+    if not gh_available():
+        repo = _repo_name()
+        link = (f"https://github.com/{repo}/actions/workflows/sales_sync.yml"
+                if repo else "https://github.com")
+        c.note(
+            "Η βαθιά σάρωση χρειάζεται το GitHub Action (εκεί τρέχει το OCR). "
+            f'Άνοιξε <a href="{link}" target="_blank">το workflow</a> → Run '
+            f"workflow, και στο πεδίο «since» βάλε {since:%Y-%m-%d}.",
+            "warn",
+        )
+        return
+
+    ok, msg = trigger_workflow(
+        "sales_sync.yml",
+        inputs={"deep": "yes", "since": f"{since:%Y-%m-%d}"},
+    )
+
+    if ok:
+        c.note(
+            f"<b>Ξεκίνησε η βαθιά σάρωση</b> από {since:%d/%m/%Y}.<br>"
+            "Ανοίγει όλες τις αναφορές στο GitHub (εκεί υπάρχει το OCR). "
+            "Θα πάρει 1-3 λεπτά — μετά ανανέωσε τη σελίδα.",
+            "ok",
+        )
+        import time
+        time.sleep(2)
+        st.rerun()
+    else:
+        c.note(f"Δεν ξεκίνησε η βαθιά σάρωση: {msg}", "bad")
 
 
 def _repo_name() -> str:
