@@ -96,6 +96,47 @@ def main() -> int:
     #
     #   Δευτέρα 23:00  → η νεότερη μέρα προς αναζήτηση είναι η ΔΕΥΤΕΡΑ
     #   Τρίτη   01:00  → ακόμα η ΔΕΥΤΕΡΑ (μεταμεσονύκτια εκτέλεση)
+    # ── ΒΑΘΙΑ ΣΑΡΩΣΗ (χειροκίνητη) ──
+    #
+    # Όταν ο χρήστης ζητά βαθιά σάρωση (DEEP=yes), ανοίγουμε ΟΛΑ τα email
+    # αναφοράς από την ημερομηνία SINCE και μετά — ακόμα κι αν η μέρα-email
+    # είναι γνωστή. Έτσι πιάνονται ΚΑΘΥΣΤΕΡΗΜΕΝΕΣ αναφορές (email σήμερα με
+    # αναφορά παλιάς μέρας μέσα στο PDF). Ο χρήστης ορίζει το SINCE, ώστε να
+    # μη σαρώνουμε άσκοπα μήνες/χρόνια πίσω.
+    deep = os.environ.get("DEEP", "").strip().lower() in ("1", "yes", "true")
+    since_env = os.environ.get("SINCE", "").strip()
+
+    if deep:
+        # Ημερομηνία SINCE από το input (ISO: YYYY-MM-DD). Αν λείπει/λάθος, 7 μέρες.
+        try:
+            since = datetime.strptime(since_env, "%Y-%m-%d").date()
+        except (ValueError, TypeError):
+            since = now.date() - timedelta(days=7)
+
+        # Ασφάλεια: όχι πάνω από 90 μέρες πίσω (αποφυγή τεράστιου OCR).
+        oldest_allowed = now.date() - timedelta(days=90)
+        if since < oldest_allowed:
+            since = oldest_allowed
+            print(f"  ! Η ημερομηνία ήταν >90 μέρες πίσω — περιορίστηκε στις "
+                  f"{since:%d/%m}.")
+
+        print(f"  🔍 ΒΑΘΙΑ ΣΑΡΩΣΗ: ανοίγω ΟΛΕΣ τις αναφορές από {since:%d/%m} "
+              f"και μετά (αγνοώ τι είναι ήδη γνωστό).")
+        records, errors, seen = fetch_sales(
+            password, since=since, limit=300, skip_dates=have, deep=True
+        )
+        if errors:
+            print(f"✗ {errors[0]}")
+            return 1
+        saved = merge_sales(records)
+        if saved:
+            for r in records:
+                print(f"  + {r['date']:%Y-%m-%d}  {r['net_sales']:,.2f} €")
+            print(f"\n✓ {saved} νέες ημέρες (βαθιά σάρωση, OCR σε {seen} PDF).")
+        else:
+            print(f"\n· Καμία νέα ημέρα (OCR σε {seen} PDF, όλες γνωστές).")
+        return 0
+
     newest_target = now.date() if now.hour >= 12 else now.date() - timedelta(days=1)
 
     # Ποιες μέρες μέσα στο παράθυρο λείπουν πραγματικά;
