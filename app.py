@@ -39,7 +39,7 @@ from ui import mobile
 from views import overview, sales, invoices, timologiseis, month, checks, forecast
 
 
-VERSION = "9.3"
+VERSION = "9.4"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -179,6 +179,92 @@ def sync_panel(df_s) -> None:
         )
         if st.button("Δοκιμή σύνδεσης τώρα", key="diag_email", width="stretch"):
             _run_email_diagnostics()
+
+        st.divider()
+        st.caption(
+            "**Έλεγχος λογικής πωλήσεων** — δείχνει τι «βλέπει» ο αυτόματος "
+            "συγχρονισμός: ποιες μέρες έχει ήδη το Sheet, ποιες θεωρεί ότι "
+            "λείπουν, και αν θα έτρεχε τώρα. Εξηγεί γιατί μια μέρα δεν μπαίνει."
+        )
+        if st.button("Έλεγχος λογικής πωλήσεων", key="diag_logic", width="stretch"):
+            _run_sales_logic_report()
+
+
+def _run_sales_logic_report() -> None:
+    """
+    Δείχνει τι αποφασίζει ο μηχανισμός πωλήσεων αυτή τη στιγμή — ρολόι + Sheet,
+    χωρίς OCR. Έτσι φαίνεται αν ο «φύλακας» μπλοκάρει τον συγχρονισμό.
+    """
+    from core.diag import sales_logic_report
+
+    with st.spinner("Έλεγχος λογικής…"):
+        r = sales_logic_report()
+
+    if r["error"]:
+        c.note(r["error"], "bad")
+        return
+
+    # 1. Ώρα + παράθυρο
+    if r["window_open"]:
+        c.note(
+            f"<b>Ώρα:</b> {r['now']}<br>"
+            f"✓ Το παράθυρο αναζήτησης είναι <b>ανοιχτό</b> ({r['window_why']}).",
+            "ok",
+        )
+    else:
+        c.note(
+            f"<b>Ώρα:</b> {r['now']}<br>"
+            f"⏸ Το παράθυρο είναι <b>κλειστό</b> — {r['window_why']}.<br>"
+            f"Ο αυτόματος συγχρονισμός ΔΕΝ ψάχνει τώρα. Ανοίγει στις 21:00 "
+            f"(μετά τα μεσάνυχτα μένει ανοιχτό ως τις 06:00).",
+            "warn",
+        )
+
+    # 2. Τι έχει το Sheet
+    days = ", ".join(r["sheet_days"]) if r["sheet_days"] else "—"
+    c.note(
+        f"<b>Στο Sheet:</b> {r['sheet_count']} μέρες συνολικά.<br>"
+        f"Τελευταίες: {days}",
+        "info",
+    )
+
+    # 3. Τι θεωρεί ότι λείπει
+    newest = r["newest_target"]
+    if r["missing"]:
+        missing_list = ", ".join(r["missing"][:15])
+        more = f" +{len(r['missing']) - 15}" if len(r["missing"]) > 15 else ""
+        c.note(
+            f"<b>Νεότερη μέρα προς αναζήτηση:</b> {newest}<br>"
+            f"<b>Λείπουν {len(r['missing'])} μέρες</b> στο παράθυρο 21 ημερών:<br>"
+            f"{missing_list}{more}",
+            "warn",
+        )
+    else:
+        c.note(
+            f"<b>Νεότερη μέρα προς αναζήτηση:</b> {newest}<br>"
+            f"✓ Δεν λείπει καμία μέρα στο παράθυρο 21 ημερών.",
+            "ok",
+        )
+
+    # 4. Συμπέρασμα
+    if r["would_run"]:
+        c.note(
+            "<b>Συμπέρασμα:</b> ο συγχρονισμός <b>ΘΑ ΕΤΡΕΧΕ</b> τώρα (παράθυρο "
+            "ανοιχτό + λείπουν μέρες) και θα έκανε OCR στα PDF που λείπουν.",
+            "ok",
+        )
+    elif not r["window_open"]:
+        c.note(
+            "<b>Συμπέρασμα:</b> ο συγχρονισμός <b>ΔΕΝ τρέχει τώρα</b> γιατί είναι "
+            "εκτός ώρας. Αυτό είναι φυσιολογικό πριν τις 21:00.",
+            "info",
+        )
+    else:
+        c.note(
+            "<b>Συμπέρασμα:</b> ο συγχρονισμός <b>δεν έχει δουλειά</b> — το "
+            "παράθυρο είναι ανοιχτό αλλά δεν λείπει καμία μέρα.",
+            "info",
+        )
 
 
 def _run_email_diagnostics() -> None:
