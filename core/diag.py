@@ -174,3 +174,73 @@ def run_all(email_pass: str, sales_pass: str) -> list[dict]:
             ),
         },
     ]
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ΛΟΓΙΚΗ ΠΩΛΗΣΕΩΝ — γιατί (δεν) τρέχει ο συγχρονισμός
+# ══════════════════════════════════════════════════════════════════════════════
+LOOKBACK_DAYS = 21
+
+
+def sales_logic_report() -> dict:
+    """
+    Δείχνει ΑΚΡΙΒΩΣ τι βλέπει ο μηχανισμός απόφασης των πωλήσεων — χωρίς OCR,
+    χωρίς Gmail. Μόνο το ρολόι και το Sheet.
+
+    Αναπαράγει πιστά τη λογική του jobs/sales_sync.py + jobs/sales_precheck.py,
+    ώστε να φανεί ΓΙΑΤΙ μια μέρα δεν μπαίνει:
+      • Είναι ανοιχτό το παράθυρο ώρας;
+      • Ποια είναι η «νεότερη μέρα προς αναζήτηση»;
+      • Ποιες μέρες του παραθύρου λείπουν;
+      • Θα έτρεχε το OCR ή θα σταματούσε;
+
+    → dict με όλα τα παραπάνω, για εμφάνιση.
+    """
+    from core.metrics import now_greece, sales_window_open
+    from core.sheets import load_sales
+
+    now = now_greece()
+    out = {
+        "now": f"{now:%d/%m/%Y %H:%M} ({now.tzname() or 'EET/EEST'})",
+        "window_open": False,
+        "window_why": "",
+        "sheet_days": [],          # τελευταίες μέρες στο Sheet
+        "sheet_count": 0,
+        "newest_target": None,
+        "missing": [],             # μέρες που λείπουν στο παράθυρο
+        "would_run": False,
+        "error": None,
+    }
+
+    # 1. Παράθυρο ώρας
+    open_, why = sales_window_open(now)
+    out["window_open"] = open_
+    out["window_why"] = why
+
+    # 2. Τι υπάρχει στο Sheet
+    try:
+        df = load_sales()
+    except Exception as e:  # noqa: BLE001
+        out["error"] = f"Δεν διάβασα το Sheet: {e}"
+        return out
+
+    have = set()
+    if not df.empty:
+        have = {d.date() if hasattr(d, "date") else d for d in df["date"]}
+
+    out["sheet_count"] = len(have)
+    out["sheet_days"] = [f"{d:%d/%m/%Y}" for d in sorted(have, reverse=True)[:10]]
+
+    # 3. Η λογική «ποιες μέρες λείπουν» (ίδια με sales_sync.py)
+    newest_target = now.date() if now.hour >= 12 else now.date() - timedelta(days=1)
+    out["newest_target"] = f"{newest_target:%d/%m/%Y}"
+
+    window_days = [newest_target - timedelta(days=i) for i in range(LOOKBACK_DAYS + 1)]
+    missing = [d for d in window_days if d not in have]
+    out["missing"] = [f"{d:%d/%m/%Y}" for d in sorted(missing, reverse=True)]
+
+    # 4. Θα έτρεχε το OCR;
+    #    Τρέχει μόνο αν: παράθυρο ανοιχτό ΚΑΙ λείπει τουλάχιστον μία μέρα.
+    out["would_run"] = bool(open_ and missing)
+
+    return out
