@@ -70,6 +70,9 @@ jobs:
         id: check
         env:
           GOOGLE_KEY_JSON: ${{ secrets.GOOGLE_KEY_JSON }}
+          # ΧΕΙΡΟΚΙΝΗΤΗ ΕΚΤΕΛΕΣΗ (κουμπί): αγνόησε το ωράριο, τρέξε τώρα.
+          # Το workflow_dispatch σημαίνει «ο χρήστης το πάτησε» → FORCE_RUN=1.
+          FORCE_RUN: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
         run: |
           pip install -q -r requirements.txt
           if python jobs/sales_precheck.py; then
@@ -93,5 +96,6 @@ jobs:
         env:
           GOOGLE_KEY_JSON: ${{ secrets.GOOGLE_KEY_JSON }}
           SALES_EMAIL_PASS: ${{ secrets.SALES_EMAIL_PASS }}
+          FORCE_RUN: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
         run: python jobs/sales_sync.py
 
