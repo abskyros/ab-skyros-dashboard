@@ -16,7 +16,7 @@ import streamlit as st
 
 from core.config import SHEET_SALES
 from core.metrics import (
-    week_range, last_year, day_name, as_dates,
+    week_range, last_year, two_years_ago, day_name, as_dates,
     sales_on, sales_row, monthly_breakdown, weekly_series,
     find_anomalies,
 )
@@ -125,7 +125,7 @@ def _weekly(df: pd.DataFrame, today: date) -> None:
     )
 
     c.section(f"Ημέρες · {start:%d/%m} — {end:%d/%m/%Y}")
-    _table(week)
+    _table(df, week)
 
 
 def _future(df: pd.DataFrame, picked: date) -> None:
@@ -220,24 +220,113 @@ def _download(df: pd.DataFrame, year: int) -> None:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-def _table(week: pd.DataFrame) -> None:
+def _table(df: pd.DataFrame, week: pd.DataFrame) -> None:
     """
-    Μορφοποιούμε ΠΡΙΝ το dataframe.
+    Ο αναλυτικός πίνακας της εβδομάδας — ΤΡΙΑ χρόνια δίπλα-δίπλα.
 
-    ΠΟΤΕ .style.format() — ο pandas Styler χτίζει ολόκληρο HTML στη μνήμη και
-    ρίχνει το Streamlit Cloud με segmentation fault σε μεγάλα δεδομένα.
+    Για κάθε μέρα: πωλήσεις / πελάτες / καλάθι, και για τις τρεις χρονιές
+    (φέτος · πέρσι · πρόπερσι), με χρώμα ανά χρονιά ώστε να ξεχωρίζουν:
+      • Φέτος    — χρυσό (το κανονικό)
+      • Πέρσι    — γκρι
+      • Πρόπερσι — ξεθωριασμένο χρυσό
+
+    Η στήλη «Πρόπερσι» εμφανίζεται ΜΟΝΟ αν υπάρχει έστω μία μέρα με δεδομένα
+    δύο χρόνια πίσω — αλλιώς δεν γεμίζουμε τον πίνακα με κενά.
+
+    ΠΟΤΕ pandas Styler — χτίζει τεράστιο HTML στη μνήμη και ρίχνει το cloud.
+    Φτιάχνουμε δικό μας HTML (ελαφρύ) με δική του CSS, που κάνει και σκρολ
+    δεξιά στο κινητό.
     """
     t = week.sort_values("date", ascending=False).copy()
 
-    out = pd.DataFrame({
-        "ΗΜΕΡΑ":       [day_name(d, short=True) for d in as_dates(t["date"])],
-        "ΗΜΕΡΟΜΗΝΙΑ":  [f"{d:%d/%m/%Y}" for d in as_dates(t["date"])],
-        "ΠΩΛΗΣΕΙΣ":    t["net_sales"].map(c.eur),
-        "ΠΕΛΑΤΕΣ":     t["customers"].map(c.num),
-        "ΜΟ ΚΑΛΑΘΙΟΥ": t["avg_basket"].map(c.eur),
-    })
+    # Μαζεύουμε φέτος/πέρσι/πρόπερσι για κάθε μέρα.
+    rows = []
+    has_prop = False
+    for _, r in t.iterrows():
+        d = r["date"].date() if hasattr(r["date"], "date") else r["date"]
+        ly = sales_row(df, last_year(d))
+        ly2 = sales_row(df, two_years_ago(d))
+        if ly2:
+            has_prop = True
+        rows.append({
+            "d": d,
+            "now": {"net": r.get("net_sales"), "cust": r.get("customers"), "bskt": r.get("avg_basket")},
+            "ly":  ly,
+            "ly2": ly2,
+        })
 
-    st.dataframe(out, width='stretch', hide_index=True)
+    c.html(_table_html(rows, has_prop))
+
+
+def _cell(val, fmt, cls: str) -> str:
+    """Ένα κελί τιμής, με την κλάση της χρονιάς (now/then/then2)."""
+    return f'<td class="v {cls}">{fmt(val)}</td>'
+
+
+def _table_html(rows: list, has_prop: bool) -> str:
+    """Χτίζει το HTML του τρι-ετούς πίνακα. Καθαρό string — κανένα Styler."""
+    # Πόσες υπο-στήλες ανά μέτρο: 2 (φέτος+πέρσι) ή 3 (+πρόπερσι).
+    span = 3 if has_prop else 2
+
+    # ── ΚΕΦΑΛΙΔΑ: δύο σειρές ──
+    # 1η: ομάδες (ΠΩΛΗΣΕΙΣ / ΠΕΛΑΤΕΣ / ΚΑΛΑΘΙ)
+    # 2η: χρονιές (Φέτος / Πέρσι / Πρόπερσι) κάτω από κάθε ομάδα
+    head1 = (
+        '<tr class="grp">'
+        '<th class="day" rowspan="2">Ημέρα</th>'
+        f'<th colspan="{span}">Πωλήσεις</th>'
+        f'<th colspan="{span}">Πελάτες</th>'
+        f'<th colspan="{span}">Καλάθι</th>'
+        '</tr>'
+    )
+
+    def yrs() -> str:
+        cells = '<th class="now">Φέτος</th><th class="then">Πέρσι</th>'
+        if has_prop:
+            cells += '<th class="then2">Πρόπερσι</th>'
+        return cells
+
+    head2 = f'<tr class="yrs">{yrs()}{yrs()}{yrs()}</tr>'
+
+    # ── ΣΩΜΑ ──
+    body = []
+    for row in rows:
+        d = row["d"]
+        now, ly, ly2 = row["now"], row["ly"], row["ly2"]
+
+        tds = [
+            f'<td class="day"><b>{day_name(d, short=True)}</b>'
+            f'<span class="dt">{d:%d/%m/%y}</span></td>'
+        ]
+
+        # Πωλήσεις
+        tds.append(_cell(now["net"], c.eur, "now"))
+        tds.append(_cell(ly["net_sales"] if ly else None, c.eur, "then"))
+        if has_prop:
+            tds.append(_cell(ly2["net_sales"] if ly2 else None, c.eur, "then2"))
+
+        # Πελάτες
+        tds.append(_cell(now["cust"], c.num, "now"))
+        tds.append(_cell(ly["customers"] if ly else None, c.num, "then"))
+        if has_prop:
+            tds.append(_cell(ly2["customers"] if ly2 else None, c.num, "then2"))
+
+        # Καλάθι
+        tds.append(_cell(now["bskt"], c.eur, "now"))
+        tds.append(_cell(ly["avg_basket"] if ly else None, c.eur, "then"))
+        if has_prop:
+            tds.append(_cell(ly2["avg_basket"] if ly2 else None, c.eur, "then2"))
+
+        body.append(f'<tr>{"".join(tds)}</tr>')
+
+    return (
+        '<div class="tbl3-wrap">'
+        '<table class="tbl3">'
+        f'<thead>{head1}{head2}</thead>'
+        f'<tbody>{"".join(body)}</tbody>'
+        '</table>'
+        '</div>'
+    )
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -353,3 +442,4 @@ def _check() -> None:
         shown = ", ".join(gaps[:15])
         more = f" και άλλες {len(gaps) - 15}" if len(gaps) > 15 else ""
         c.note(f"Λείπουν {len(gaps)} μέρες: {shown}{more}", "bad")
+

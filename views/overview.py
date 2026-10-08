@@ -29,7 +29,7 @@ from datetime import date, timedelta
 import pandas as pd
 
 from core.metrics import (
-    week_range, last_year, day_name,
+    week_range, last_year, two_years_ago, day_name,
     sales_on, sales_row, week_to_date,
     invoice_totals, invoices_in_week,
     check_this_week, checks_ahead_with_number,
@@ -105,6 +105,9 @@ def _sales(df_s: pd.DataFrame, today: date) -> None:
     today_now = sales_on(df_s, today)
     today_ref = last_year(today)
     today_goal = sales_on(df_s, today_ref)
+    # Πρόπερσι (2 χρόνια πίσω) — εμφανίζεται ΜΟΝΟ αν υπάρχει καταχώρηση.
+    today_ref2 = two_years_ago(today)
+    today_goal2 = sales_on(df_s, today_ref2)
 
     # ── ΧΘΕΣ ──
     yesterday = today - timedelta(days=1)
@@ -123,8 +126,13 @@ def _sales(df_s: pd.DataFrame, today: date) -> None:
 
     y_ref = last_year(yesterday)
     y_then = sales_on(df_s, y_ref)
+    # Πρόπερσι — εμφανίζεται ΜΟΝΟ αν υπάρχει καταχώρηση 2 χρόνια πίσω.
+    y_ref2 = two_years_ago(yesterday)
+    y_then2 = sales_on(df_s, y_ref2)
 
     y_foot = f"Πέρσι {day_name(y_ref, short=True)} {y_ref:%d/%m}"
+    if y_then2 is not None:
+        y_foot += f" · Πρόπερσι {y_ref2:%d/%m}"
     if stale:
         y_foot = f"Τελευταία καταχώρηση · {y_foot}"
 
@@ -135,11 +143,12 @@ def _sales(df_s: pd.DataFrame, today: date) -> None:
     #
     # Λέμε πότε έρχονται και πότε ελέγχουμε. Χωρίς αυτό, ο χρήστης κοιτάει μια
     # άδεια κάρτα και δεν ξέρει αν φταίει το σύστημα ή απλώς δεν ήρθε το email.
+    prop_note = f" · Πρόπερσι {today_ref2:%d/%m}" if today_goal2 is not None else ""
     if today_now is not None:
-        today_foot = f"Στόχος: {day_name(today_ref, short=True)} {today_ref:%d/%m} πέρσι"
+        today_foot = f"Στόχος: {day_name(today_ref, short=True)} {today_ref:%d/%m} πέρσι{prop_note}"
     elif today_goal:
         today_foot = (
-            f"Στόχος: {day_name(today_ref, short=True)} {today_ref:%d/%m} πέρσι · "
+            f"Στόχος: {day_name(today_ref, short=True)} {today_ref:%d/%m} πέρσι{prop_note} · "
             f"Η αναφορά έρχεται το βράδυ"
         )
     else:
@@ -150,12 +159,14 @@ def _sales(df_s: pd.DataFrame, today: date) -> None:
             f"Σήμερα · {day_name(today)} {today:%d/%m}",
             today_now,
             today_goal,
+            goal2=today_goal2,
             foot=today_foot,
             href=c.link("Πωλήσεις"),
         ),
         c.scale(
             f"Χθες · {day_name(yesterday)} {yesterday:%d/%m}",
             y_now, y_then,
+            then2=y_then2,
             foot=y_foot,
             href=c.link("Πωλήσεις"),
         ),
@@ -240,11 +251,16 @@ def _week_and_check(
             href=c.link("Τιμολογήσεις"),
         )
 
+    wk_foot = f"{wtd['days_elapsed']} ημέρες vs οι ίδιες {wtd['days_elapsed']} πέρσι"
+    if wtd.get("two_previous") is not None:
+        wk_foot += " & πρόπερσι"
+
     c.grid(
         c.scale(
             f"Εβδομάδα ως τώρα · {wtd['label']}",
             wtd["current"], wtd["previous"],
-            foot=f"{wtd['days_elapsed']} ημέρες vs οι ίδιες {wtd['days_elapsed']} πέρσι",
+            then2=wtd.get("two_previous"),
+            foot=wk_foot,
             href=c.link("Πωλήσεις"),
         ),
         check_card,
@@ -265,3 +281,4 @@ def _week_and_check(
         ),
         cols=1,
     )
+
