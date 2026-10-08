@@ -39,6 +39,15 @@ on:
     # ώρα Ελλάδας (και χειμώνα και καλοκαίρι, λόγω του εύρους UTC).
     - cron: '0 18,19,20,21,22,23,0,1 * * *'
   workflow_dispatch:
+    inputs:
+      deep:
+        description: "Βαθιά σάρωση (άνοιξε ΟΛΕΣ τις αναφορές, όχι μόνο τις γνωστές)"
+        required: false
+        default: ""
+      since:
+        description: "Βαθιά σάρωση: από ποια μέρα (YYYY-MM-DD). Κενό = 7 μέρες πίσω"
+        required: false
+        default: ""
 
 # Αν μια εκτέλεση αργήσει, η επόμενη ΔΕΝ ξεκινάει παράλληλα.
 # Χωρίς αυτό, δύο διεργασίες θα διάβαζαν τα ίδια email ταυτόχρονα και θα
@@ -73,6 +82,9 @@ jobs:
           # ΧΕΙΡΟΚΙΝΗΤΗ ΕΚΤΕΛΕΣΗ (κουμπί): αγνόησε το ωράριο, τρέξε τώρα.
           # Το workflow_dispatch σημαίνει «ο χρήστης το πάτησε» → FORCE_RUN=1.
           FORCE_RUN: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
+          # Βαθιά σάρωση: ο precheck πρέπει να πει «ναι» ακόμα κι αν δεν λείπει
+          # μέρα, γιατί ψάχνουμε καθυστερημένες παλιές αναφορές.
+          DEEP: ${{ github.event.inputs.deep }}
         run: |
           pip install -q -r requirements.txt
           if python jobs/sales_precheck.py; then
@@ -97,5 +109,8 @@ jobs:
           GOOGLE_KEY_JSON: ${{ secrets.GOOGLE_KEY_JSON }}
           SALES_EMAIL_PASS: ${{ secrets.SALES_EMAIL_PASS }}
           FORCE_RUN: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
+          # Βαθιά σάρωση: τα inputs περνάνε στο script ως env.
+          DEEP: ${{ github.event.inputs.deep }}
+          SINCE: ${{ github.event.inputs.since }}
         run: python jobs/sales_sync.py
 
