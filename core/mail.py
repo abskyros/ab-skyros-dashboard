@@ -143,12 +143,24 @@ def fetch_timologiseis(password: str, limit: int = 200) -> tuple[list, list]:
 # ΠΩΛΗΣΕΙΣ (PDF → OCR)
 # ══════════════════════════════════════════════════════════════════════════════
 def _is_sales(msg) -> bool:
-    subject = (msg.subject or "").upper()
-    sender = (msg.from_ or "").lower()
+    """
+    Φίλτρο πωλήσεων: ΚΥΡΙΟ κριτήριο ο ΑΠΟΣΤΟΛΕΑΣ.
 
-    if SALES_EMAIL_SENDER.lower() not in sender:
-        return False
-    return SALES_SUBJECT_KW in subject or "SKYROS" in subject
+    Το θέμα του email μπορεί να είναι «ΑΒ ΣΚΥΡΟΣ», «AB SKYROS», ή και ΚΕΝΟ —
+    καμιά φορά η αναφορά έρχεται χωρίς καθόλου θέμα. Γι' αυτό ΔΕΝ απαιτούμε πια
+    θέμα: αν ο αποστολέας είναι σωστός, δεχόμαστε το email.
+
+    Αυτό ΔΕΝ ανοίγει την πόρτα σε άσχετα email, γιατί η πραγματική επαλήθευση
+    γίνεται πιο κάτω, σε δύο ακόμα φίλτρα:
+      1. Πρέπει να υπάρχει συνημμένο PDF (αλλιώς το email παραλείπεται).
+      2. Το PDF περνάει OCR και κρατιέται ΜΟΝΟ αν βγάλει έγκυρη ημερομηνία +
+         τζίρο. Οτιδήποτε άλλο απορρίπτεται μόνο του.
+
+    Κρατάμε το SALES_SUBJECT_KW για ιστορικό/αναφορά — δεν χρησιμοποιείται πλέον
+    ως υποχρεωτικό κριτήριο.
+    """
+    sender = (msg.from_ or "").lower()
+    return SALES_EMAIL_SENDER.lower() in sender
 
 
 def fetch_sales(
