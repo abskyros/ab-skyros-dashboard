@@ -449,17 +449,19 @@ def _editor(rows: list[dict], coverage: dict | None = None) -> None:
     coverage = coverage or {}
 
     # Σήμα κατάστασης — το ProgressColumn δίνει ΕΝΑ χρώμα σε όλη τη στήλη,
-    # οπότε το χρώμα το δίνουμε με ένα μικρό εικονίδιο δίπλα.
-    MARK = {"full": "🟢", "partial": "🟠", "empty": "⚪", None: ""}
+    # οπότε το χρώμα το δίνουμε με μια λέξη δίπλα, βαμμένη από τον Styler.
+    MARK = {"full": "Πλήρης", "partial": "Μερική", "empty": "Δεν φτάνει", None: ""}
+    MARK_COLOR = {"Πλήρης": "#047857", "Μερική": "#B45309", "Δεν φτάνει": "#64748B"}
 
     table = pd.DataFrame([
         {
             "Ημ. επιταγής":      f"{r['check_date']:%d/%m/%Y}",
             "Περίοδος":          _period_label(r),
-            "Επιταγή":           r["amount"],
-            "Πωλήσεις περιόδου": r["sales"],
+            # Τα ποσά μπαίνουν ΗΔΗ μορφοποιημένα (βλ. «ΜΟΡΦΗ ΠΟΣΩΝ» παρακάτω).
+            "Επιταγή":           c.eur(r["amount"]),
+            "Πωλήσεις περιόδου": c.eur(r["sales"]),
             "Έξοδα":             r["expenses_raw"],
-            "Μένει":             r["balance"],
+            "Μένει":             c.eur(r["balance"]),
             "Αρ. επιταγής":      r["check_number"],
             "":                  MARK.get(
                                      (coverage.get(_cov_key(r["check_date"])) or {}).get("status")
@@ -469,29 +471,33 @@ def _editor(rows: list[dict], coverage: dict | None = None) -> None:
         for r in rows
     ])
 
-    money = st.column_config.NumberColumn(format="%.2f €", disabled=True)
+    money = st.column_config.TextColumn(disabled=True)
 
-    # ── ΧΡΩΜΑ ΑΝΑ ΣΤΗΛΗ ──
+    # ── ΧΡΩΜΑ ΣΤΗΛΩΝ ──
     #
-    # Απαλές αποχρώσεις, ώστε το μάτι να «κλειδώνει» στη στήλη που διαβάζει.
-    # Δεν είναι διακόσμηση: με 10 στήλες, το χρώμα είναι ο γρηγορότερος τρόπος
-    # να μη χαθείς όταν σκρολάρεις οριζόντια.
+    # ΕΝΑ απαλό γκρι για τις στήλες που απλώς διαβάζεις. (Πριν: πέντε παστέλ —
+    # κόκκινο, μπλε, πράσινο, κίτρινο — που «φώναζαν».)
     #
     # ΠΡΟΣΟΧΗ: το Streamlit εφαρμόζει Styler ΜΟΝΟ σε μη-επεξεργάσιμες στήλες.
     # Άρα «Αρ. επιταγής» και «Έξοδα» μένουν λευκές — που βολεύει: ξεχωρίζουν
     # αμέσως ως τα δύο πεδία που συμπληρώνεις εσύ.
-    TINT = {
-        "Ημ. επιταγής":      "#F1F5F9",   # γκρι-μπλε — η ταυτότητα της γραμμής
-        "Επιταγή":           "#FEF2F2",   # απαλό κόκκινο — τι πληρώνεις
-        "Πωλήσεις περιόδου": "#EFF6FF",   # απαλό μπλε — τι μπήκε
-        "Μένει":             "#F0FDF4",   # απαλό πράσινο — το αποτέλεσμα
-        "Κάλυψη ταμείου":    "#FFFBEB",   # απαλό κεχριμπάρι — η δεξαμενή
-    }
+    READ_ONLY_TINT = "#F7F8FA"
+    tinted = [col for col in ("Ημ. επιταγής", "Περίοδος", "Επιταγή", "Πωλήσεις περιόδου",
+                              "Μένει", "", "Κάλυψη ταμείου") if col in table.columns]
 
-    styled = table.style
-    for col, color in TINT.items():
-        if col in table.columns:
-            styled = styled.set_properties(subset=[col], **{"background-color": color})
+    # ── ΜΟΡΦΗ ΠΟΣΩΝ ──
+    #
+    # ΓΙΑΤΙ ΕΒΓΑΙΝΕ «None» και «81584.88 €»: το format="%.2f €" του Streamlit
+    # δεν βάζει διαχωριστικό χιλιάδων, και τα κενά (μέλλουσες περίοδοι) ο Styler
+    # τα γράφει «None». Άρα τα ποσά μπαίνουν στον πίνακα ΗΔΗ ως κείμενο με
+    # ελληνική μορφή (c.eur → «81.584,88 €», κενό → «—»). Είναι στήλες μόνο για
+    # ανάγνωση, οπότε η αποθήκευση (Έξοδα, Αρ. επιταγής) δεν επηρεάζεται.
+    styled = table.style.set_properties(subset=tinted, **{"background-color": READ_ONLY_TINT})
+    if "" in table.columns:
+        styled = styled.map(
+            lambda v: f"color: {MARK_COLOR[v]}; font-weight: 700" if v in MARK_COLOR else "",
+            subset=[""],
+        )
 
     st.data_editor(
         styled,
@@ -513,7 +519,7 @@ def _editor(rows: list[dict], coverage: dict | None = None) -> None:
             "": st.column_config.TextColumn(
                 disabled=True,
                 width="small",
-                help="🟢 καλύπτεται πλήρως · 🟠 μερικώς · ⚪ δεν φτάνει",
+                help="Πλήρης: καλύπτεται όλη · Μερική: εν μέρει · Δεν φτάνει: το ταμείο δεν φτάνει",
             ),
             "Κάλυψη ταμείου": st.column_config.ProgressColumn(
                 "Κάλυψη ταμείου",

@@ -50,15 +50,26 @@ def render(df_s: pd.DataFrame, df_i: pd.DataFrame, df_t: pd.DataFrame, today: da
     if df_s.empty and df_i.empty and df_t.empty:
         c.empty(
             "Δεν έχουν φορτωθεί δεδομένα ακόμη",
-            "Άνοιξε την «Ενημέρωση δεδομένων» στο κάτω μέρος για να τραβήξεις τα πρώτα email."
+            "Πάτα το ⚙ πάνω δεξιά → «Ενημέρωση δεδομένων» για να τραβήξεις τα πρώτα email."
         )
         return
 
     # Ειδοποίηση: πόσες επιταγές έχουμε ακόμα μπροστά (με αριθμό).
     _check_supply_alert(df_t, today)
 
-    _sales(df_s, today)
-    _week_and_check(df_s, df_i, df_t, today)
+    today_card, y_card = _sales(df_s, today)
+    _freshness(df_s, today)
+    wk_card, inv_card = _week_cards(df_s, df_i, today)
+
+    # Όσο δεν ήρθε η σημερινή αναφορά, το «Σήμερα» είναι μια λεπτή γραμμή
+    # (το έδειξε ήδη το _sales) και οι τρεις κάρτες μπαίνουν σε μία σειρά.
+    if today_card:
+        c.grid(today_card, y_card, cols=2)
+        c.grid(wk_card, inv_card, cols=2)
+    else:
+        c.grid(y_card, wk_card, inv_card, cols=3)
+
+    _check(df_t, today)
 
 
 def _check_supply_alert(df_t: pd.DataFrame, today: date) -> None:
@@ -97,8 +108,13 @@ def _check_supply_alert(df_t: pd.DataFrame, today: date) -> None:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-def _sales(df_s: pd.DataFrame, today: date) -> None:
-    """Σήμερα (στόχος) και χθες (αποτέλεσμα)."""
+def _sales(df_s: pd.DataFrame, today: date) -> tuple[str | None, str]:
+    """
+    Σήμερα (στόχος) και χθες (αποτέλεσμα).
+
+    → (κάρτα «Σήμερα» ή None, κάρτα «Χθες»). None όταν η σημερινή αναφορά δεν
+      ήρθε ακόμα — τότε δείχνεται εδώ, αμέσως, η λεπτή γραμμή «Σήμερα».
+    """
 
     # ── ΣΗΜΕΡΑ ──
     # Συνήθως None μέχρι το βράδυ. Ο στόχος είναι το περσινό της ίδιας μέρας.
@@ -154,26 +170,34 @@ def _sales(df_s: pd.DataFrame, today: date) -> None:
     else:
         today_foot = "Δεν υπάρχει περσινό για αυτή τη μέρα"
 
-    c.grid(
-        c.target(
-            f"Σήμερα · {day_name(today)} {today:%d/%m}",
-            today_now,
-            today_goal,
-            goal2=today_goal2,
-            foot=today_foot,
-            href=c.link("Πωλήσεις"),
-        ),
-        c.scale(
-            f"Χθες · {day_name(yesterday)} {yesterday:%d/%m}",
-            y_now, y_then,
-            then2=y_then2,
-            foot=y_foot,
-            href=c.link("Πωλήσεις"),
-        ),
-        cols=2,
+    y_card = c.scale(
+        f"Χθες · {day_name(yesterday)} {yesterday:%d/%m}",
+        y_now, y_then,
+        then2=y_then2,
+        foot=y_foot,
+        href=c.link("Πωλήσεις"),
     )
 
-    _freshness(df_s, today)
+    if today_now is None:
+        # Η αναφορά έρχεται το βράδυ — μια άδεια κάρτα στην πρώτη θέση όλη μέρα
+        # δεν λέει τίποτα. Μια γραμμή: τι περιμένουμε και ποιος είναι ο στόχος.
+        c.strip(
+            f"Σήμερα · {day_name(today)} {today:%d/%m}",
+            "Η αναφορά πωλήσεων έρχεται το βράδυ" if today_goal else today_foot,
+            f"Στόχος (πέρσι {day_name(today_ref, short=True)} {today_ref:%d/%m})",
+            today_goal,
+        )
+        return None, y_card
+
+    today_card = c.target(
+        f"Σήμερα · {day_name(today)} {today:%d/%m}",
+        today_now,
+        today_goal,
+        goal2=today_goal2,
+        foot=today_foot,
+        href=c.link("Πωλήσεις"),
+    )
+    return today_card, y_card
 
 
 def _freshness(df_s: pd.DataFrame, today: date) -> None:
@@ -204,7 +228,7 @@ def _freshness(df_s: pd.DataFrame, today: date) -> None:
             f"Η τελευταία καταχωρημένη μέρα είναι η <b>{latest:%d/%m}</b>. "
             f"Η χθεσινή αναφορά δεν έχει έρθει ακόμη — το σύστημα την ψάχνει "
             f"αυτόματα κάθε 10 λεπτά από τις 15:00. Αν βιάζεσαι, δοκίμασε την "
-            f"<b>Ενημέρωση δεδομένων</b> στο κάτω μέρος.",
+            f"<b>Ενημέρωση δεδομένων</b> από το ⚙ πάνω δεξιά.",
             "warn",
         )
         return
@@ -213,72 +237,67 @@ def _freshness(df_s: pd.DataFrame, today: date) -> None:
         f"⚠️ <b>Οι πωλήσεις είναι {gap} μέρες πίσω.</b><br><br>"
         f"Τελευταία καταχώρηση: <b>{day_name(latest)} {latest:%d/%m/%Y}</b><br><br>"
         f"Κάτι δεν πάει καλά με τον αυτόματο συγχρονισμό. Δοκίμασε την "
-        f"<b>Ενημέρωση δεδομένων</b> στο κάτω μέρος της σελίδας — αν αποτύχει, "
+        f"<b>Ενημέρωση δεδομένων</b> από το ⚙ πάνω δεξιά — αν αποτύχει, "
         f"θα σου πει γιατί.",
         "bad",
     )
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-def _week_and_check(
-    df_s: pd.DataFrame, df_i: pd.DataFrame, df_t: pd.DataFrame, today: date
-) -> None:
-    """Η εβδομάδα ως τώρα, και η επιταγή που πέφτει."""
+def _week_cards(df_s: pd.DataFrame, df_i: pd.DataFrame, today: date) -> tuple[str, str]:
+    """→ (κάρτα «Εβδομάδα ως τώρα», κάρτα «Τιμολόγια — καθαρό»)."""
 
     wtd = week_to_date(df_s, today)
-
-    check = check_this_week(df_t, today)
-    if check is not None:
-        cd = check["check_date"]
-        cd = cd.date() if hasattr(cd, "date") else cd
-        days = (cd - today).days
-
-        when = "σήμερα" if days == 0 else ("αύριο" if days == 1 else f"σε {days} ημέρες")
-
-        check_card = c.stat(
-            "Επιταγή αυτή την εβδομάδα",
-            float(check["amount"]),
-            accent="var(--navy)",
-            foot=f"Πληρωμή {when} — {cd:%d/%m/%Y}",
-            href=c.link("Τιμολογήσεις"),
-        )
-    else:
-        check_card = c.stat(
-            "Επιταγή αυτή την εβδομάδα",
-            None,
-            accent="var(--prev)",
-            foot="Καμία επιταγή δεν πέφτει αυτή την εβδομάδα",
-            href=c.link("Τιμολογήσεις"),
-        )
 
     wk_foot = f"{wtd['days_elapsed']} ημέρες vs οι ίδιες {wtd['days_elapsed']} πέρσι"
     if wtd.get("two_previous") is not None:
         wk_foot += " & πρόπερσι"
 
-    c.grid(
-        c.scale(
-            f"Εβδομάδα ως τώρα · {wtd['label']}",
-            wtd["current"], wtd["previous"],
-            then2=wtd.get("two_previous"),
-            foot=wk_foot,
-            href=c.link("Πωλήσεις"),
-        ),
-        check_card,
-        cols=2,
+    wk_card = c.scale(
+        f"Εβδομάδα ως τώρα · {wtd['label']}",
+        wtd["current"], wtd["previous"],
+        then2=wtd.get("two_previous"),
+        foot=wk_foot,
+        href=c.link("Πωλήσεις"),
     )
 
-    # Τα τιμολόγια είναι δευτερεύοντα — μία σειρά, χωρίς σύγκριση.
+    # Τα τιμολόγια είναι δευτερεύοντα — χωρίς σύγκριση.
     inv_net = invoice_totals(invoices_in_week(df_i, today))["net"]
 
-    c.grid(
-        c.stat(
-            "Τιμολόγια — καθαρό",
-            inv_net,
-            tone="pos" if inv_net >= 0 else "neg",
-            accent="var(--ink)",
-            foot="Τιμολόγια μείον πιστωτικά, τρέχουσα εβδομάδα",
-            href=c.link("Παραστατικά"),
-        ),
-        cols=1,
+    inv_card = c.stat(
+        "Τιμολόγια — καθαρό",
+        inv_net,
+        tone="pos" if inv_net >= 0 else "neg",
+        foot="Τιμολόγια μείον πιστωτικά, τρέχουσα εβδομάδα",
+        href=c.link("Παραστατικά"),
+    )
+    return wk_card, inv_card
+
+
+def _check(df_t: pd.DataFrame, today: date) -> None:
+    """Η επιταγή που πέφτει αυτή την εβδομάδα — η μόνη navy κάρτα (έχει προθεσμία)."""
+
+    check = check_this_week(df_t, today)
+    if check is None:
+        c.grid(
+            c.stat(
+                "Επιταγή αυτή την εβδομάδα",
+                None,
+                foot="Καμία επιταγή δεν πέφτει αυτή την εβδομάδα",
+                href=c.link("Τιμολογήσεις"),
+            ),
+            cols=1,
+        )
+        return
+
+    cd = check["check_date"]
+    cd = cd.date() if hasattr(cd, "date") else cd
+    days = (cd - today).days
+    when = "σήμερα" if days == 0 else ("αύριο" if days == 1 else f"σε {days} ημέρες")
+
+    c.check_card(
+        cd, float(check["amount"]),
+        tag=f"Επιταγή αυτή την εβδομάδα · {when}",
+        href=c.link("Τιμολογήσεις"),
     )
 

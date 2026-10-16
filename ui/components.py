@@ -96,17 +96,27 @@ def _apply_day_night() -> None:
     )
 
 
-def topbar(today: date) -> None:
+def topbar(today: date):
+    """
+    Η κεφαλίδα: όνομα, μέρα, και το ⚙ των εργαλείων.
+
+    → το popover του ⚙. Το app.py το γεμίζει ΑΡΓΟΤΕΡΑ (`with tools: …`),
+      αφού φορτωθούν τα δεδομένα — έτσι η κεφαλίδα εμφανίζεται πρώτη.
+    """
     stamp = f"{day_name(today)} {today:%d/%m/%Y}"
-    html(
-        '<div class="topbar">'
-        '<div class="brand">'
-        '<div class="brand-name">ΑΒ Σκύρος</div>'
-        '<div class="brand-sub">Πωλήσεις · Παραστατικά · Τιμολογήσεις</div>'
-        '</div>'
-        f'<div class="today-stamp">{stamp}</div>'
-        '</div>'
-    )
+    with st.container(key="topbar"):
+        brand, when, gear = st.columns([6, 2, 1], vertical_alignment="center")
+        with brand:
+            html(
+                '<div class="brand">'
+                '<div class="brand-name">ΑΒ Σκύρος</div>'
+                '<div class="brand-sub">Πωλήσεις · Παραστατικά · Τιμολογήσεις</div>'
+                '</div>'
+            )
+        with when:
+            html(f'<div class="today-stamp">{stamp}</div>')
+        with gear:
+            return st.popover("", icon=":material/settings:", help="Εργαλεία · ενημέρωση δεδομένων")
 
 
 # ┌────────────────────────────────────────────────────────────────────────────┐
@@ -443,15 +453,36 @@ def grid(*cards: str, cols: int = 3) -> None:
 # ══════════════════════════════════════════════════════════════════════════════
 # ΕΠΙΤΑΓΗ
 # ══════════════════════════════════════════════════════════════════════════════
-def check_card(when: date, amount: float, period: str = "", tag: str = "Επόμενη επιταγή") -> None:
+def check_card(
+    when: date, amount: float, period: str = "", tag: str = "Επόμενη επιταγή",
+    href: str | None = None,
+) -> None:
     extra = f' · Περίοδος {_esc(period)}' if period and period != "—" else ""
-    html(
+    body = (
         '<div class="check">'
         '<div>'
         f'<div class="check-tag">{_esc(tag)}</div>'
-        f'<div class="check-when">Πληρωμή <b>{when:%d/%m/%Y}</b>{extra}</div>'
+        f'<div class="check-when">Πληρωμή <b>{day_name(when)} {when:%d/%m/%Y}</b>{extra}</div>'
         '</div>'
         f'<div class="check-amt">{eur(amount)}</div>'
+        '</div>'
+    )
+    html(f'<a href="{href}" target="_self" class="plain">{body}</a>' if href else body)
+
+
+def strip(label: str, note: str, goal_label: str, goal) -> None:
+    """
+    Λεπτή γραμμή κατάστασης — για το «Σήμερα» όσο η αναφορά δεν έχει έρθει.
+    Αριστερά τι περιμένουμε, δεξιά ο στόχος.
+    """
+    html(
+        '<div class="strip">'
+        '<div class="strip-left">'
+        '<span class="strip-dot"></span>'
+        f'<span class="strip-label">{_esc(label)}</span>'
+        f'<span class="strip-note">{_esc(note)}</span>'
+        '</div>'
+        f'<div class="strip-goal">{_esc(goal_label)}: <b>{eur(goal)}</b></div>'
         '</div>'
     )
 

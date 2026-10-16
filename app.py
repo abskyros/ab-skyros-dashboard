@@ -101,7 +101,7 @@ def main() -> None:
 
     mobile.setup()          # εικονίδιο αρχικής οθόνης, κόκκινη μπάρα κατάστασης
     c.load_css()
-    c.topbar(today)
+    tools = c.topbar(today)     # το ⚙ — γεμίζει στο τέλος, βλ. sync_panel
     c.nav(page)
 
     df_s = load_sales()
@@ -129,7 +129,9 @@ def main() -> None:
     elif page == "Επιταγές":
         checks.render(df_t, today)
 
-    sync_panel(df_s)
+    # Τα εργαλεία ζουν στο ⚙ της κεφαλίδας — όχι πια στο τέλος κάθε σελίδας.
+    with tools:
+        sync_panel(df_s)
     footer()
     c.tabbar(page)
 
@@ -141,10 +143,11 @@ def sync_panel(df_s) -> None:
 
     Κανονικά δεν χρειάζεται — τα GitHub Actions τρέχουν μόνα τους. Αυτό είναι
     για όταν θέλεις τα δεδομένα ΤΩΡΑ και δεν περιμένεις το επόμενο cron.
-    """
-    c.spacer(2)
 
-    with st.expander("Ενημέρωση δεδομένων"):
+    Καλείται μέσα στο popover του ⚙ (κεφαλίδα). Η «Ενημέρωση» είναι ανοιχτή
+    από την αρχή — είναι ο λόγος που ανοίγεις το ⚙.
+    """
+    with st.expander("Ενημέρωση δεδομένων", expanded=True):
         st.caption(
             "Παραστατικά και τιμολογήσεις ενημερώνονται **κάθε 2 ώρες**. "
             "Πωλήσεις **κάθε 10 λεπτά, από τις 21:00** ώσπου να βρεθεί η αναφορά. "

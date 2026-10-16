@@ -24,7 +24,7 @@ import streamlit as st
 STATIC = Path(__file__).parent.parent / "static"
 
 APP_NAME = "ΑΒ Σκύρος"
-THEME = "#1E3A8A"
+THEME = "#101a2f"   # navy — ίδιο με την κεφαλίδα (ui/style.css --navy)
 
 
 def _data_uri(filename: str) -> str | None:

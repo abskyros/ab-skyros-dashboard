@@ -9,7 +9,8 @@
      • Κανένα γράφημα. Η ζυγαριά (Φέτος vs Πέρσι) λέει τα πάντα.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap');
+/* ΜΙΑ γραμματοσειρά (Manrope) — πριν ήταν Manrope + Inter, δύο λήψεις. */
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap');
 
 :root {
   /* ══════════════════════════════════════════════════════════════════════════
@@ -75,13 +76,10 @@
   --line:        #E2E8F0;
   --line-soft:   #F1F5F9;
 
-  /* Βάθος — πολυεπίπεδο: το φως έρχεται από πάνω αριστερά.
-     Κάθε κάρτα έχει λεπτό «χείλος φωτός» από πάνω (inset), σκιά από κάτω. */
-  --lift-1: 0 1px 2px rgba(15,23,42,.05), 0 2px 6px rgba(15,23,42,.04),
-            inset 0 1px 0 rgba(255,255,255,.9);
-  --lift-2: 0 6px 16px -4px rgba(15,23,42,.10), 0 2px 6px -2px rgba(15,23,42,.06),
-            inset 0 1px 0 rgba(255,255,255,.9);
-  --lift-3: 0 14px 34px -8px rgba(16,26,47,.30), 0 4px 10px -4px rgba(16,26,47,.14);
+  /* Βάθος — ελαφρύ. Οι κάρτες ξεχωρίζουν με το περίγραμμα, όχι με βαριές σκιές. */
+  --lift-1: 0 1px 2px rgba(15,23,42,.04);
+  --lift-2: 0 4px 12px -4px rgba(15,23,42,.10);
+  --lift-3: 0 6px 18px -8px rgba(16,26,47,.22);
 
   /* Δακτύλιος εστίασης & αχνή λάμψη ταυτότητας — χρυσό */
   --ring: 0 0 0 3px rgba(200,153,46,.20);
@@ -168,7 +166,7 @@ body.dark {
 
 /* ── ΒΑΣΗ ─────────────────────────────────────────────────────────────────── */
 html, body, [class*="css"], .stApp {
-  font-family: 'Inter', -apple-system, system-ui, sans-serif;
+  font-family: 'Manrope', -apple-system, system-ui, sans-serif;
   color: var(--text);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -214,27 +212,57 @@ html, body, [class*="css"], .stApp {
 
 /* ── ΚΕΦΑΛΙΔΑ ─────────────────────────────────────────────────────────────── */
 /*
-   ΧΩΡΙΣ ΛΟΓΟΤΥΠΟ. Το gradient κάνει τη δουλειά — δίνει ταυτότητα χωρίς εικόνα.
-   Το όνομα, η μέρα, και τίποτα άλλο. Ό,τι δεν βοηθάει, φεύγει.
-*/
-.topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 1.25rem 1.5rem;
-  margin-bottom: 1.1rem;
-  border-radius: var(--r-lg);
-  border: 1px solid rgba(255,255,255,.10);
+   ΧΩΡΙΣ ΛΟΓΟΤΥΠΟ. Καθαρό navy + λεπτή χρυσή γραμμή — ταυτότητα χωρίς εικόνα.
+   Το όνομα, η μέρα, το ⚙ των εργαλείων, και τίποτα άλλο.
 
-  /* Δύο στρώσεις: αχνή πράσινη λάμψη ψηλά δεξιά ΠΑΝΩ στο βασικό gradient.
-     Έτσι η κεφαλίδα δεν είναι «επίπεδη μπαλαντέζα» — έχει φως και κατεύθυνση. */
-  background:
-    radial-gradient(130% 190% at 88% -30%, rgba(74,222,128,.28) 0%, rgba(74,222,128,0) 52%),
-    linear-gradient(115deg, var(--navy-deep) 0%, var(--navy) 46%, var(--blue) 112%);
-  box-shadow: var(--lift-3);
+   Είναι st.container(key="topbar") με στήλες (όχι σκέτο HTML), ώστε το ⚙
+   (st.popover) να κάθεται ΜΕΣΑ στην κεφαλίδα. Βλ. components.topbar().
+*/
+.st-key-topbar {
+  padding: 1.1rem 1.4rem;
+  margin-bottom: .6rem;
+  border-radius: var(--r-lg);
+  background: var(--navy);
+  border-bottom: 3px solid var(--gold);
+  box-shadow: var(--lift-1);
   color: #fff;
 }
+
+/* Οι στήλες της κεφαλίδας μένουν ΣΕ ΣΕΙΡΑ — και στο κινητό (εκεί ο γενικός
+   κανόνας τις στοιβάζει). Η 1η απλώνεται, οι άλλες όσο το περιεχόμενό τους. */
+.st-key-topbar [data-testid="stHorizontalBlock"] {
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  align-items: center;
+  gap: .6rem !important;
+}
+.st-key-topbar [data-testid="stColumn"] {
+  width: auto !important;
+  min-width: 0 !important;
+  flex: 0 0 auto !important;
+}
+.st-key-topbar [data-testid="stColumn"]:first-child { flex: 1 1 auto !important; }
+
+/* Το ⚙ — στρογγυλό κουμπί στο χρώμα της κεφαλίδας */
+.st-key-topbar [data-testid="stPopover"] button {
+  width: 40px;
+  height: 40px;
+  min-height: 0;
+  padding: 0;
+  border-radius: 999px;
+  background: var(--navy-soft);
+  border: 1px solid rgba(255,255,255,.16);
+  color: #fff;
+}
+.st-key-topbar [data-testid="stPopover"] button:hover {
+  border-color: var(--gold);
+  color: var(--gold-light);
+}
+/* Το βελάκι «ανοίγει» του popover δεν χρειάζεται σε κουμπί-εικονίδιο */
+.st-key-topbar [data-testid="stPopover"] button > div:has(> svg) { display: none; }
+
+/* Το πάνελ εργαλείων — αρκετά φαρδύ για τα κουμπιά συγχρονισμού */
+[data-testid="stPopoverBody"] { min-width: min(440px, 92vw); }
 
 .brand { display: flex; flex-direction: column; gap: .14rem; }
 
@@ -260,12 +288,10 @@ html, body, [class*="css"], .stApp {
   font-weight: 600;
   color: #fff;
   padding: .5rem .95rem;
-  background: rgba(255,255,255,.13);
-  border: 1px solid rgba(255,255,255,.26);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.16), 0 1px 3px rgba(5,46,22,.25);
+  background: var(--navy-soft);
+  border: 1px solid rgba(255,255,255,.16);
   border-radius: 100px;
   white-space: nowrap;
-  backdrop-filter: blur(8px);
 }
 
 /* ── ΠΛΟΗΓΗΣΗ ─────────────────────────────────────────────────────────────── */
@@ -322,14 +348,14 @@ html, body, [class*="css"], .stApp {
 .st-key-nav_desktop button:hover { background: var(--sunken); color: var(--text); }
 
 .st-key-nav_desktop button[kind="segmented_controlActive"] {
-  background: linear-gradient(115deg, var(--navy) 0%, var(--blue) 125%);
+  background: var(--navy);
   color: #fff;
-  box-shadow: 0 3px 10px -2px rgba(20,83,45,.45), inset 0 1px 0 rgba(255,255,255,.14);
+  box-shadow: none;
 }
 .st-key-nav_desktop button[kind="segmented_controlActive"] p { font-weight: 700; }
 
 .st-key-nav_desktop button[kind="segmented_controlActive"]:hover {
-  background: linear-gradient(115deg, var(--navy-deep) 0%, var(--navy) 125%);
+  background: var(--navy-soft);
   color: #fff;
 }
 
@@ -380,7 +406,7 @@ html, body, [class*="css"], .stApp {
   width: 6px;
   height: 6px;
   border-radius: 2px;
-  background: linear-gradient(135deg, var(--navy) 0%, var(--blue) 100%);
+  background: var(--gold);
   flex-shrink: 0;
 }
 
@@ -402,9 +428,8 @@ html, body, [class*="css"], .stApp {
 }
 
 a:hover > .scale {
-  box-shadow: var(--lift-2), var(--glow);
-  transform: translateY(-2px);
-  border-color: var(--blue-soft);
+  box-shadow: var(--lift-2);
+  border-color: #CBD2DC;
 }
 
 .scale-head {
@@ -474,15 +499,15 @@ a:hover > .scale {
   background: var(--line-soft);
   border-radius: 99px;
   overflow: hidden;
-  box-shadow: inset 0 1px 2px rgba(15,23,42,.06);
 }
 
+/* Φέτος = σκούρο συμπαγές (var(--data): navy-μαύρο τη μέρα, ανοιχτό τη νύχτα),
+   πέρσι = γκρι. Χωρίς διαβάθμιση — διαβάζεται πιο καθαρά. */
 .bar-fill {
   display: block;
   height: 100%;
   border-radius: 99px;
-  background: linear-gradient(90deg, var(--navy) 0%, var(--blue) 100%);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.22);
+  background: var(--data);
   transition: width .5s cubic-bezier(.4,0,.2,1);
 }
 
@@ -525,7 +550,7 @@ a:hover > .scale {
 .scale.target {
   border-style: dashed;
   border-color: #D6DAE1;
-  background: linear-gradient(180deg, #FDFDFE 0%, var(--surface) 100%);
+  background: var(--surface);
 }
 
 .kpi-now.pending {
@@ -549,19 +574,11 @@ a:hover > .scale {
   transition: box-shadow .18s ease, transform .18s ease, border-color .18s ease;
 }
 
-/* Η έγχρωμη κορδέλα αριστερά — στρογγυλή, «κολώνα» ταυτότητας */
-.stat::before {
-  content: '';
-  position: absolute;
-  left: 0; top: 12%; bottom: 12%;
-  width: 4px;
-  border-radius: 0 4px 4px 0;
-  background: var(--accent, var(--blue));
-}
+/* (Η χρωματιστή κορδέλα αριστερά αφαιρέθηκε — το χρώμα του νούμερου αρκεί.) */
 
 a:hover > .stat {
   box-shadow: var(--lift-2);
-  transform: translateY(-2px);
+  border-color: #CBD2DC;
 }
 
 .stat-label {
@@ -603,7 +620,7 @@ a.plain { text-decoration: none; color: inherit; display: block; height: 100%; }
 /* ── ΚΑΡΤΑ ΕΠΙΤΑΓΗΣ ──────────────────────────────────────────────────────── */
 /*
    Η επιταγή είναι το μόνο πράγμα εδώ που έχει ΠΡΟΘΕΣΜΙΑ.
-   Γι' αυτό κρατάει το κόκκινο ΑΒ σε πλήρη ένταση — τραβάει το μάτι πρώτη.
+   Γι' αυτό είναι η μόνη σκούρα (navy) κάρτα — τραβάει το μάτι πρώτη.
 */
 .check {
   display: flex;
@@ -612,14 +629,32 @@ a.plain { text-decoration: none; color: inherit; display: block; height: 100%; }
   gap: 1rem;
   padding: 1.1rem 1.3rem;
   margin-bottom: .9rem;
-  background:
-    radial-gradient(140% 200% at 92% -40%, rgba(74,222,128,.30) 0%, rgba(74,222,128,0) 50%),
-    linear-gradient(130deg, var(--navy-deep) 0%, var(--navy) 55%, var(--blue) 110%);
-  border: 1px solid rgba(255,255,255,.10);
+  background: var(--navy);
   border-radius: var(--r-lg);
-  box-shadow: var(--lift-3);
+  box-shadow: var(--lift-1);
   color: #fff;
 }
+a.plain:hover > .check { box-shadow: var(--lift-3); }
+
+/* ── ΓΡΑΜΜΗ ΚΑΤΑΣΤΑΣΗΣ («Σήμερα» πριν έρθει η αναφορά) ───────────────────── */
+.strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: .4rem 1rem;
+  padding: .7rem 1.1rem;
+  margin-bottom: .75rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+}
+.strip-left { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem .6rem; }
+.strip-dot { width: 8px; height: 8px; border-radius: 99px; background: var(--gold); flex-shrink: 0; }
+.strip-label { font-size: .86rem; font-weight: 700; color: var(--ink); }
+.strip-note { font-size: .8rem; color: var(--muted); }
+.strip-goal { font-size: .8rem; color: var(--muted); white-space: nowrap; }
+.strip-goal b { color: var(--ink); font-weight: 800; }
 
 .check-tag {
   font-family: 'Manrope', sans-serif;
@@ -878,7 +913,7 @@ a.plain:hover > .row { border-color: var(--blue-soft); background: var(--surface
 }
 
 .flag-vs {
-  font-family: 'Inter', sans-serif;
+  font-family: 'Manrope', sans-serif;
   font-weight: 500;
   font-size: .76rem;
   color: var(--muted);
@@ -912,10 +947,10 @@ a.plain:hover > .row { border-color: var(--blue-soft); background: var(--surface
 
 /* ── STREAMLIT OVERRIDES ────────────────────────────────────────────────── */
 
-/* Το κύριο κουμπί δράσης — πλήρες πράσινο gradient, σαφής προτεραιότητα. */
+/* Το κύριο κουμπί δράσης — συμπαγές navy, σαφής προτεραιότητα. */
 .stButton > button[kind="primary"],
 button[data-testid="stBaseButton-primary"] {
-  background: linear-gradient(115deg, var(--navy) 0%, var(--blue) 125%) !important;
+  background: var(--navy) !important;
   border: none !important;
   color: #fff !important;
   font-weight: 700 !important;
@@ -923,9 +958,8 @@ button[data-testid="stBaseButton-primary"] {
 }
 .stButton > button[kind="primary"]:hover,
 button[data-testid="stBaseButton-primary"]:hover {
-  background: linear-gradient(115deg, var(--navy-deep) 0%, var(--navy) 125%) !important;
+  background: var(--navy-soft) !important;
   color: #fff !important;
-  transform: translateY(-1px);
 }
 .stButton > button[kind="primary"]:active,
 button[data-testid="stBaseButton-primary"]:active {
@@ -933,7 +967,7 @@ button[data-testid="stBaseButton-primary"]:active {
 }
 
 .stButton > button {
-  font-family: 'Inter', sans-serif;
+  font-family: 'Manrope', sans-serif;
   font-weight: 600;
   font-size: .82rem;
   border-radius: 10px;
@@ -1093,8 +1127,8 @@ button[data-testid="stBaseButton-primary"]:active {
   border-radius: 8px;
   transition: width .5s cubic-bezier(.4,0,.2,1);
 }
-.rw-fill.full    { background: linear-gradient(90deg, #16A34A, var(--pos)); }
-.rw-fill.partial { background: linear-gradient(90deg, #F59E0B, var(--warn)); }
+.rw-fill.full    { background: var(--pos); }
+.rw-fill.partial { background: var(--warn); }
 .rw-fill.empty   { background: transparent; }
 
 .rw-amt {
@@ -1153,12 +1187,12 @@ button[data-testid="stBaseButton-primary"]:active {
   .g2, .g3, .g4 { grid-template-columns: 1fr; }
 
   /* ── ΚΕΦΑΛΙΔΑ ── */
-  .topbar {
-    padding: .65rem .85rem;
-    margin-bottom: .8rem;
-    border-radius: 10px;
-    border-top-width: 3px;
+  .st-key-topbar {
+    padding: .6rem .8rem;
+    margin-bottom: .4rem;
+    border-radius: 12px;
   }
+  .st-key-topbar [data-testid="stPopover"] button { width: 36px; height: 36px; }
 
   .brand-name { font-size: .9rem; }
   .brand-sub { display: none; }
@@ -1357,7 +1391,7 @@ button[data-testid="stBaseButton-primary"]:active {
     bottom: 0;
     width: 28px;
     height: 3px;
-    background: linear-gradient(90deg, var(--navy) 0%, var(--blue) 100%);
+    background: var(--gold);
     border-radius: 3px 3px 0 0;
   }
 
