@@ -91,6 +91,7 @@ def trigger_workflow(
         return False, f"Δεν έγινε σύνδεση με το GitHub: {e}"
 
     if r.status_code == 204:
+        last_run.clear()   # να φανεί αμέσως το νέο run, όχι το cached παλιό
         return True, "Ξεκίνησε."
 
     if r.status_code == 401:
@@ -128,6 +129,7 @@ def workflow_url(filename: str) -> str:
     return f"https://github.com/{repo}/actions/workflows/{filename}"
 
 
+@st.cache_data(ttl=60, show_spinner=False)
 def last_run(filename: str) -> dict | None:
     """
     Η τελευταία εκτέλεση ενός workflow.
@@ -135,6 +137,11 @@ def last_run(filename: str) -> dict | None:
     → {"status", "conclusion", "started", "url"} ή None
 
     Χρήσιμο για να λέμε στον χρήστη «τρέχει τώρα» ή «απέτυχε πριν 10 λεπτά».
+
+    CACHE 60'': το πάνελ «Ενημέρωση δεδομένων» είναι σε ΚΑΘΕ σελίδα, και το
+    περιεχόμενο ενός expander τρέχει ακόμα κι όταν είναι κλειστός. Χωρίς cache,
+    κάθε αλλαγή σελίδας περίμενε το GitHub (έως 12''). Το trigger_workflow
+    καθαρίζει το cache, ώστε μετά από «πάτημα κουμπιού» να φαίνεται το νέο run.
     """
     token, repo = _config()
     if not token or not repo:

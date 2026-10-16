@@ -109,25 +109,74 @@ def topbar(today: date) -> None:
     )
 
 
+# ┌────────────────────────────────────────────────────────────────────────────┐
+# │ ΠΛΟΗΓΗΣΗ ΧΩΡΙΣ ΕΠΑΝΑΦΟΡΤΩΣΗ                                                │
+# │                                                                            │
+# │ Πριν: το μενού ήταν HTML links (?page=…). Κάθε κλικ ξαναφόρτωνε ΟΛΗ την     │
+# │ εφαρμογή — ξανακατέβαζε JS/CSS/γραμματοσειρές, νέα σύνδεση με τον server.   │
+# │                                                                            │
+# │ Τώρα: st.segmented_control. Το κλικ είναι ένα απλό rerun — αλλάζει μόνο το  │
+# │ περιεχόμενο. Το ?page= στο URL ενημερώνεται από το callback, ώστε refresh,  │
+# │ «πίσω» και το εικονίδιο αρχικής οθόνης να δουλεύουν όπως πριν.             │
+# │                                                                            │
+# │ Δύο widgets (desktop/κινητό), γιατί δείχνουν διαφορετικές σελίδες. Το CSS  │
+# │ κρύβει το ένα από τα δύο ανάλογα με το πλάτος (.st-key-nav_desktop/_mobile).│
+# └────────────────────────────────────────────────────────────────────────────┘
+ICONS = {
+    "Επισκόπηση": ":material/home:",
+    "Πωλήσεις": ":material/trending_up:",
+    "Παραστατικά": ":material/receipt_long:",
+    "Τιμολογήσεις": ":material/credit_card:",
+    "Μήνας": ":material/calendar_month:",
+    "Πρόβλεψη": ":material/insights:",
+    "Επιταγές": ":material/account_balance_wallet:",
+}
+
+
+def _go(key: str) -> None:
+    """Callback: ο χρήστης διάλεξε σελίδα από το μενού."""
+    picked = st.session_state.get(key)
+    if picked is None:
+        # Κλικ στο ήδη ενεργό κουμπί το «αποεπιλέγει» — μένουμε όπου ήμασταν.
+        st.session_state[key] = st.session_state.get("_page", DEFAULT_PAGE)
+        return
+    st.session_state["_page"] = picked
+    st.query_params["page"] = picked
+
+
+def _nav_control(key: str, pages, current: str, label) -> None:
+    # Το widget δείχνει ΠΑΝΤΑ την τρέχουσα σελίδα (κι όταν ήρθαμε από link/URL).
+    st.session_state[key] = current if current in pages else None
+    st.segmented_control(
+        "Πλοήγηση", list(pages), key=key, format_func=label,
+        label_visibility="collapsed", on_change=_go, args=(key,),
+    )
+
+
+def _back_button() -> None:
+    """
+    Το «πίσω» του browser αλλάζει το ?page= αλλά το Streamlit ΔΕΝ ξανατρέχει —
+    θα έμενες στην ίδια σελίδα με λάθος URL. Λύση: στο «πίσω/μπροστά» κάνουμε
+    reload, οπότε το current_page() διαβάζει το σωστό ?page= (όπως πριν).
+
+    components.html και όχι st.markdown: τα <script> του st.markdown δεν
+    εκτελούνται. Το iframe κρύβεται με CSS (.st-key-… δεν υπάρχει εδώ, άρα
+    στοχεύουμε το iframe ύψους 0).
+    """
+    import streamlit.components.v1 as components
+    components.html(
+        "<script>(function(){var w=window.parent;if(w.__abBack)return;"
+        "w.__abBack=true;w.addEventListener('popstate',function(){w.location.reload();});"
+        "})();</script>",
+        height=0,
+    )
+
+
 def nav(current: str) -> None:
     """Πλοήγηση desktop. ΔΕΝ δείχνει τις σελίδες που είναι μόνο για κινητό."""
     from core.config import DESKTOP_PAGES
-    items = "".join(
-        f'<a href="{link(p)}" target="_self" class="{"on" if p == current else ""}">{p}</a>'
-        for p in DESKTOP_PAGES
-    )
-    html(f'<nav class="nav">{items}</nav>')
-
-
-ICONS = {
-    "Επισκόπηση": "🏠",
-    "Πωλήσεις": "📈",
-    "Παραστατικά": "🧾",
-    "Τιμολογήσεις": "💳",
-    "Μήνας": "📅",
-    "Πρόβλεψη": "🔮",
-    "Επιταγές": "💰",
-}
+    _nav_control("nav_desktop", DESKTOP_PAGES, current, lambda p: p)
+    _back_button()
 
 
 def tabbar(current: str) -> None:
@@ -137,12 +186,7 @@ def tabbar(current: str) -> None:
     Δείχνει ΟΛΕΣ τις σελίδες, μαζί με το «Επιταγές» (η δεξαμενή) που στο κινητό
     έχει δική της καρτέλα.
     """
-    items = "".join(
-        f'<a href="{link(p)}" target="_self" class="{"on" if p == current else ""}">'
-        f'<span class="ico">{ICONS.get(p, "•")}</span><span>{p}</span></a>'
-        for p in PAGES
-    )
-    html(f'<nav class="tabbar">{items}</nav>')
+    _nav_control("nav_mobile", PAGES, current, lambda p: f"{ICONS.get(p, '')} {p}")
 
 
 def title(text: str, subtitle: str = "") -> None:
