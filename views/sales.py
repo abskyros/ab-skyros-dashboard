@@ -99,8 +99,6 @@ def _weekly(df: pd.DataFrame, today: date) -> None:
     dts = as_dates(df["date"])
 
     week = df[(dts >= start) & (dts <= end)].sort_values("date")
-    ly_start, ly_end = last_year(start), last_year(end)
-    ly_week = df[(dts >= ly_start) & (dts <= ly_end)]
 
     if week.empty:
         c.empty(
@@ -108,6 +106,12 @@ def _weekly(df: pd.DataFrame, today: date) -> None:
             "Αν η εβδομάδα έχει περάσει, τρέξε τον έλεγχο δεδομένων παραπάνω."
         )
         return
+
+    # Πέρσι = ΙΔΙΕΣ μέρες με φέτος (ίδια λογική με week_to_date): κόβουμε στην
+    # τελευταία μέρα που έχει πραγματικά δεδομένα φέτος, όχι στην Κυριακή.
+    last_now = max(as_dates(week["date"]))
+    ly_start, ly_end = last_year(start), last_year(last_now)
+    ly_week = df[(dts >= ly_start) & (dts <= ly_end)]
 
     now_total = float(week["net_sales"].sum())
     now_cust = float(week["customers"].sum()) if week["customers"].notna().any() else None
