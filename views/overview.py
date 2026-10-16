@@ -1,27 +1,24 @@
 """
-views/overview.py — Η πρώτη οθόνη.
+views/overview.py — Η πρώτη οθόνη (εταιρικό στυλ).
 
-Τέσσερις κάρτες, δύο ερωτήσεις:
+  ┌──────────────┬──────────────┬──────────────┬──────────────┐
+  │ ΣΗΜΕΡΑ       │ ΧΘΕΣ         │ ΕΒΔΟΜΑΔΑ     │ ΤΙΜΟΛΟΓΙΑ    │   4 κάρτες KPI
+  │ (στόχος)     │              │ ΩΣ ΤΩΡΑ      │ (καθαρό)     │
+  ├──────────────┴──────────────┴──────────────┴──────────────┤
+  │ ΕΠΟΜΕΝΗ ΕΠΙΤΑΓΗ (navy)                                     │
+  ├────────────────────────────────────────────────────────────┤
+  │ ΕΠΟΜΕΝΕΣ ΕΠΙΤΑΓΕΣ (πίνακας)                                │
+  └────────────────────────────────────────────────────────────┘
 
-  ┌─────────────────────┬─────────────────────┐
-  │  ΣΗΜΕΡΑ             │  ΧΘΕΣ               │   Πού πάω;  Πού έφτασα;
-  │  ο στόχος           │  το αποτέλεσμα      │
-  ├─────────────────────┼─────────────────────┤
-  │  ΕΒΔΟΜΑΔΑ ΩΣ ΤΩΡΑ   │  ΕΠΙΤΑΓΗ            │   Πώς πάει;  Τι χρωστάω;
-  └─────────────────────┴─────────────────────┘
+ΓΙΑΤΙ ΤΟ «ΣΗΜΕΡΑ» ΕΙΝΑΙ ΠΡΩΤΟ ΚΑΙ ΜΕΓΑΛΟ:
 
-ΓΙΑΤΙ ΔΥΟ ΚΑΡΤΕΣ ΓΙΑ ΤΙΣ ΠΩΛΗΣΕΙΣ:
-
-Η αναφορά της ημέρας έρχεται με email το βράδυ. Άρα το «σήμερα» είναι 0 μέχρι
+Η αναφορά της ημέρας έρχεται με email το βράδυ. Άρα το «σήμερα» είναι κενό μέχρι
 τις 21:00 — αλλά αυτό ΔΕΝ σημαίνει ότι είναι άχρηστο. Το περσινό νούμερο της
-ίδιας μέρας είναι ο στόχος σου: «σήμερα πρέπει να πιάσω 21.000».
+ίδιας μέρας είναι ο στόχος σου: «σήμερα πρέπει να πιάσω 7.400». Είναι το πιο
+σημαντικό νούμερο της μέρας → πάνω αριστερά, με χρυσή γραμμή (IBM Carbon:
+το σημαντικότερο παίρνει τη μεγαλύτερη αντίθεση και θέση).
 
-Και το «χθες» δίνει το τελευταίο πραγματικό αποτέλεσμα, με τη σύγκριση.
-
-Στόχος και αποτέλεσμα. Δύο διαφορετικές ερωτήσεις, δύο κάρτες.
-
-Η εβδομάδα είναι ΠΑΝΤΑ η τρέχουσα. Κάθε Δευτέρα μηδενίζει μόνη της — δεν
-χρειάζεται να διαλέξεις τίποτα για να δεις τη δουλειά σου.
+Η εβδομάδα είναι ΠΑΝΤΑ η τρέχουσα. Κάθε Δευτέρα μηδενίζει μόνη της.
 """
 
 from datetime import date, timedelta
@@ -29,47 +26,39 @@ from datetime import date, timedelta
 import pandas as pd
 
 from core.metrics import (
-    week_range, last_year, two_years_ago, day_name,
-    sales_on, sales_row, week_to_date,
+    last_year, two_years_ago, day_name,
+    sales_on, week_to_date,
     invoice_totals, invoices_in_week,
-    check_this_week, checks_ahead_with_number,
+    checks_ahead_with_number, cash_runway,
 )
+from core.sheets import load_setting
 from ui import components as c
+
+CASH_SETTING = "cash_on_hand"   # ίδιο κλειδί με «Μήνας»/«Επιταγές» — το ταμείο σου
 
 
 def render(df_s: pd.DataFrame, df_i: pd.DataFrame, df_t: pd.DataFrame, today: date) -> None:
-    week_start, _ = week_range(today)
-
-    # Χωρίς μεγάλο τίτλο — η πλοήγηση λέει ήδη πού είσαι. Κρατάμε μόνο ποια
-    # εβδομάδα βλέπεις, σε μία διακριτική γραμμή.
-    c.html(
-        f'<div class="page-note">Τρέχουσα εβδομάδα · από '
-        f'{day_name(week_start)} {week_start:%d/%m}</div>'
-    )
-
     if df_s.empty and df_i.empty and df_t.empty:
         c.empty(
             "Δεν έχουν φορτωθεί δεδομένα ακόμη",
-            "Πάτα το ⚙ πάνω δεξιά → «Ενημέρωση δεδομένων» για να τραβήξεις τα πρώτα email."
+            "Πάτα «Ενημέρωση» πάνω δεξιά για να τραβήξεις τα πρώτα email."
         )
         return
 
-    # Ειδοποίηση: πόσες επιταγές έχουμε ακόμα μπροστά (με αριθμό).
+    # Ειδοποιήσεις πρώτα — αν κάτι θέλει προσοχή, να το δεις αμέσως.
     _check_supply_alert(df_t, today)
-
-    today_card, y_card = _sales(df_s, today)
     _freshness(df_s, today)
-    wk_card, inv_card = _week_cards(df_s, df_i, today)
 
-    # Όσο δεν ήρθε η σημερινή αναφορά, το «Σήμερα» είναι μια λεπτή γραμμή
-    # (το έδειξε ήδη το _sales) και οι τρεις κάρτες μπαίνουν σε μία σειρά.
-    if today_card:
-        c.grid(today_card, y_card, cols=2)
-        c.grid(wk_card, inv_card, cols=2)
-    else:
-        c.grid(y_card, wk_card, inv_card, cols=3)
+    c.grid(
+        _today_card(df_s, today),
+        _yesterday_card(df_s, today),
+        *_week_cards(df_s, df_i, today),
+        cols=4,
+    )
 
-    _check(df_t, today)
+    runway = cash_runway(df_t, today, _cash())
+    c.grid(_next_check(df_t, runway, today), cols=1)
+    _upcoming(df_t, runway)
 
 
 def _check_supply_alert(df_t: pd.DataFrame, today: date) -> None:
@@ -108,24 +97,47 @@ def _check_supply_alert(df_t: pd.DataFrame, today: date) -> None:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-def _sales(df_s: pd.DataFrame, today: date) -> tuple[str | None, str]:
+# ΚΑΡΤΕΣ KPI
+# ══════════════════════════════════════════════════════════════════════════════
+def _today_card(df_s: pd.DataFrame, today: date) -> str:
     """
-    Σήμερα (στόχος) και χθες (αποτέλεσμα).
-
-    → (κάρτα «Σήμερα» ή None, κάρτα «Χθες»). None όταν η σημερινή αναφορά δεν
-      ήρθε ακόμα — τότε δείχνεται εδώ, αμέσως, η λεπτή γραμμή «Σήμερα».
+    Σήμερα: πριν έρθει η αναφορά → ο ΣΤΟΧΟΣ (το περσινό της ίδιας μέρας), μεγάλος.
+    Όταν έρθει → το σημερινό ποσό, ▲/▼ και μπάρα προόδου έναντι του στόχου.
     """
-
-    # ── ΣΗΜΕΡΑ ──
-    # Συνήθως None μέχρι το βράδυ. Ο στόχος είναι το περσινό της ίδιας μέρας.
     today_now = sales_on(df_s, today)
-    today_ref = last_year(today)
-    today_goal = sales_on(df_s, today_ref)
+    ref = last_year(today)
+    goal = sales_on(df_s, ref)
     # Πρόπερσι (2 χρόνια πίσω) — εμφανίζεται ΜΟΝΟ αν υπάρχει καταχώρηση.
-    today_ref2 = two_years_ago(today)
-    today_goal2 = sales_on(df_s, today_ref2)
+    ref2 = two_years_ago(today)
+    goal2 = sales_on(df_s, ref2)
 
-    # ── ΧΘΕΣ ──
+    ref_txt = f"Πέρσι {day_name(ref, short=True)} {ref:%d/%m}"
+    if goal2 is not None:
+        ref_txt += f" · πρόπερσι {c.eur(goal2)}"
+
+    if today_now is None:
+        # Αν οι πωλήσεις δεν ήρθαν ακόμη, ο χρήστης πρέπει να ξέρει ΓΙΑΤΙ.
+        # Λέμε πότε έρχονται — αλλιώς μια κενή κάρτα στις 23:30 ανησυχεί.
+        if goal is None:
+            return c.kpi("Σήμερα · στόχος", None, badge="Σε εξέλιξη", accent=True,
+                         foot="Δεν υπάρχει περσινό για αυτή τη μέρα",
+                         href=c.link("Πωλήσεις"))
+        return c.kpi("Σήμερα · στόχος", goal, badge="Σε εξέλιξη", progress=0, accent=True,
+                     foot=f"{ref_txt} · η αναφορά έρχεται το βράδυ",
+                     href=c.link("Πωλήσεις"))
+
+    return c.kpi(
+        f"Σήμερα · {day_name(today)} {today:%d/%m}",
+        today_now,
+        then=goal,
+        progress=(today_now / goal) if goal else None,
+        accent=True,
+        foot=f"Στόχος {c.eur(goal)} · {ref_txt}",
+        href=c.link("Πωλήσεις"),
+    )
+
+
+def _yesterday_card(df_s: pd.DataFrame, today: date) -> str:
     yesterday = today - timedelta(days=1)
     y_now = sales_on(df_s, yesterday)
 
@@ -140,64 +152,36 @@ def _sales(df_s: pd.DataFrame, today: date) -> tuple[str | None, str]:
             y_now = sales_on(df_s, yesterday)
             stale = True
 
-    y_ref = last_year(yesterday)
-    y_then = sales_on(df_s, y_ref)
-    # Πρόπερσι — εμφανίζεται ΜΟΝΟ αν υπάρχει καταχώρηση 2 χρόνια πίσω.
-    y_ref2 = two_years_ago(yesterday)
-    y_then2 = sales_on(df_s, y_ref2)
+    ref = last_year(yesterday)
+    then = sales_on(df_s, ref)
+    then2 = sales_on(df_s, two_years_ago(yesterday))
 
-    y_foot = f"Πέρσι {day_name(y_ref, short=True)} {y_ref:%d/%m}"
-    if y_then2 is not None:
-        y_foot += f" · Πρόπερσι {y_ref2:%d/%m}"
-    if stale:
-        y_foot = f"Τελευταία καταχώρηση · {y_foot}"
+    foot = f"Πέρσι {c.eur(then)} ({day_name(ref, short=True)} {ref:%d/%m})"
+    if then2 is not None:
+        foot += f" · πρόπερσι {c.eur(then2)}"
 
-    # ── ΤΟ ΥΠΟΣΗΜΕΙΩΜΑ ΤΟΥ «ΣΗΜΕΡΑ» ──
-    #
-    # Αν οι πωλήσεις δεν ήρθαν ακόμη, ο χρήστης πρέπει να ξέρει ΓΙΑΤΙ.
-    # «Σε εξέλιξη» στις 23:30 είναι ανησυχητικό — μήπως χάλασε κάτι;
-    #
-    # Λέμε πότε έρχονται και πότε ελέγχουμε. Χωρίς αυτό, ο χρήστης κοιτάει μια
-    # άδεια κάρτα και δεν ξέρει αν φταίει το σύστημα ή απλώς δεν ήρθε το email.
-    prop_note = f" · Πρόπερσι {today_ref2:%d/%m}" if today_goal2 is not None else ""
-    if today_now is not None:
-        today_foot = f"Στόχος: {day_name(today_ref, short=True)} {today_ref:%d/%m} πέρσι{prop_note}"
-    elif today_goal:
-        today_foot = (
-            f"Στόχος: {day_name(today_ref, short=True)} {today_ref:%d/%m} πέρσι{prop_note} · "
-            f"Η αναφορά έρχεται το βράδυ"
-        )
-    else:
-        today_foot = "Δεν υπάρχει περσινό για αυτή τη μέρα"
+    label = "Τελευταία μέρα" if stale else "Χθες"
+    return c.kpi(f"{label} · {day_name(yesterday)} {yesterday:%d/%m}", y_now,
+                 then=then, foot=foot, href=c.link("Πωλήσεις"))
 
-    y_card = c.scale(
-        f"Χθες · {day_name(yesterday)} {yesterday:%d/%m}",
-        y_now, y_then,
-        then2=y_then2,
-        foot=y_foot,
-        href=c.link("Πωλήσεις"),
-    )
 
-    if today_now is None:
-        # Η αναφορά έρχεται το βράδυ — μια άδεια κάρτα στην πρώτη θέση όλη μέρα
-        # δεν λέει τίποτα. Μια γραμμή: τι περιμένουμε και ποιος είναι ο στόχος.
-        c.strip(
-            f"Σήμερα · {day_name(today)} {today:%d/%m}",
-            "Η αναφορά πωλήσεων έρχεται το βράδυ" if today_goal else today_foot,
-            f"Στόχος (πέρσι {day_name(today_ref, short=True)} {today_ref:%d/%m})",
-            today_goal,
-        )
-        return None, y_card
+def _week_cards(df_s: pd.DataFrame, df_i: pd.DataFrame, today: date) -> tuple[str, str]:
+    """→ (κάρτα «Εβδομάδα ως τώρα», κάρτα «Τιμολόγια — καθαρό»)."""
 
-    today_card = c.target(
-        f"Σήμερα · {day_name(today)} {today:%d/%m}",
-        today_now,
-        today_goal,
-        goal2=today_goal2,
-        foot=today_foot,
-        href=c.link("Πωλήσεις"),
-    )
-    return today_card, y_card
+    wtd = week_to_date(df_s, today)
+
+    foot = f"{wtd['label']} · πέρσι {c.eur(wtd['previous'])}"
+    if wtd.get("two_previous") is not None:
+        foot += f" · πρόπερσι {c.eur(wtd['two_previous'])}"
+
+    wk_card = c.kpi("Εβδομάδα ως τώρα", wtd["current"], then=wtd["previous"],
+                    foot=foot, href=c.link("Πωλήσεις"))
+
+    # Τα τιμολόγια είναι δευτερεύοντα — χωρίς σύγκριση.
+    inv_net = invoice_totals(invoices_in_week(df_i, today))["net"]
+    inv_card = c.kpi("Τιμολόγια · καθαρό", inv_net, badge="Εβδομάδα",
+                     foot="Τιμολόγια μείον πιστωτικά", href=c.link("Παραστατικά"))
+    return wk_card, inv_card
 
 
 def _freshness(df_s: pd.DataFrame, today: date) -> None:
@@ -227,8 +211,8 @@ def _freshness(df_s: pd.DataFrame, today: date) -> None:
         c.note(
             f"Η τελευταία καταχωρημένη μέρα είναι η <b>{latest:%d/%m}</b>. "
             f"Η χθεσινή αναφορά δεν έχει έρθει ακόμη — το σύστημα την ψάχνει "
-            f"αυτόματα κάθε 10 λεπτά από τις 15:00. Αν βιάζεσαι, δοκίμασε την "
-            f"<b>Ενημέρωση δεδομένων</b> από το ⚙ πάνω δεξιά.",
+            f"αυτόματα κάθε 10 λεπτά από τις 15:00. Αν βιάζεσαι, πάτα "
+            f"<b>Ενημέρωση</b> πάνω δεξιά.",
             "warn",
         )
         return
@@ -236,68 +220,56 @@ def _freshness(df_s: pd.DataFrame, today: date) -> None:
     c.note(
         f"⚠️ <b>Οι πωλήσεις είναι {gap} μέρες πίσω.</b><br><br>"
         f"Τελευταία καταχώρηση: <b>{day_name(latest)} {latest:%d/%m/%Y}</b><br><br>"
-        f"Κάτι δεν πάει καλά με τον αυτόματο συγχρονισμό. Δοκίμασε την "
-        f"<b>Ενημέρωση δεδομένων</b> από το ⚙ πάνω δεξιά — αν αποτύχει, "
-        f"θα σου πει γιατί.",
+        f"Κάτι δεν πάει καλά με τον αυτόματο συγχρονισμό. Πάτα "
+        f"<b>Ενημέρωση</b> πάνω δεξιά — αν αποτύχει, θα σου πει γιατί.",
         "bad",
     )
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-def _week_cards(df_s: pd.DataFrame, df_i: pd.DataFrame, today: date) -> tuple[str, str]:
-    """→ (κάρτα «Εβδομάδα ως τώρα», κάρτα «Τιμολόγια — καθαρό»)."""
-
-    wtd = week_to_date(df_s, today)
-
-    wk_foot = f"{wtd['days_elapsed']} ημέρες vs οι ίδιες {wtd['days_elapsed']} πέρσι"
-    if wtd.get("two_previous") is not None:
-        wk_foot += " & πρόπερσι"
-
-    wk_card = c.scale(
-        f"Εβδομάδα ως τώρα · {wtd['label']}",
-        wtd["current"], wtd["previous"],
-        then2=wtd.get("two_previous"),
-        foot=wk_foot,
-        href=c.link("Πωλήσεις"),
-    )
-
-    # Τα τιμολόγια είναι δευτερεύοντα — χωρίς σύγκριση.
-    inv_net = invoice_totals(invoices_in_week(df_i, today))["net"]
-
-    inv_card = c.stat(
-        "Τιμολόγια — καθαρό",
-        inv_net,
-        tone="pos" if inv_net >= 0 else "neg",
-        foot="Τιμολόγια μείον πιστωτικά, τρέχουσα εβδομάδα",
-        href=c.link("Παραστατικά"),
-    )
-    return wk_card, inv_card
+# ΓΡΑΦΗΜΑ & ΕΠΙΤΑΓΕΣ
+# ══════════════════════════════════════════════════════════════════════════════
+def _cash() -> float:
+    """Το διαθέσιμο ταμείο, όπως το έχεις ορίσει στον «Μήνα» (για την κάλυψη)."""
+    try:
+        return float(load_setting(CASH_SETTING, "0"))
+    except (ValueError, TypeError):
+        return 0.0
 
 
-def _check(df_t: pd.DataFrame, today: date) -> None:
-    """Η επιταγή που πέφτει αυτή την εβδομάδα — η μόνη navy κάρτα (έχει προθεσμία)."""
+def _numbers(df_t: pd.DataFrame) -> dict:
+    """Ημερομηνία επιταγής → αριθμός επιταγής (κενό αν δεν έχει μπει)."""
+    out = {}
+    for _, r in df_t.iterrows():
+        cd = r["check_date"]
+        cd = cd.date() if hasattr(cd, "date") else cd
+        num = str(r.get("check_number", "") or "").strip()
+        out[cd] = "" if num.lower() == "nan" else num
+    return out
 
-    check = check_this_week(df_t, today)
-    if check is None:
-        c.grid(
-            c.stat(
-                "Επιταγή αυτή την εβδομάδα",
-                None,
-                foot="Καμία επιταγή δεν πέφτει αυτή την εβδομάδα",
-                href=c.link("Τιμολογήσεις"),
-            ),
-            cols=1,
-        )
+
+def _next_check(df_t: pd.DataFrame, runway: dict, today: date) -> str:
+    """Η επόμενη επιταγή — navy κάρτα (η μόνη με προθεσμία)."""
+    if not runway["checks"]:
+        return c.kpi("Επόμενη επιταγή", None, foot="Καμία επιταγή μπροστά",
+                     href=c.link("Τιμολογήσεις"))
+
+    ch = runway["checks"][0]
+    days = (ch["date"] - today).days
+    days_txt = ("σήμερα" if days == 0 else "αύριο" if days == 1
+                else f"σε {days} ημέρες" if days > 0 else "ληγμένη")
+    return c.next_check(ch["date"], days_txt, ch["amount"],
+                        _numbers(df_t).get(ch["date"], ""), ch["fraction"])
+
+
+def _upcoming(df_t: pd.DataFrame, runway: dict) -> None:
+    """Οι επόμενες 4 επιταγές με την κάλυψή τους από το ταμείο."""
+    if not runway["checks"]:
         return
-
-    cd = check["check_date"]
-    cd = cd.date() if hasattr(cd, "date") else cd
-    days = (cd - today).days
-    when = "σήμερα" if days == 0 else ("αύριο" if days == 1 else f"σε {days} ημέρες")
-
-    c.check_card(
-        cd, float(check["amount"]),
-        tag=f"Επιταγή αυτή την εβδομάδα · {when}",
-        href=c.link("Τιμολογήσεις"),
-    )
-
+    nums = _numbers(df_t)
+    rows = [
+        {"date": ch["date"], "amount": ch["amount"], "number": nums.get(ch["date"], ""),
+         "status": ch["status"], "fraction": ch["fraction"]}
+        for ch in runway["checks"][:4]
+    ]
+    c.checks_table(rows, href=c.link("Μήνας"))

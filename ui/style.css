@@ -9,8 +9,9 @@
      • Κανένα γράφημα. Η ζυγαριά (Φέτος vs Πέρσι) λέει τα πάντα.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-/* ΜΙΑ γραμματοσειρά (Manrope) — πριν ήταν Manrope + Inter, δύο λήψεις. */
-@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap');
+/* ΜΙΑ γραμματοσειρά: IBM Plex Sans (η γραμματοσειρά της IBM — εταιρικό ύφος,
+   πλήρη ελληνικά, αριθμοί ίδιου πλάτους). */
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
 
 :root {
   /* ══════════════════════════════════════════════════════════════════════════
@@ -86,8 +87,8 @@
   --glow: 0 0 0 1px rgba(200,153,46,.22), 0 8px 24px -8px rgba(200,153,46,.26);
 
   --r-sm: 8px;
-  --r:    12px;
-  --r-lg: 16px;
+  --r:    8px;
+  --r-lg: 10px;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -166,7 +167,7 @@ body.dark {
 
 /* ── ΒΑΣΗ ─────────────────────────────────────────────────────────────────── */
 html, body, [class*="css"], .stApp {
-  font-family: 'Manrope', -apple-system, system-ui, sans-serif;
+  font-family: 'IBM Plex Sans', -apple-system, system-ui, sans-serif;
   color: var(--text);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -196,8 +197,6 @@ html, body, [class*="css"], .stApp {
   display: none !important;
 }
 
-[data-testid="stSidebar"] { display: none !important; }
-
 /* Συμπυκνωμένα κάθετα κενά — λιγότερο scroll, ίδια σαφήνεια. */
 [data-testid="stVerticalBlock"] { gap: .5rem !important; }
 [data-testid="stElementContainer"]:empty { display: none; }
@@ -210,161 +209,142 @@ html, body, [class*="css"], .stApp {
   font-feature-settings: 'tnum' 1;
 }
 
-/* ── ΚΕΦΑΛΙΔΑ ─────────────────────────────────────────────────────────────── */
+/* ── ΚΕΦΑΛΙΔΑ ΣΕΛΙΔΑΣ ─────────────────────────────────────────────────────── */
 /*
-   ΧΩΡΙΣ ΛΟΓΟΤΥΠΟ. Καθαρό navy + λεπτή χρυσή γραμμή — ταυτότητα χωρίς εικόνα.
-   Το όνομα, η μέρα, το ⚙ των εργαλείων, και τίποτα άλλο.
-
-   Είναι st.container(key="topbar") με στήλες (όχι σκέτο HTML), ώστε το ⚙
-   (st.popover) να κάθεται ΜΕΣΑ στην κεφαλίδα. Βλ. components.topbar().
+   Εταιρικό στυλ: λευκή μπάρα με τίτλο σελίδας, πλήρη ημερομηνία, «πόσο φρέσκα
+   είναι τα δεδομένα» και το κουμπί «Ενημέρωση» (popover με τα εργαλεία).
+   st.container(key="pagehead") με στήλες — βλ. components.header().
 */
-.st-key-topbar {
-  padding: 1.1rem 1.4rem;
-  margin-bottom: .6rem;
+.st-key-pagehead {
+  background: var(--surface);
+  border: 1px solid var(--line);
   border-radius: var(--r-lg);
-  background: var(--navy);
-  border-bottom: 3px solid var(--gold);
-  box-shadow: var(--lift-1);
-  color: #fff;
+  padding: 1rem 1.4rem;
+  margin-bottom: .8rem;
 }
 
-/* Οι στήλες της κεφαλίδας μένουν ΣΕ ΣΕΙΡΑ — και στο κινητό (εκεί ο γενικός
-   κανόνας τις στοιβάζει). Η 1η απλώνεται, οι άλλες όσο το περιεχόμενό τους. */
-.st-key-topbar [data-testid="stHorizontalBlock"] {
-  flex-direction: row !important;
-  flex-wrap: nowrap !important;
+.head-brand { display: none; }   /* μόνο στο κινητό — στον υπολογιστή είναι στο πλευρικό */
+
+.head-title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: -.01em;
+  line-height: 1.2;
+  color: var(--ink);
+}
+
+.head-sub { font-size: .86rem; color: var(--muted); margin-top: .15rem; }
+
+/* Η ένδειξη «Τελευταία αναφορά» στοιχίζεται δεξιά */
+.st-key-pagehead [data-testid="stColumn"]:nth-child(2) [data-testid="stVerticalBlock"] { align-items: flex-end; }
+
+.fresh {
+  display: inline-flex;
   align-items: center;
-  gap: .6rem !important;
+  gap: .5rem;
+  white-space: nowrap;
+  font-size: .8rem;
+  color: var(--text);
+  background: var(--canvas);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: .42rem .75rem;
 }
-.st-key-topbar [data-testid="stColumn"] {
-  width: auto !important;
-  min-width: 0 !important;
-  flex: 0 0 auto !important;
-}
-.st-key-topbar [data-testid="stColumn"]:first-child { flex: 1 1 auto !important; }
+.fresh-dot { width: 8px; height: 8px; border-radius: 99px; background: var(--pos); flex-shrink: 0; }
+.fresh.late .fresh-dot { background: var(--warn); }
 
-/* Το ⚙ — στρογγυλό κουμπί στο χρώμα της κεφαλίδας */
-.st-key-topbar [data-testid="stPopover"] button {
-  width: 40px;
-  height: 40px;
-  min-height: 0;
-  padding: 0;
-  border-radius: 999px;
-  background: var(--navy-soft);
-  border: 1px solid rgba(255,255,255,.16);
+/* Το «Ενημέρωση» — κύριο κουμπί, συμπαγές navy */
+.st-key-pagehead [data-testid="stPopover"] button {
+  background: var(--navy);
   color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-weight: 600;
 }
-.st-key-topbar [data-testid="stPopover"] button:hover {
-  border-color: var(--gold);
-  color: var(--gold-light);
-}
-/* Το βελάκι «ανοίγει» του popover δεν χρειάζεται σε κουμπί-εικονίδιο */
-.st-key-topbar [data-testid="stPopover"] button > div:has(> svg) { display: none; }
+.st-key-pagehead [data-testid="stPopover"] button:hover { background: var(--navy-soft); color: #fff; }
+.st-key-pagehead [data-testid="stPopover"] button > div:has(> svg) { display: none; }   /* χωρίς βελάκι */
 
 /* Το πάνελ εργαλείων — αρκετά φαρδύ για τα κουμπιά συγχρονισμού */
 [data-testid="stPopoverBody"] { min-width: min(440px, 92vw); }
 
-.brand { display: flex; flex-direction: column; gap: .14rem; }
-
-.brand-name {
-  font-family: 'Manrope', sans-serif;
-  font-weight: 800;
-  font-size: 1.36rem;
-  color: #fff;
-  line-height: 1.12;
-  letter-spacing: -.028em;
+/* ── ΠΛΕΥΡΙΚΟ ΜΕΝΟΥ (υπολογιστής) ─────────────────────────────────────────── */
+/*
+   st.sidebar με κουμπιά — βλ. components.sidebar(). Σκούρο navy, ομάδες
+   «Αναφορές» / «Ταμείο», η ενεργή σελίδα με χρυσή γραμμή αριστερά.
+   ΔΕΝ κλείνει (κρύβουμε το «<<»): η κεφαλίδα του Streamlit είναι κρυμμένη,
+   οπότε δεν θα υπήρχε κουμπί να ξανανοίξει.
+*/
+[data-testid="stSidebar"] {
+  background: var(--navy);
+  width: 248px !important;
+  min-width: 248px !important;
+  border-right: none;
 }
+[data-testid="stSidebar"] > div:first-child { background: var(--navy); }
+[data-testid="stSidebarCollapseButton"], [data-testid="stSidebarHeader"] { display: none !important; }
+[data-testid="stSidebarUserContent"] { padding: 1.4rem .85rem 1.5rem !important; }
+[data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap: .12rem !important; }
 
-.brand-sub {
-  font-size: .72rem;
-  color: rgba(255,255,255,.68);
-  font-weight: 500;
-  letter-spacing: .14em;
-  text-transform: uppercase;
+/* Το Streamlit δίνει −16px στο κάτω περιθώριο κάθε markdown — στο πλευρικό
+   μενού αυτό έφερνε τα κουμπιά ΠΑΝΩ στις ετικέτες («Αναφορές», «Ταμείο»). */
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] { margin-bottom: 0 !important; }
+.side-brand { display: flex; align-items: center; gap: .75rem; padding: 0 .45rem .4rem; }
+.side-mark {
+  width: 38px; height: 38px; flex-shrink: 0;
+  border-radius: 8px;
+  background: var(--gold);
+  color: var(--navy);
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: .95rem;
 }
+.side-name  { color: #fff; font-weight: 600; font-size: 1rem; line-height: 1.2; }
+.side-store { color: #9AA8BC; font-size: .76rem; }
 
-.today-stamp {
-  font-size: .76rem;
+.side-group {
+  padding: 1rem .75rem .35rem;
+  font-size: .68rem;
   font-weight: 600;
-  color: #fff;
-  padding: .5rem .95rem;
-  background: var(--navy-soft);
-  border: 1px solid rgba(255,255,255,.16);
-  border-radius: 100px;
-  white-space: nowrap;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: #6F7F96;
 }
 
-/* ── ΠΛΟΗΓΗΣΗ ─────────────────────────────────────────────────────────────── */
-/* Το μενού είναι st.segmented_control (όχι HTML links) — βλ. ui/components.py.
-   Δύο widgets: .st-key-nav_desktop και .st-key-nav_mobile. Εδώ φαίνεται μόνο
-   το desktop· στο κινητό (≤820px) ανάποδα. */
-.st-key-nav_mobile { display: none !important; }
+[data-testid="stSidebar"] .stButton > button {
+  justify-content: flex-start;
+  min-height: 0;
+  padding: .55rem .75rem;
+  border: none !important;
+  border-radius: 6px;
+  background: transparent !important;
+  color: #C4CEDC !important;
+  font-size: .9rem;
+  font-weight: 500;
+  box-shadow: none !important;
+}
+[data-testid="stSidebar"] .stButton > button > div { justify-content: flex-start; gap: .7rem; }
+[data-testid="stSidebar"] .stButton > button:hover { background: #16253F !important; color: #fff !important; }
+[data-testid="stSidebar"] .stButton > button[kind="primary"] {
+  background: #1E2E4A !important;
+  color: #fff !important;
+  font-weight: 600;
+  box-shadow: inset 3px 0 0 var(--gold) !important;
+}
 
-.st-key-nav_desktop { width: 100% !important; margin-bottom: 1.4rem; }
+/* ── ΠΛΟΗΓΗΣΗ ΚΙΝΗΤΟΥ ─────────────────────────────────────────────────────── */
+/* Στον υπολογιστή κρύβεται· στο κινητό (≤820px) φαίνεται — βλ. @media πιο κάτω. */
+.st-key-nav_mobile { display: none !important; }
 
 /* Το αόρατο iframe του _back_button() — να μην πιάνει κενό στη σελίδα. */
 [data-testid="stElementContainer"]:has(> iframe[height="0"]) { display: none; }
 
-.st-key-nav_desktop [data-baseweb="button-group"] {
-  display: flex;
-  flex-wrap: nowrap;
-  gap: .25rem;
-  width: 100%;
-  padding: .3rem;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  box-shadow: var(--lift-1);
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-.st-key-nav_desktop [data-baseweb="button-group"]::-webkit-scrollbar { display: none; }
-
 /* Το Streamlit βάζει ένα κρυφό ::after με flex-grow:10000 που «τρώει» τον
    ελεύθερο χώρο — χωρίς αυτό, τα κουμπιά δεν απλώνονται σε όλο το πλάτος. */
-.st-key-nav_desktop [data-baseweb="button-group"]::after,
 .st-key-nav_mobile [data-baseweb="button-group"]::after { display: none; }
-
-.st-key-nav_desktop button {
-  flex: 1 0 auto;   /* auto: αλλιώς το κείμενο (overflow:hidden) συμπιέζεται σε 0 */
-  min-height: 0;
-  margin: 0 !important;
-  padding: .6rem .9rem;
-  border: none !important;
-  border-radius: 10px !important;
-  background: transparent;
-  color: var(--muted);
-  box-shadow: none;
-  transition: background .13s ease, color .13s ease, box-shadow .13s ease;
-}
-
-.st-key-nav_desktop button p {
-  margin: 0;
-  white-space: nowrap;
-  font-size: .82rem;
-  font-weight: 600;
-}
-
-.st-key-nav_desktop button:hover { background: var(--sunken); color: var(--text); }
-
-.st-key-nav_desktop button[kind="segmented_controlActive"] {
-  background: var(--navy);
-  color: #fff;
-  box-shadow: none;
-}
-.st-key-nav_desktop button[kind="segmented_controlActive"] p { font-weight: 700; }
-
-.st-key-nav_desktop button[kind="segmented_controlActive"]:hover {
-  background: var(--navy-soft);
-  color: #fff;
-}
-
-.st-key-nav_desktop button:focus-visible { outline: none; box-shadow: var(--ring); }
 
 /* ── ΤΙΤΛΟΣ ΣΕΛΙΔΑΣ ───────────────────────────────────────────────────────── */
 .page-title {
-  font-family: 'Manrope', sans-serif;
-  font-weight: 800;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-weight: 600;
   font-size: 1.6rem;
   letter-spacing: -.034em;
   color: var(--ink);
@@ -387,7 +367,7 @@ html, body, [class*="css"], .stApp {
 /* Επικεφαλίδα ενότητας: μικρή πράσινη σφραγίδα + κεφαλαία + hairline.
    Το τετραγωνάκι είναι το «μόρσιο» της ταυτότητας — επαναλαμβανόμενο, ήσυχο. */
 .eyebrow {
-  font-family: 'Manrope', sans-serif;
+  font-family: 'IBM Plex Sans', sans-serif;
   font-size: .66rem;
   font-weight: 700;
   letter-spacing: .1em;
@@ -440,19 +420,17 @@ a:hover > .scale {
 }
 
 .scale-label {
-  font-family: 'Manrope', sans-serif;
-  font-size: .66rem;
-  font-weight: 700;
-  letter-spacing: .07em;
-  text-transform: uppercase;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: .84rem;
+  font-weight: 500;
   color: var(--muted);
 }
 
 /* Το delta είναι η ΑΠΑΝΤΗΣΗ («κέρδισα ή έχασα;») — του αξίζει δακτύλιος. */
 .scale-delta {
-  font-family: 'Manrope', sans-serif;
+  font-family: 'IBM Plex Sans', sans-serif;
   font-size: .72rem;
-  font-weight: 800;
+  font-weight: 600;
   padding: .16rem .5rem;
   border-radius: 100px;
   white-space: nowrap;
@@ -464,9 +442,9 @@ a:hover > .scale {
 
 /* Το φετινό: ο πρωταγωνιστής της κάρτας. Μεγάλο, σφιχτό, διαβάζεται από απόσταση. */
 .kpi-now {
-  font-family: 'Manrope', sans-serif;
+  font-family: 'IBM Plex Sans', sans-serif;
   font-size: 1.9rem;
-  font-weight: 800;
+  font-weight: 600;
   letter-spacing: -.04em;
   line-height: 1.02;
   color: var(--data);
@@ -518,7 +496,7 @@ a:hover > .scale {
 .bar-row.then2 .bar-fill { background: var(--gold-deep); box-shadow: none; opacity: .38; }
 
 .bar-val {
-  font-family: 'Manrope', sans-serif;
+  font-family: 'IBM Plex Sans', sans-serif;
   font-size: .88rem;
   font-weight: 700;
   color: var(--text);
@@ -582,19 +560,17 @@ a:hover > .stat {
 }
 
 .stat-label {
-  font-family: 'Manrope', sans-serif;
-  font-size: .66rem;
-  font-weight: 700;
-  letter-spacing: .07em;
-  text-transform: uppercase;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: .84rem;
+  font-weight: 500;
   color: var(--muted);
   margin-bottom: .3rem;
 }
 
 .stat-value {
-  font-family: 'Manrope', sans-serif;
+  font-family: 'IBM Plex Sans', sans-serif;
   font-size: 1.65rem;
-  font-weight: 800;
+  font-weight: 600;
   letter-spacing: -.036em;
   color: var(--data);
   line-height: 1.08;
@@ -636,28 +612,101 @@ a.plain { text-decoration: none; color: inherit; display: block; height: 100%; }
 }
 a.plain:hover > .check { box-shadow: var(--lift-3); }
 
-/* ── ΓΡΑΜΜΗ ΚΑΤΑΣΤΑΣΗΣ («Σήμερα» πριν έρθει η αναφορά) ───────────────────── */
-.strip {
+/* ═══════════════════════════════════════════════════════════════════════════
+   ΕΤΑΙΡΙΚΟ ΣΤΥΛ — κάρτες KPI, γράφημα εβδομάδας, επόμενη επιταγή, πίνακας.
+   Ιεραρχία με μέγεθος και κενό χώρο, όχι με χρώματα (IBM Carbon, Stripe).
+   ═══════════════════════════════════════════════════════════════════════════ */
+.kpi {
+  height: 100%;
+  box-sizing: border-box;
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: .4rem 1rem;
-  padding: .7rem 1.1rem;
-  margin-bottom: .75rem;
+  flex-direction: column;
+  gap: .55rem;
+  padding: 1.15rem 1.25rem;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--r);
+  border-radius: var(--r-lg);
+  transition: border-color .15s ease, box-shadow .15s ease;
 }
-.strip-left { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem .6rem; }
-.strip-dot { width: 8px; height: 8px; border-radius: 99px; background: var(--gold); flex-shrink: 0; }
-.strip-label { font-size: .86rem; font-weight: 700; color: var(--ink); }
-.strip-note { font-size: .8rem; color: var(--muted); }
-.strip-goal { font-size: .8rem; color: var(--muted); white-space: nowrap; }
-.strip-goal b { color: var(--ink); font-weight: 800; }
+.kpi.accent { border-top: 3px solid var(--gold); }
+a:hover > .kpi { border-color: #C9D1DC; box-shadow: var(--lift-2); }
+
+.kpi-head { display: flex; justify-content: space-between; align-items: center; gap: .5rem; }
+.kpi-label { font-size: .86rem; font-weight: 500; color: var(--muted); }
+.kpi-badge {
+  font-size: .74rem; font-weight: 600; white-space: nowrap;
+  padding: .15rem .5rem; border-radius: 4px;
+}
+.kpi-badge.up   { color: #0E7A45; background: #E7F5EC; }
+.kpi-badge.down { color: #B42318; background: #FDECEA; }
+.kpi-badge.flat { color: #8A6516; background: var(--gold-tint); }
+
+.kpi-value {
+  font-size: 2rem;
+  font-weight: 600;
+  letter-spacing: -.02em;
+  line-height: 1.1;
+  color: var(--data);
+  font-variant-numeric: tabular-nums;
+}
+.kpi-track { height: 6px; border-radius: 99px; background: var(--line-soft); overflow: hidden; }
+.kpi-fill  { display: block; height: 100%; border-radius: 99px; background: var(--gold); }
+.kpi-foot  { margin-top: auto; font-size: .8rem; color: var(--muted); }
+
+/* Πάνελ (γράφημα, πίνακας) */
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  height: 100%;
+  box-sizing: border-box;
+}
+.panel-head {
+  display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: .5rem;
+  padding: 1rem 1.25rem;
+}
+.panel-title { font-size: 1rem; font-weight: 600; color: var(--ink); }
+.panel-head a { font-size: .86rem; font-weight: 600; color: var(--navy); text-decoration: none; }
+.panel-head a:hover { color: var(--gold-deep); }
+
+/* Επόμενη επιταγή — η μόνη σκούρα κάρτα */
+.nc {
+  height: 100%;
+  box-sizing: border-box;
+  display: flex; flex-direction: column; gap: .7rem;
+  padding: 1.25rem 1.35rem;
+  background: var(--navy);
+  border-radius: var(--r-lg);
+  color: #fff;
+}
+.nc-label { font-size: .86rem; font-weight: 500; color: #9AA8BC; }
+.nc-amt { font-size: 2rem; font-weight: 600; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.nc-row { display: flex; justify-content: space-between; gap: 1rem; font-size: .86rem; color: #C4CEDC; }
+.nc-row b { color: #fff; font-weight: 600; text-align: right; }
+.nc-cover { margin-top: auto; display: flex; flex-direction: column; gap: .4rem; }
+.nc-track { height: 6px; border-radius: 99px; background: #26385A; overflow: hidden; }
+.nc-track span { display: block; height: 100%; border-radius: 99px; background: var(--gold); }
+
+/* Πίνακας επιταγών */
+.panel.tbl { overflow: hidden; height: auto; margin-bottom: .75rem; }
+.panel.tbl .panel-head { border-bottom: 1px solid var(--line); }
+.tbl-scroll { overflow-x: auto; }
+.panel.tbl table { width: 100%; border-collapse: collapse; font-size: .88rem; min-width: 560px; }
+.panel.tbl th {
+  text-align: left; font-size: .76rem; font-weight: 600; color: var(--muted);
+  background: var(--surface-alt); padding: .6rem 1.25rem;
+}
+.panel.tbl td { padding: .7rem 1.25rem; border-top: 1px solid var(--line-soft); color: var(--text); }
+.panel.tbl .r { text-align: right; }
+.panel.tbl .b { font-weight: 600; color: var(--ink); }
+.pill { font-size: .74rem; font-weight: 600; padding: .18rem .55rem; border-radius: 4px; white-space: nowrap; }
+/* pill-… και όχι σκέτο .empty: η .empty είναι ήδη η κάρτα «άδειας κατάστασης» */
+.pill-full    { color: #0E7A45; background: #E7F5EC; }
+.pill-partial { color: #8A5A00; background: #FDF1DC; }
+.pill-empty   { color: var(--muted); background: var(--sunken); }
 
 .check-tag {
-  font-family: 'Manrope', sans-serif;
+  font-family: 'IBM Plex Sans', sans-serif;
   font-size: .64rem;
   font-weight: 700;
   letter-spacing: .09em;
@@ -670,9 +719,9 @@ a.plain:hover > .check { box-shadow: var(--lift-3); }
 .check-when b { color: #fff; font-weight: 700; }
 
 .check-amt {
-  font-family: 'Manrope', sans-serif;
+  font-family: 'IBM Plex Sans', sans-serif;
   font-size: 1.6rem;
-  font-weight: 800;
+  font-weight: 600;
   letter-spacing: -.025em;
   white-space: nowrap;
 }
@@ -696,8 +745,8 @@ a.plain:hover > .row { border-color: var(--blue-soft); background: var(--surface
 .row.open { border-color: var(--brand); background: var(--brand-tint); }
 
 .row-key {
-  font-family: 'Manrope', sans-serif;
-  font-weight: 800;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-weight: 600;
   font-size: .92rem;
   color: var(--ink);
 }
@@ -705,8 +754,8 @@ a.plain:hover > .row { border-color: var(--blue-soft); background: var(--surface
 .row-meta { font-size: .74rem; color: var(--dim); font-weight: 500; }
 
 .row-amt {
-  font-family: 'Manrope', sans-serif;
-  font-weight: 800;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-weight: 600;
   font-size: .92rem;
   color: var(--ink);
 }
@@ -728,14 +777,14 @@ a.plain:hover > .row { border-color: var(--blue-soft); background: var(--surface
   border-collapse: collapse;
   width: 100%;
   min-width: 560px;                 /* κάτω απ' αυτό → σκρολ αντί για στρίμωγμα */
-  font-family: 'Manrope', sans-serif;
+  font-family: 'IBM Plex Sans', sans-serif;
   font-size: .86rem;
 }
 
 .tbl3 thead th {
   padding: .5rem .55rem;
   text-align: right;
-  font-weight: 800;
+  font-weight: 600;
   white-space: nowrap;
   background: var(--surface-alt);
   border-bottom: 1px solid var(--line);
@@ -796,15 +845,15 @@ a.plain:hover > .row { border-color: var(--blue-soft); background: var(--surface
   padding: .38rem .7rem;
   text-align: center;
   border-radius: var(--r-sm);
-  font-family: 'Manrope', sans-serif;
-  font-weight: 800;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-weight: 600;
   font-size: .82rem;
 }
 /* Αγορές (τι δίνεις) vs πωλήσεις (τι παίρνεις). Δύο διαφορετικά πράγματα. */
 .chip.buy  { color: var(--navy); background: var(--blue-tint); }
 .chip.sell { color: var(--pos);   background: var(--pos-tint); }
 
-.caret { color: var(--brand); font-weight: 800; margin-right: .45rem; }
+.caret { color: var(--brand); font-weight: 600; margin-right: .45rem; }
 
 /* Ανοιγμένη λίστα */
 .sub {
@@ -820,7 +869,7 @@ a.plain:hover > .row { border-color: var(--blue-soft); background: var(--surface
 }
 .sub-date { font-weight: 600; color: var(--text); min-width: 96px; }
 .sub-mid  { flex: 1; text-align: center; color: var(--dim); font-size: .75rem; }
-.sub-amt  { font-family: 'Manrope', sans-serif; font-weight: 800; color: var(--brand); text-align: right; min-width: 96px; }
+.sub-amt  { font-family: 'IBM Plex Sans', sans-serif; font-weight: 600; color: var(--brand); text-align: right; min-width: 96px; }
 
 .sub-head {
   display: flex;
@@ -850,8 +899,8 @@ a.plain:hover > .row { border-color: var(--blue-soft); background: var(--surface
 }
 
 .total-tag {
-  font-family: 'Manrope', sans-serif;
-  font-weight: 800;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-weight: 600;
   font-size: .78rem;
   letter-spacing: .06em;
   text-transform: uppercase;
@@ -862,7 +911,7 @@ a.plain:hover > .row { border-color: var(--blue-soft); background: var(--surface
 
 .total-item { font-size: .8rem; }
 .total-item span { color: var(--dim); margin-right: .35rem; }
-.total-item b { font-family: 'Manrope', sans-serif; font-weight: 800; color: var(--ink); }
+.total-item b { font-family: 'IBM Plex Sans', sans-serif; font-weight: 600; color: var(--ink); }
 .total-item b.pos { color: var(--pos); }
 .total-item b.neg { color: var(--neg); }
 
@@ -897,23 +946,23 @@ a.plain:hover > .row { border-color: var(--blue-soft); background: var(--surface
 }
 
 .flag-date {
-  font-family: 'Manrope', sans-serif;
-  font-weight: 800;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-weight: 600;
   font-size: .88rem;
   color: var(--ink);
   min-width: 130px;
 }
 
 .flag-nums {
-  font-family: 'Manrope', sans-serif;
-  font-weight: 800;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-weight: 600;
   font-size: .92rem;
   color: var(--neg);
   white-space: nowrap;
 }
 
 .flag-vs {
-  font-family: 'Manrope', sans-serif;
+  font-family: 'IBM Plex Sans', sans-serif;
   font-weight: 500;
   font-size: .76rem;
   color: var(--muted);
@@ -937,7 +986,7 @@ a.plain:hover > .row { border-color: var(--blue-soft); background: var(--surface
   border-radius: var(--r-lg);
 }
 .empty-head {
-  font-family: 'Manrope', sans-serif;
+  font-family: 'IBM Plex Sans', sans-serif;
   font-weight: 700;
   font-size: .95rem;
   color: var(--text);
@@ -967,7 +1016,7 @@ button[data-testid="stBaseButton-primary"]:active {
 }
 
 .stButton > button {
-  font-family: 'Manrope', sans-serif;
+  font-family: 'IBM Plex Sans', sans-serif;
   font-weight: 600;
   font-size: .82rem;
   border-radius: 10px;
@@ -1104,7 +1153,7 @@ button[data-testid="stBaseButton-primary"]:active {
 
 .rw-badge {
   font-size: .72rem;
-  font-weight: 800;
+  font-weight: 600;
   padding: .1rem .45rem;
   border-radius: 20px;
   line-height: 1.4;
@@ -1152,7 +1201,7 @@ button[data-testid="stBaseButton-primary"]:active {
 .rw-summary.warn { background: var(--warn-tint); color: #92400E; border: 1px solid #fde68a; }
 .rw-summary.bad  { background: var(--neg-tint); color: #991B1B; border: 1px solid #fecaca; }
 
-.rw-summary b { font-weight: 800; }
+.rw-summary b { font-weight: 600; }
 
 .runway-empty, .rw-empty {
   padding: 1.2rem;
@@ -1166,7 +1215,7 @@ button[data-testid="stBaseButton-primary"]:active {
 
 .runway-title {
   font-size: .68rem;
-  font-weight: 800;
+  font-weight: 600;
   letter-spacing: .06em;
   text-transform: uppercase;
   color: var(--dim);
@@ -1184,26 +1233,49 @@ button[data-testid="stBaseButton-primary"]:active {
   }
 
   .grid { gap: .7rem; margin-bottom: .7rem; }
-  .g2, .g3, .g4 { grid-template-columns: 1fr; }
+  .g2, .g3 { grid-template-columns: 1fr; }
 
-  /* ── ΚΕΦΑΛΙΔΑ ── */
-  .st-key-topbar {
-    padding: .6rem .8rem;
-    margin-bottom: .4rem;
+  /* KPI: η 1η κάρτα («Σήμερα») σε όλο το πλάτος, οι άλλες 2×2 */
+  .g4 { grid-template-columns: 1fr 1fr; }
+  .g4 > :first-child, .g4 > :last-child { grid-column: 1 / -1; }   /* 1 + 2 + 1 */
+  .g4 .kpi { padding: .85rem .9rem; }
+  .g4 .kpi-head { flex-direction: column; align-items: flex-start; gap: .3rem; }   /* ετικέτα πάνω, % κάτω */
+  .g4 .kpi-label { font-size: .8rem; }
+  .g4 .kpi-value { font-size: 1.15rem; }
+  .g4 > :first-child .kpi-value { font-size: 1.75rem; }
+  .g4 > :first-child .kpi-head, .g4 > :last-child .kpi-head { flex-direction: row; align-items: center; justify-content: space-between; }
+  .g4 .kpi-foot { font-size: .7rem; }
+
+  /* Πίνακας επιταγών: χωρίς «Αριθμό» (φαίνεται στην κάρτα), ώστε να χωράει η κάλυψη */
+  .panel.tbl table { min-width: 0; font-size: .8rem; }
+  .panel.tbl th:nth-child(3), .panel.tbl td:nth-child(3) { display: none; }
+  .panel.tbl th, .panel.tbl td { padding: .6rem .7rem; }
+
+  /* ── ΠΛΕΥΡΙΚΟ ΜΕΝΟΥ: όχι στο κινητό (εκεί η μπάρα με τα εικονίδια) ── */
+  [data-testid="stSidebar"], [data-testid="stSidebarCollapsedControl"],
+  [data-testid="stExpandSidebarButton"] { display: none !important; }
+
+  /* ── ΚΕΦΑΛΙΔΑ: σκούρα, με το όνομα του μαγαζιού (δεν υπάρχει πλευρικό) ── */
+  .st-key-pagehead {
+    background: var(--navy);
+    border: none;
+    border-bottom: 3px solid var(--gold);
     border-radius: 12px;
+    padding: .8rem .9rem;
   }
-  .st-key-topbar [data-testid="stPopover"] button { width: 36px; height: 36px; }
-
-  .brand-name { font-size: .9rem; }
-  .brand-sub { display: none; }
-
-  .today-stamp {
-    font-size: .66rem;
-    padding: .32rem .6rem;
+  .st-key-pagehead [data-testid="stHorizontalBlock"] {
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    align-items: center;
+    gap: .6rem !important;
   }
-
-  /* Η πλοήγηση desktop φεύγει — τη δουλειά την κάνει η μπάρα κινητού */
-  .st-key-nav_desktop { display: none !important; }
+  .st-key-pagehead [data-testid="stColumn"] { width: auto !important; min-width: 0 !important; flex: 0 0 auto !important; }
+  .st-key-pagehead [data-testid="stColumn"]:first-child { flex: 1 1 auto !important; }
+  .st-key-pagehead [data-testid="stColumn"]:nth-child(2) { display: none; }   /* «Τελευταία αναφορά»: δεν χωράει */
+  .head-brand { display: block; font-size: .72rem; font-weight: 600; color: var(--gold-light); }
+  .head-title { font-size: 1.25rem; color: #fff; }
+  .head-sub { font-size: .74rem; color: #9AA8BC; }
+  .st-key-pagehead [data-testid="stPopover"] button { background: var(--navy-soft); border: 1px solid rgba(255,255,255,.18); }
 
   /* ── ΤΙΤΛΟΣ ── */
   .page-title { font-size: 1.3rem; letter-spacing: -.03em; }

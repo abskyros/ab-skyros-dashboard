@@ -96,27 +96,43 @@ def _apply_day_night() -> None:
     )
 
 
-def topbar(today: date):
-    """
-    Η κεφαλίδα: όνομα, μέρα, και το ⚙ των εργαλείων.
+MONTHS_GEN = ["Ιανουαρίου", "Φεβρουαρίου", "Μαρτίου", "Απριλίου", "Μαΐου", "Ιουνίου",
+              "Ιουλίου", "Αυγούστου", "Σεπτεμβρίου", "Οκτωβρίου", "Νοεμβρίου", "Δεκεμβρίου"]
 
-    → το popover του ⚙. Το app.py το γεμίζει ΑΡΓΟΤΕΡΑ (`with tools: …`),
-      αφού φορτωθούν τα δεδομένα — έτσι η κεφαλίδα εμφανίζεται πρώτη.
+
+def header(page: str, today: date, latest: date | None):
     """
-    stamp = f"{day_name(today)} {today:%d/%m/%Y}"
-    with st.container(key="topbar"):
-        brand, when, gear = st.columns([6, 2, 1], vertical_alignment="center")
-        with brand:
+    Η κεφαλίδα της σελίδας (εταιρικό στυλ): τίτλος, πλήρης ημερομηνία, πόσο
+    φρέσκα είναι τα δεδομένα, και το κουμπί «Ενημέρωση» (τα εργαλεία).
+
+    latest: η τελευταία μέρα με αναφορά πωλήσεων (ή None).
+
+    → το popover «Ενημέρωση». Το app.py το γεμίζει στο τέλος (`with tools: …`).
+    """
+    when = f"{day_name(today)}, {today.day} {MONTHS_GEN[today.month - 1]} {today.year}"
+    week = today.isocalendar()[1]
+
+    if latest is None:
+        fresh, fresh_txt = "late", "Καμία αναφορά πωλήσεων"
+    else:
+        fresh = "ok" if (today - latest).days <= 1 else "late"
+        fresh_txt = f"Τελευταία αναφορά: {day_name(latest)} {latest:%d/%m}"
+
+    with st.container(key="pagehead"):
+        left, mid, right = st.columns([6, 3, 2], vertical_alignment="center")
+        with left:
             html(
-                '<div class="brand">'
-                '<div class="brand-name">ΑΒ Σκύρος</div>'
-                '<div class="brand-sub">Πωλήσεις · Παραστατικά · Τιμολογήσεις</div>'
-                '</div>'
+                '<div class="head-brand">ΑΒ Σκύρος</div>'
+                f'<div class="head-title" role="heading" aria-level="1">{_esc(page)}</div>'
+                f'<div class="head-sub">{when} · Εβδομάδα {week}</div>'
             )
-        with when:
-            html(f'<div class="today-stamp">{stamp}</div>')
-        with gear:
-            return st.popover("", icon=":material/settings:", help="Εργαλεία · ενημέρωση δεδομένων")
+        with mid:
+            html(f'<div class="fresh {fresh}"><span class="fresh-dot"></span>{_esc(fresh_txt)}</div>')
+        with right:
+            tools = st.popover("Ενημέρωση", icon=":material/sync:", width="stretch")
+
+    _back_button()
+    return tools
 
 
 # ┌────────────────────────────────────────────────────────────────────────────┐
@@ -129,11 +145,11 @@ def topbar(today: date):
 # │ περιεχόμενο. Το ?page= στο URL ενημερώνεται από το callback, ώστε refresh,  │
 # │ «πίσω» και το εικονίδιο αρχικής οθόνης να δουλεύουν όπως πριν.             │
 # │                                                                            │
-# │ Δύο widgets (desktop/κινητό), γιατί δείχνουν διαφορετικές σελίδες. Το CSS  │
-# │ κρύβει το ένα από τα δύο ανάλογα με το πλάτος (.st-key-nav_desktop/_mobile).│
+# │ Υπολογιστής: πλευρικό μενού με κουμπιά (sidebar()). Κινητό: segmented     │
+# │ control πάνω (tabbar()). Το CSS δείχνει το ένα ή το άλλο ανά πλάτος.       │
 # └────────────────────────────────────────────────────────────────────────────┘
 ICONS = {
-    "Επισκόπηση": ":material/home:",
+    "Επισκόπηση": ":material/space_dashboard:",
     "Πωλήσεις": ":material/trending_up:",
     "Παραστατικά": ":material/receipt_long:",
     "Τιμολογήσεις": ":material/credit_card:",
@@ -182,11 +198,46 @@ def _back_button() -> None:
     )
 
 
-def nav(current: str) -> None:
-    """Πλοήγηση desktop. ΔΕΝ δείχνει τις σελίδες που είναι μόνο για κινητό."""
-    from core.config import DESKTOP_PAGES
-    _nav_control("nav_desktop", DESKTOP_PAGES, current, lambda p: p)
-    _back_button()
+# Το πλευρικό μενού: ομάδες σελίδων. Τα keys των κουμπιών είναι λατινικά
+# (γίνονται κλάσεις CSS .st-key-side_…).
+NAV_GROUPS = [
+    ("Αναφορές", ["Επισκόπηση", "Πωλήσεις", "Παραστατικά", "Τιμολογήσεις"]),
+    ("Ταμείο", ["Μήνας", "Πρόβλεψη", "Επιταγές"]),
+]
+SLUG = {
+    "Επισκόπηση": "overview", "Πωλήσεις": "sales", "Παραστατικά": "invoices",
+    "Τιμολογήσεις": "timol", "Μήνας": "month", "Πρόβλεψη": "forecast",
+    "Επιταγές": "checks",
+}
+
+
+def _pick(page: str) -> None:
+    """Callback: κλικ σε σελίδα του πλευρικού μενού (rerun, όχι reload)."""
+    st.session_state["_page"] = page
+    st.query_params["page"] = page
+
+
+def sidebar(current: str) -> None:
+    """
+    Πλοήγηση υπολογιστή: σκούρα στήλη αριστερά (st.sidebar), όπως τα εταιρικά
+    συστήματα. Στο κινητό κρύβεται με CSS — εκεί δουλεύει το tabbar().
+    """
+    with st.sidebar:
+        html(
+            '<div class="side-brand">'
+            '<div class="side-mark">ΑΒ</div>'
+            '<div><div class="side-name">ΑΒ Σκύρος</div>'
+            '<div class="side-store">Κατάστημα 1082</div></div>'
+            '</div>'
+        )
+        for group, pages in NAV_GROUPS:
+            html(f'<div class="side-group">{_esc(group)}</div>')
+            for p in pages:
+                st.button(
+                    p, key=f"side_{SLUG[p]}", icon=ICONS[p],
+                    type="primary" if p == current else "tertiary",
+                    on_click=_pick, args=(p,), width="stretch",
+                )
 
 
 def tabbar(current: str) -> None:
@@ -446,6 +497,99 @@ def stat(
     return f'<a href="{href}" target="_self" class="plain">{body}</a>' if href else body
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# ΕΤΑΙΡΙΚΟ ΣΤΥΛ (Επισκόπηση) — κάρτα KPI, γράφημα εβδομάδας, επιταγές
+# ══════════════════════════════════════════════════════════════════════════════
+def _pct_badge(now, then) -> str:
+    pct = pct_change(now, then)
+    if pct is None:
+        return ""
+    cls, arrow = ("up", "▲") if pct >= 0 else ("down", "▼")
+    return f'<span class="kpi-badge {cls}">{arrow} {abs(pct):.1f}%</span>'.replace(".", ",")
+
+
+def kpi(
+    label: str,
+    value,
+    *,
+    then=None,
+    badge: str = "",
+    progress: float | None = None,
+    foot: str = "",
+    accent: bool = False,
+    href: str | None = None,
+) -> str:
+    """
+    Κάρτα KPI: ετικέτα, μεγάλο ποσό, ▲/▼ (σε σχέση με `then`) ή έτοιμη ετικέτα
+    (`badge`, π.χ. «Σε εξέλιξη»), προαιρετική μπάρα προόδου (0–1), υποσημείωση.
+    accent=True: χρυσή γραμμή από πάνω — για την πιο σημαντική κάρτα.
+    """
+    tag = f'<span class="kpi-badge flat">{_esc(badge)}</span>' if badge else _pct_badge(value, then)
+    bar = ""
+    if progress is not None:
+        w = min(max(float(progress), 0.0), 1.0) * 100
+        bar = f'<div class="kpi-track"><span class="kpi-fill" style="width:{w:.0f}%"></span></div>'
+
+    body = (
+        f'<div class="kpi{" accent" if accent else ""}">'
+        f'<div class="kpi-head"><span class="kpi-label">{_esc(label)}</span>{tag}</div>'
+        f'<div class="kpi-value">{eur(value)}</div>'
+        f'{bar}'
+        + (f'<div class="kpi-foot">{_esc(foot)}</div>' if foot else '')
+        + '</div>'
+    )
+    return f'<a href="{href}" target="_self" class="plain">{body}</a>' if href else body
+
+
+def next_check(when: date, days_txt: str, amount: float, number: str, fraction: float | None) -> str:
+    """Η επόμενη επιταγή — η μόνη σκούρα (navy) κάρτα: έχει προθεσμία."""
+    cover = ""
+    if fraction is not None:
+        cover = (
+            '<div class="nc-cover">'
+            f'<div class="nc-row"><span>Κάλυψη από ταμείο</span><b>{fraction * 100:.0f}%</b></div>'
+            f'<div class="nc-track"><span style="width:{min(max(fraction, 0), 1) * 100:.0f}%"></span></div>'
+            '</div>'
+        )
+    return (
+        '<div class="nc">'
+        '<span class="nc-label">Επόμενη επιταγή</span>'
+        f'<span class="nc-amt">{eur(amount)}</span>'
+        f'<div class="nc-row"><span>Πληρωμή</span><b>{day_name(when)} {when:%d/%m} · {_esc(days_txt)}</b></div>'
+        f'<div class="nc-row"><span>Αριθμός</span><b>{_esc(number or "—")}</b></div>'
+        f'{cover}'
+        '</div>'
+    )
+
+
+def checks_table(rows: list[dict], href: str | None = None) -> None:
+    """
+    Πίνακας «Επόμενες επιταγές».
+    rows: [{"date": date, "amount": float, "number": str, "status": full|partial|empty, "fraction": float}]
+    """
+    label = {"full": "Πλήρης κάλυψη", "partial": "Μερική", "empty": "Δεν φτάνει"}
+    body = "".join(
+        '<tr>'
+        f'<td class="b">{day_name(r["date"], short=True)} {r["date"]:%d/%m/%Y}</td>'
+        f'<td class="r b">{eur(r["amount"])}</td>'
+        f'<td>{_esc(r["number"] or "—")}</td>'
+        f'<td><span class="pill pill-{r["status"]}">{label.get(r["status"], "—")}'
+        + (f' · {r["fraction"] * 100:.0f}%'.replace(".", ",") if r["status"] == "partial" else "")
+        + '</span></td>'
+        '</tr>'
+        for r in rows
+    )
+    more = f'<a href="{href}" target="_self">Όλες στον «Μήνα» →</a>' if href else ""
+    html(
+        '<div class="panel tbl">'
+        f'<div class="panel-head"><span class="panel-title">Επόμενες επιταγές</span>{more}</div>'
+        '<div class="tbl-scroll"><table>'
+        '<thead><tr><th>Ημερομηνία</th><th class="r">Ποσό</th><th>Αριθμός</th><th>Κάλυψη</th></tr></thead>'
+        f'<tbody>{body}</tbody></table></div>'
+        '</div>'
+    )
+
+
 def grid(*cards: str, cols: int = 3) -> None:
     html(f'<div class="grid g{cols}">{"".join(cards)}</div>')
 
@@ -468,23 +612,6 @@ def check_card(
         '</div>'
     )
     html(f'<a href="{href}" target="_self" class="plain">{body}</a>' if href else body)
-
-
-def strip(label: str, note: str, goal_label: str, goal) -> None:
-    """
-    Λεπτή γραμμή κατάστασης — για το «Σήμερα» όσο η αναφορά δεν έχει έρθει.
-    Αριστερά τι περιμένουμε, δεξιά ο στόχος.
-    """
-    html(
-        '<div class="strip">'
-        '<div class="strip-left">'
-        '<span class="strip-dot"></span>'
-        f'<span class="strip-label">{_esc(label)}</span>'
-        f'<span class="strip-note">{_esc(note)}</span>'
-        '</div>'
-        f'<div class="strip-goal">{_esc(goal_label)}: <b>{eur(goal)}</b></div>'
-        '</div>'
-    )
 
 
 # ══════════════════════════════════════════════════════════════════════════════

@@ -19,7 +19,7 @@ st.set_page_config(
     page_title="ΑΒ Σκύρος",
     page_icon="🏪",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",   # το πλευρικό μενού (στο κινητό κρύβεται με CSS)
 )
 
 from core.config import PAGES, DEFAULT_PAGE
@@ -99,14 +99,21 @@ def main() -> None:
     today = today_greece()
     page = current_page()
 
-    mobile.setup()          # εικονίδιο αρχικής οθόνης, κόκκινη μπάρα κατάστασης
+    mobile.setup()          # εικονίδιο αρχικής οθόνης, χρώμα μπάρας κατάστασης
     c.load_css()
-    tools = c.topbar(today)     # το ⚙ — γεμίζει στο τέλος, βλ. sync_panel
-    c.nav(page)
+    c.sidebar(page)         # πλοήγηση υπολογιστή (στήλη αριστερά)
 
     df_s = load_sales()
     df_i = load_invoices()
     df_t = load_timologiseis()
+
+    # Η κεφαλίδα θέλει την τελευταία μέρα με αναφορά («Τελευταία αναφορά: …»),
+    # γι' αυτό μπαίνει ΜΕΤΑ τη φόρτωση. Επιστρέφει το popover «Ενημέρωση».
+    latest = None
+    if not df_s.empty:
+        latest = df_s["date"].max()
+        latest = latest.date() if hasattr(latest, "date") else latest
+    tools = c.header(page, today, latest)
 
     if page == "Επισκόπηση":
         overview.render(df_s, df_i, df_t, today)
@@ -129,7 +136,7 @@ def main() -> None:
     elif page == "Επιταγές":
         checks.render(df_t, today)
 
-    # Τα εργαλεία ζουν στο ⚙ της κεφαλίδας — όχι πια στο τέλος κάθε σελίδας.
+    # Τα εργαλεία ζουν στο «Ενημέρωση» της κεφαλίδας — όχι στο τέλος κάθε σελίδας.
     with tools:
         sync_panel(df_s)
     footer()
@@ -144,8 +151,8 @@ def sync_panel(df_s) -> None:
     Κανονικά δεν χρειάζεται — τα GitHub Actions τρέχουν μόνα τους. Αυτό είναι
     για όταν θέλεις τα δεδομένα ΤΩΡΑ και δεν περιμένεις το επόμενο cron.
 
-    Καλείται μέσα στο popover του ⚙ (κεφαλίδα). Η «Ενημέρωση» είναι ανοιχτή
-    από την αρχή — είναι ο λόγος που ανοίγεις το ⚙.
+    Καλείται μέσα στο popover «Ενημέρωση» της κεφαλίδας. Η «Ενημέρωση
+    δεδομένων» είναι ανοιχτή από την αρχή — είναι ο λόγος που το ανοίγεις.
     """
     with st.expander("Ενημέρωση δεδομένων", expanded=True):
         st.caption(
