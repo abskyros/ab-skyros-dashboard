@@ -498,7 +498,7 @@ def stat(
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# ΕΤΑΙΡΙΚΟ ΣΤΥΛ (Επισκόπηση) — κάρτα KPI, γράφημα εβδομάδας, επιταγές
+# ΕΤΑΙΡΙΚΟ ΣΤΥΛ (Επισκόπηση) — η κάρτα KPI (ίδια για όλες τις 5 κάρτες)
 # ══════════════════════════════════════════════════════════════════════════════
 def _pct_badge(now, then) -> str:
     pct = pct_change(now, then)
@@ -539,55 +539,6 @@ def kpi(
         + '</div>'
     )
     return f'<a href="{href}" target="_self" class="plain">{body}</a>' if href else body
-
-
-def next_check(when: date, days_txt: str, amount: float, number: str, fraction: float | None) -> str:
-    """Η επόμενη επιταγή — η μόνη σκούρα (navy) κάρτα: έχει προθεσμία."""
-    cover = ""
-    if fraction is not None:
-        cover = (
-            '<div class="nc-cover">'
-            f'<div class="nc-row"><span>Κάλυψη από ταμείο</span><b>{fraction * 100:.0f}%</b></div>'
-            f'<div class="nc-track"><span style="width:{min(max(fraction, 0), 1) * 100:.0f}%"></span></div>'
-            '</div>'
-        )
-    return (
-        '<div class="nc">'
-        '<span class="nc-label">Επόμενη επιταγή</span>'
-        f'<span class="nc-amt">{eur(amount)}</span>'
-        f'<div class="nc-row"><span>Πληρωμή</span><b>{day_name(when)} {when:%d/%m} · {_esc(days_txt)}</b></div>'
-        f'<div class="nc-row"><span>Αριθμός</span><b>{_esc(number or "—")}</b></div>'
-        f'{cover}'
-        '</div>'
-    )
-
-
-def checks_table(rows: list[dict], href: str | None = None) -> None:
-    """
-    Πίνακας «Επόμενες επιταγές».
-    rows: [{"date": date, "amount": float, "number": str, "status": full|partial|empty, "fraction": float}]
-    """
-    label = {"full": "Πλήρης κάλυψη", "partial": "Μερική", "empty": "Δεν φτάνει"}
-    body = "".join(
-        '<tr>'
-        f'<td class="b">{day_name(r["date"], short=True)} {r["date"]:%d/%m/%Y}</td>'
-        f'<td class="r b">{eur(r["amount"])}</td>'
-        f'<td>{_esc(r["number"] or "—")}</td>'
-        f'<td><span class="pill pill-{r["status"]}">{label.get(r["status"], "—")}'
-        + (f' · {r["fraction"] * 100:.0f}%'.replace(".", ",") if r["status"] == "partial" else "")
-        + '</span></td>'
-        '</tr>'
-        for r in rows
-    )
-    more = f'<a href="{href}" target="_self">Όλες στον «Μήνα» →</a>' if href else ""
-    html(
-        '<div class="panel tbl">'
-        f'<div class="panel-head"><span class="panel-title">Επόμενες επιταγές</span>{more}</div>'
-        '<div class="tbl-scroll"><table>'
-        '<thead><tr><th>Ημερομηνία</th><th class="r">Ποσό</th><th>Αριθμός</th><th>Κάλυψη</th></tr></thead>'
-        f'<tbody>{body}</tbody></table></div>'
-        '</div>'
-    )
 
 
 def grid(*cards: str, cols: int = 3) -> None:

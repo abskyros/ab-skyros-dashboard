@@ -235,6 +235,11 @@ html, body, [class*="css"], .stApp {
 
 .head-sub { font-size: .86rem; color: var(--muted); margin-top: .15rem; }
 
+/* Στήλες κεφαλίδας: ο τίτλος απλώνεται, η ένδειξη και το κουμπί παίρνουν όσο
+   πλάτος χρειάζονται — αλλιώς σε μεσαία οθόνη η ένδειξη έπεφτε πάνω στο κουμπί. */
+.st-key-pagehead [data-testid="stColumn"] { width: auto !important; min-width: 0 !important; flex: 0 0 auto !important; }
+.st-key-pagehead [data-testid="stColumn"]:first-child { flex: 1 1 auto !important; }
+
 /* Η ένδειξη «Τελευταία αναφορά» στοιχίζεται δεξιά */
 .st-key-pagehead [data-testid="stColumn"]:nth-child(2) [data-testid="stVerticalBlock"] { align-items: flex-end; }
 
@@ -262,6 +267,7 @@ html, body, [class*="css"], .stApp {
   font-weight: 600;
 }
 .st-key-pagehead [data-testid="stPopover"] button:hover { background: var(--navy-soft); color: #fff; }
+.st-key-pagehead [data-testid="stPopover"] button p { white-space: nowrap; }
 .st-key-pagehead [data-testid="stPopover"] button > div:has(> svg) { display: none; }   /* χωρίς βελάκι */
 
 /* Το πάνελ εργαλείων — αρκετά φαρδύ για τα κουμπιά συγχρονισμού */
@@ -591,6 +597,24 @@ a:hover > .stat {
 .g3 { grid-template-columns: repeat(3, 1fr); }
 .g4 { grid-template-columns: repeat(4, 1fr); }
 
+/* Επισκόπηση: 5 κάρτες σε μία σειρά σε μεγάλη οθόνη (το πλάτος περιλαμβάνει
+   και το πλευρικό μενού των 248px). */
+.g5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.g5 .kpi-value { font-size: 1.6rem; }
+
+/* Μεσαία οθόνη (laptop/tablet): 3 πάνω + 2 κάτω που μοιράζονται όλο το πλάτος */
+@media (min-width: 1100px) and (max-width: 1399px) {
+  .g5 { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .g5 > * { grid-column: span 2; }
+  .g5 > :nth-child(n+4) { grid-column: span 3; }
+}
+
+/* Μικρότερη οθόνη υπολογιστή: «Σήμερα» σε όλο το πλάτος + 2×2 */
+@media (min-width: 821px) and (max-width: 1099px) {
+  .g5 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .g5 > :first-child { grid-column: 1 / -1; }
+}
+
 a.plain { text-decoration: none; color: inherit; display: block; height: 100%; }
 
 /* ── ΚΑΡΤΑ ΕΠΙΤΑΓΗΣ ──────────────────────────────────────────────────────── */
@@ -613,7 +637,7 @@ a.plain { text-decoration: none; color: inherit; display: block; height: 100%; }
 a.plain:hover > .check { box-shadow: var(--lift-3); }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   ΕΤΑΙΡΙΚΟ ΣΤΥΛ — κάρτες KPI, γράφημα εβδομάδας, επόμενη επιταγή, πίνακας.
+   ΕΤΑΙΡΙΚΟ ΣΤΥΛ — οι 5 κάρτες KPI της Επισκόπησης (όλες ίδιες).
    Ιεραρχία με μέγεθος και κενό χώρο, όχι με χρώματα (IBM Carbon, Stripe).
    ═══════════════════════════════════════════════════════════════════════════ */
 .kpi {
@@ -631,7 +655,7 @@ a.plain:hover > .check { box-shadow: var(--lift-3); }
 .kpi.accent { border-top: 3px solid var(--gold); }
 a:hover > .kpi { border-color: #C9D1DC; box-shadow: var(--lift-2); }
 
-.kpi-head { display: flex; justify-content: space-between; align-items: center; gap: .5rem; }
+.kpi-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: .35rem .5rem; }
 .kpi-label { font-size: .86rem; font-weight: 500; color: var(--muted); }
 .kpi-badge {
   font-size: .74rem; font-weight: 600; white-space: nowrap;
@@ -648,62 +672,11 @@ a:hover > .kpi { border-color: #C9D1DC; box-shadow: var(--lift-2); }
   line-height: 1.1;
   color: var(--data);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;   /* «7.403,92 €» ποτέ σε δύο γραμμές */
 }
 .kpi-track { height: 6px; border-radius: 99px; background: var(--line-soft); overflow: hidden; }
 .kpi-fill  { display: block; height: 100%; border-radius: 99px; background: var(--gold); }
 .kpi-foot  { margin-top: auto; font-size: .8rem; color: var(--muted); }
-
-/* Πάνελ (γράφημα, πίνακας) */
-.panel {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--r-lg);
-  height: 100%;
-  box-sizing: border-box;
-}
-.panel-head {
-  display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: .5rem;
-  padding: 1rem 1.25rem;
-}
-.panel-title { font-size: 1rem; font-weight: 600; color: var(--ink); }
-.panel-head a { font-size: .86rem; font-weight: 600; color: var(--navy); text-decoration: none; }
-.panel-head a:hover { color: var(--gold-deep); }
-
-/* Επόμενη επιταγή — η μόνη σκούρα κάρτα */
-.nc {
-  height: 100%;
-  box-sizing: border-box;
-  display: flex; flex-direction: column; gap: .7rem;
-  padding: 1.25rem 1.35rem;
-  background: var(--navy);
-  border-radius: var(--r-lg);
-  color: #fff;
-}
-.nc-label { font-size: .86rem; font-weight: 500; color: #9AA8BC; }
-.nc-amt { font-size: 2rem; font-weight: 600; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
-.nc-row { display: flex; justify-content: space-between; gap: 1rem; font-size: .86rem; color: #C4CEDC; }
-.nc-row b { color: #fff; font-weight: 600; text-align: right; }
-.nc-cover { margin-top: auto; display: flex; flex-direction: column; gap: .4rem; }
-.nc-track { height: 6px; border-radius: 99px; background: #26385A; overflow: hidden; }
-.nc-track span { display: block; height: 100%; border-radius: 99px; background: var(--gold); }
-
-/* Πίνακας επιταγών */
-.panel.tbl { overflow: hidden; height: auto; margin-bottom: .75rem; }
-.panel.tbl .panel-head { border-bottom: 1px solid var(--line); }
-.tbl-scroll { overflow-x: auto; }
-.panel.tbl table { width: 100%; border-collapse: collapse; font-size: .88rem; min-width: 560px; }
-.panel.tbl th {
-  text-align: left; font-size: .76rem; font-weight: 600; color: var(--muted);
-  background: var(--surface-alt); padding: .6rem 1.25rem;
-}
-.panel.tbl td { padding: .7rem 1.25rem; border-top: 1px solid var(--line-soft); color: var(--text); }
-.panel.tbl .r { text-align: right; }
-.panel.tbl .b { font-weight: 600; color: var(--ink); }
-.pill { font-size: .74rem; font-weight: 600; padding: .18rem .55rem; border-radius: 4px; white-space: nowrap; }
-/* pill-… και όχι σκέτο .empty: η .empty είναι ήδη η κάρτα «άδειας κατάστασης» */
-.pill-full    { color: #0E7A45; background: #E7F5EC; }
-.pill-partial { color: #8A5A00; background: #FDF1DC; }
-.pill-empty   { color: var(--muted); background: var(--sunken); }
 
 .check-tag {
   font-family: 'IBM Plex Sans', sans-serif;
@@ -1235,21 +1208,18 @@ button[data-testid="stBaseButton-primary"]:active {
   .grid { gap: .7rem; margin-bottom: .7rem; }
   .g2, .g3 { grid-template-columns: 1fr; }
 
-  /* KPI: η 1η κάρτα («Σήμερα») σε όλο το πλάτος, οι άλλες 2×2 */
-  .g4 { grid-template-columns: 1fr 1fr; }
-  .g4 > :first-child, .g4 > :last-child { grid-column: 1 / -1; }   /* 1 + 2 + 1 */
-  .g4 .kpi { padding: .85rem .9rem; }
-  .g4 .kpi-head { flex-direction: column; align-items: flex-start; gap: .3rem; }   /* ετικέτα πάνω, % κάτω */
-  .g4 .kpi-label { font-size: .8rem; }
-  .g4 .kpi-value { font-size: 1.15rem; }
-  .g4 > :first-child .kpi-value { font-size: 1.75rem; }
-  .g4 > :first-child .kpi-head, .g4 > :last-child .kpi-head { flex-direction: row; align-items: center; justify-content: space-between; }
-  .g4 .kpi-foot { font-size: .7rem; }
+  .g4 { grid-template-columns: 1fr; }
 
-  /* Πίνακας επιταγών: χωρίς «Αριθμό» (φαίνεται στην κάρτα), ώστε να χωράει η κάλυψη */
-  .panel.tbl table { min-width: 0; font-size: .8rem; }
-  .panel.tbl th:nth-child(3), .panel.tbl td:nth-child(3) { display: none; }
-  .panel.tbl th, .panel.tbl td { padding: .6rem .7rem; }
+  /* Επισκόπηση: «Σήμερα» σε όλο το πλάτος, οι άλλες 4 σε 2×2 */
+  .g5 { grid-template-columns: 1fr 1fr; }
+  .g5 > :first-child { grid-column: 1 / -1; }
+  .g5 .kpi { padding: .85rem .9rem; }
+  .g5 .kpi-head { flex-direction: column; align-items: flex-start; gap: .3rem; }   /* ετικέτα πάνω, σήμα κάτω */
+  .g5 .kpi-label { font-size: .8rem; }
+  .g5 .kpi-value { font-size: 1.15rem; }
+  .g5 > :first-child .kpi-value { font-size: 1.75rem; }
+  .g5 > :first-child .kpi-head { flex-direction: row; align-items: center; justify-content: space-between; }
+  .g5 .kpi-foot { font-size: .7rem; }
 
   /* ── ΠΛΕΥΡΙΚΟ ΜΕΝΟΥ: όχι στο κινητό (εκεί η μπάρα με τα εικονίδια) ── */
   [data-testid="stSidebar"], [data-testid="stSidebarCollapsedControl"],

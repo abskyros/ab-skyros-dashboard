@@ -1,22 +1,21 @@
 """
 views/overview.py — Η πρώτη οθόνη (εταιρικό στυλ).
 
-  ┌──────────────┬──────────────┬──────────────┬──────────────┐
-  │ ΣΗΜΕΡΑ       │ ΧΘΕΣ         │ ΕΒΔΟΜΑΔΑ     │ ΤΙΜΟΛΟΓΙΑ    │   4 κάρτες KPI
-  │ (στόχος)     │              │ ΩΣ ΤΩΡΑ      │ (καθαρό)     │
-  ├──────────────┴──────────────┴──────────────┴──────────────┤
-  │ ΕΠΟΜΕΝΗ ΕΠΙΤΑΓΗ (navy)                                     │
-  ├────────────────────────────────────────────────────────────┤
-  │ ΕΠΟΜΕΝΕΣ ΕΠΙΤΑΓΕΣ (πίνακας)                                │
-  └────────────────────────────────────────────────────────────┘
+Μια απλή, γρήγορη ματιά: ΠΕΝΤΕ όμοιες κάρτες, τίποτα άλλο.
 
-ΓΙΑΤΙ ΤΟ «ΣΗΜΕΡΑ» ΕΙΝΑΙ ΠΡΩΤΟ ΚΑΙ ΜΕΓΑΛΟ:
+  ┌──────────┬──────────┬──────────┬──────────┬──────────┐
+  │ ΣΗΜΕΡΑ   │ ΧΘΕΣ     │ ΕΒΔΟΜΑΔΑ │ ΤΙΜΟΛΟΓΙΑ│ ΕΠΟΜΕΝΗ  │
+  │ (στόχος) │          │ ΩΣ ΤΩΡΑ  │ (καθαρό) │ ΕΠΙΤΑΓΗ  │
+  └──────────┴──────────┴──────────┴──────────┴──────────┘
+
+  Μεσαία οθόνη: 3 + 2 · Κινητό: «Σήμερα» σε όλο το πλάτος + 2×2 (βλ. style.css .g5)
+
+ΓΙΑΤΙ ΤΟ «ΣΗΜΕΡΑ» ΕΙΝΑΙ ΠΡΩΤΟ:
 
 Η αναφορά της ημέρας έρχεται με email το βράδυ. Άρα το «σήμερα» είναι κενό μέχρι
 τις 21:00 — αλλά αυτό ΔΕΝ σημαίνει ότι είναι άχρηστο. Το περσινό νούμερο της
 ίδιας μέρας είναι ο στόχος σου: «σήμερα πρέπει να πιάσω 7.400». Είναι το πιο
-σημαντικό νούμερο της μέρας → πάνω αριστερά, με χρυσή γραμμή (IBM Carbon:
-το σημαντικότερο παίρνει τη μεγαλύτερη αντίθεση και θέση).
+σημαντικό νούμερο της μέρας → πρώτη θέση, με λεπτή χρυσή γραμμή.
 
 Η εβδομάδα είναι ΠΑΝΤΑ η τρέχουσα. Κάθε Δευτέρα μηδενίζει μόνη της.
 """
@@ -53,12 +52,9 @@ def render(df_s: pd.DataFrame, df_i: pd.DataFrame, df_t: pd.DataFrame, today: da
         _today_card(df_s, today),
         _yesterday_card(df_s, today),
         *_week_cards(df_s, df_i, today),
-        cols=4,
+        _next_check(df_t, today),
+        cols=5,
     )
-
-    runway = cash_runway(df_t, today, _cash())
-    c.grid(_next_check(df_t, runway, today), cols=1)
-    _upcoming(df_t, runway)
 
 
 def _check_supply_alert(df_t: pd.DataFrame, today: date) -> None:
@@ -227,7 +223,7 @@ def _freshness(df_s: pd.DataFrame, today: date) -> None:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# ΓΡΑΦΗΜΑ & ΕΠΙΤΑΓΕΣ
+# ΕΠΟΜΕΝΗ ΕΠΙΤΑΓΗ — κάρτα ίδια με τις άλλες
 # ══════════════════════════════════════════════════════════════════════════════
 def _cash() -> float:
     """Το διαθέσιμο ταμείο, όπως το έχεις ορίσει στον «Μήνα» (για την κάλυψη)."""
@@ -237,19 +233,22 @@ def _cash() -> float:
         return 0.0
 
 
-def _numbers(df_t: pd.DataFrame) -> dict:
-    """Ημερομηνία επιταγής → αριθμός επιταγής (κενό αν δεν έχει μπει)."""
-    out = {}
+def _number_of(df_t: pd.DataFrame, when: date) -> str:
+    """Ο αριθμός της επιταγής που πληρώνεται `when` (κενό αν δεν έχει μπει)."""
     for _, r in df_t.iterrows():
         cd = r["check_date"]
-        cd = cd.date() if hasattr(cd, "date") else cd
-        num = str(r.get("check_number", "") or "").strip()
-        out[cd] = "" if num.lower() == "nan" else num
-    return out
+        if (cd.date() if hasattr(cd, "date") else cd) == when:
+            num = str(r.get("check_number", "") or "").strip()
+            return "" if num.lower() == "nan" else num
+    return ""
 
 
-def _next_check(df_t: pd.DataFrame, runway: dict, today: date) -> str:
-    """Η επόμενη επιταγή — navy κάρτα (η μόνη με προθεσμία)."""
+def _next_check(df_t: pd.DataFrame, today: date) -> str:
+    """
+    Η επόμενη επιταγή: ποσό, σε πόσες μέρες, και πόσο την καλύπτει το ταμείο
+    (cash_runway, με το ταμείο του «Μήνα») — στη μορφή των υπόλοιπων καρτών.
+    """
+    runway = cash_runway(df_t, today, _cash())
     if not runway["checks"]:
         return c.kpi("Επόμενη επιταγή", None, foot="Καμία επιταγή μπροστά",
                      href=c.link("Τιμολογήσεις"))
@@ -258,18 +257,12 @@ def _next_check(df_t: pd.DataFrame, runway: dict, today: date) -> str:
     days = (ch["date"] - today).days
     days_txt = ("σήμερα" if days == 0 else "αύριο" if days == 1
                 else f"σε {days} ημέρες" if days > 0 else "ληγμένη")
-    return c.next_check(ch["date"], days_txt, ch["amount"],
-                        _numbers(df_t).get(ch["date"], ""), ch["fraction"])
 
+    foot = f"{day_name(ch['date'])} {ch['date']:%d/%m}"
+    number = _number_of(df_t, ch["date"])
+    if number:
+        foot += f" · Αρ. {number}"
+    foot += f" · Κάλυψη {ch['fraction'] * 100:.0f}%"
 
-def _upcoming(df_t: pd.DataFrame, runway: dict) -> None:
-    """Οι επόμενες 4 επιταγές με την κάλυψή τους από το ταμείο."""
-    if not runway["checks"]:
-        return
-    nums = _numbers(df_t)
-    rows = [
-        {"date": ch["date"], "amount": ch["amount"], "number": nums.get(ch["date"], ""),
-         "status": ch["status"], "fraction": ch["fraction"]}
-        for ch in runway["checks"][:4]
-    ]
-    c.checks_table(rows, href=c.link("Μήνας"))
+    return c.kpi("Επόμενη επιταγή", ch["amount"], badge=days_txt,
+                 progress=ch["fraction"], foot=foot, href=c.link("Τιμολογήσεις"))
