@@ -806,6 +806,13 @@ a.plain:hover > .row { border-color: var(--blue-soft); background: var(--surface
 }
 
 /* Οι τιμές, ανά χρονιά — χρώμα για να ξεχωρίζει ποιο είναι ποιανού έτους */
+/* Μέρα χωρίς φετινά (μελλοντική/κενή): αχνή ημέρα· τα πέρσι/πρόπερσι μένουν ευανάγνωστα */
+.tbl3 tbody tr.noyr td.day b, .tbl3 tbody tr.noyr td.day .dt { color: var(--dim); }
+.tbl3 tbody tr.noyr td.v.now { color: var(--dim); font-weight: 400; }
+/* Η μέρα που διάλεξες στο ημερολόγιο */
+.tbl3 tbody tr.picked td, .tbl3 tbody tr.picked td.day { background: var(--gold-tint); }
+.tbl3 tbody tr.picked td.day { box-shadow: inset 3px 0 0 var(--gold); }
+
 .tbl3 td.v.now   { color: var(--text); font-weight: 700; }
 .tbl3 td.v.then  { color: var(--muted); }
 .tbl3 td.v.then2 { color: var(--dim); font-size: .82rem; }

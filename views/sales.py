@@ -5,8 +5,9 @@ views/sales.py — Πωλήσεις.
   • Εβδομαδιαία — μια εβδομάδα κάθε φορά, με τις μέρες της
   • Ετήσια      — ανά μήνα, με λήψη CSV
 
-Οι μελλοντικές μέρες δείχνουν τα ΠΕΡΣΙΝΑ στοιχεία της ίδιας μέρας. Χρήσιμο για
-προγραμματισμό βάρδιας: «τι έκανε πέρσι το Σάββατο πριν το Πάσχα;»
+Η εβδομαδιαία δείχνει ΠΑΝΤΑ όλη την εβδομάδα (Δευ → Κυρ) — και μελλοντική: οι
+μέρες χωρίς φετινά δείχνουν πέρσι/πρόπερσι. Χρήσιμο για προγραμματισμό βάρδιας:
+«τι έκανε πέρσι το Σάββατο πριν το Πάσχα;»
 """
 
 from datetime import date, timedelta
@@ -87,75 +88,87 @@ def _anomalies(df: pd.DataFrame, today: date) -> None:
 
 # ══════════════════════════════════════════════════════════════════════════════
 def _weekly(df: pd.DataFrame, today: date) -> None:
+    """
+    ΟΛΗ η εβδομάδα (Δευτέρα → Κυριακή) της μέρας που διάλεξες — παλιά,
+    τρέχουσα ή μελλοντική.
+
+    Κάθε μέρα δείχνει φέτος (αν υπάρχει), πέρσι και πρόπερσι. Έτσι βλέπεις και
+    τι ΕΡΧΕΤΑΙ: «τι έκανε πέρσι αυτή η εβδομάδα, μέρα-μέρα;»
+
+    Οι κάρτες:
+      • Με φετινά στοιχεία → φέτος vs τις ΙΔΙΕΣ μέρες πέρσι (ίδια λογική με
+        week_to_date), + «όλη η εβδομάδα πέρσι» στην υποσημείωση.
+      • Χωρίς φετινά (π.χ. μελλοντική) → τα περσινά σύνολα όλης της εβδομάδας,
+        σε σύγκριση με πρόπερσι.
+    """
     col, _ = st.columns([1, 2])
     with col:
         picked = st.date_input("Ημέρα", today, key="sales_day", format="DD/MM/YYYY")
 
-    if picked > today:
-        _future(df, picked)
-        return
-
     start, end = week_range(picked)
-    dts = as_dates(df["date"])
+    rows = [
+        {
+            "d": d,
+            "now": sales_row(df, d),
+            "ly": sales_row(df, last_year(d)),
+            "ly2": sales_row(df, two_years_ago(d)),
+        }
+        for d in (start + timedelta(days=i) for i in range(7))
+    ]
+    with_now = [r for r in rows if r["now"]]
 
-    week = df[(dts >= start) & (dts <= end)].sort_values("date")
+    if with_now:
+        # Πέρσι = ΙΔΙΕΣ μέρες με φέτος: κόβουμε στην τελευταία μέρα που έχει
+        # πραγματικά δεδομένα φέτος, όχι στην Κυριακή.
+        last_now = max(r["d"] for r in with_now)
+        same = [r for r in rows if r["d"] <= last_now]
 
-    if week.empty:
-        c.empty(
-            f"Καμία πώληση από {start:%d/%m} έως {end:%d/%m}",
-            "Αν η εβδομάδα έχει περάσει, τρέξε τον έλεγχο δεδομένων παραπάνω."
+        full_ly = _sum(rows, "ly", "net_sales")
+        foot = f"Όλη η εβδομάδα πέρσι: {c.eur(full_ly)}" if full_ly is not None else ""
+
+        c.grid(
+            c.scale("Καθαρές πωλήσεις", _sum(with_now, "now", "net_sales"),
+                    _sum(same, "ly", "net_sales"), foot=foot),
+            c.scale("Πελάτες", _sum(with_now, "now", "customers"),
+                    _sum(same, "ly", "customers"), fmt=c.num),
+            c.scale("Μέσο καλάθι", _avg(with_now, "now", "avg_basket"),
+                    _avg(same, "ly", "avg_basket")),
+            cols=3,
         )
-        return
-
-    # Πέρσι = ΙΔΙΕΣ μέρες με φέτος (ίδια λογική με week_to_date): κόβουμε στην
-    # τελευταία μέρα που έχει πραγματικά δεδομένα φέτος, όχι στην Κυριακή.
-    last_now = max(as_dates(week["date"]))
-    ly_start, ly_end = last_year(start), last_year(last_now)
-    ly_week = df[(dts >= ly_start) & (dts <= ly_end)]
-
-    now_total = float(week["net_sales"].sum())
-    now_cust = float(week["customers"].sum()) if week["customers"].notna().any() else None
-    now_basket = float(week["avg_basket"].mean()) if week["avg_basket"].notna().any() else None
-
-    then_total = float(ly_week["net_sales"].sum()) if not ly_week.empty else None
-    then_cust = float(ly_week["customers"].sum()) if not ly_week.empty and ly_week["customers"].notna().any() else None
-    then_basket = float(ly_week["avg_basket"].mean()) if not ly_week.empty and ly_week["avg_basket"].notna().any() else None
-
-    c.grid(
-        c.scale("Καθαρές πωλήσεις", now_total, then_total),
-        c.scale("Πελάτες", now_cust, then_cust, fmt=c.num),
-        c.scale("Μέσο καλάθι", now_basket, then_basket),
-        cols=3,
-    )
+    else:
+        why = ("δεν έχει έρθει ακόμη" if start > today
+               else "δεν έχει φετινές πωλήσεις")
+        c.note(
+            f"Η εβδομάδα <b>{start:%d/%m} — {end:%d/%m/%Y}</b> {why}. "
+            f"Παρακάτω βλέπεις <b>πέρσι</b> και <b>πρόπερσι</b>, μέρα-μέρα.",
+            "info",
+        )
+        c.grid(
+            c.scale("Καθαρές πωλήσεις · πέρσι", _sum(rows, "ly", "net_sales"),
+                    _sum(rows, "ly2", "net_sales"), now_tag="Πέρσι", then_tag="Πρόπερσι"),
+            c.scale("Πελάτες · πέρσι", _sum(rows, "ly", "customers"),
+                    _sum(rows, "ly2", "customers"), fmt=c.num,
+                    now_tag="Πέρσι", then_tag="Πρόπερσι"),
+            c.scale("Μέσο καλάθι · πέρσι", _avg(rows, "ly", "avg_basket"),
+                    _avg(rows, "ly2", "avg_basket"), now_tag="Πέρσι", then_tag="Πρόπερσι"),
+            cols=3,
+        )
 
     c.section(f"Ημέρες · {start:%d/%m} — {end:%d/%m/%Y}")
-    _table(df, week)
+    has_prop = any(r["ly2"] for r in rows)
+    c.html(_table_html(rows, has_prop, picked))
 
 
-def _future(df: pd.DataFrame, picked: date) -> None:
-    """
-    Μελλοντική μέρα → δείχνουμε τι έγινε την ίδια μέρα πέρσι.
-    Έτσι ξέρεις πόσο κόσμο να βάλεις.
-    """
-    ref = last_year(picked)
-    ly = sales_row(df, ref)
+def _sum(rows: list, year: str, key: str) -> float | None:
+    """Άθροισμα ενός μέτρου (π.χ. net_sales) για μια χρονιά (now/ly/ly2)· None αν δεν υπάρχει τίποτα."""
+    vals = [r[year][key] for r in rows if r[year] and r[year].get(key) is not None]
+    return float(sum(vals)) if vals else None
 
-    c.note(
-        f"Η <b>{day_name(picked)} {picked:%d/%m/%Y}</b> δεν έχει έρθει ακόμη. "
-        f"Παρακάτω τα στοιχεία της <b>{day_name(ref)} {ref:%d/%m/%Y}</b> — της ίδιας μέρας πέρσι.",
-        "info",
-    )
 
-    if not ly:
-        c.empty("Δεν υπάρχουν περσινά στοιχεία για αυτή τη μέρα")
-        return
-
-    c.grid(
-        c.stat("Καθαρές πωλήσεις", ly["net_sales"], accent="var(--prev)"),
-        c.stat("Πελάτες", ly["customers"], fmt=c.num, accent="var(--prev)"),
-        c.stat("Μέσο καλάθι", ly["avg_basket"], accent="var(--prev)"),
-        cols=3,
-    )
+def _avg(rows: list, year: str, key: str) -> float | None:
+    """Μέσος όρος ενός μέτρου για μια χρονιά· None αν δεν υπάρχει τίποτα."""
+    vals = [r[year][key] for r in rows if r[year] and r[year].get(key) is not None]
+    return float(sum(vals) / len(vals)) if vals else None
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -224,51 +237,23 @@ def _download(df: pd.DataFrame, year: int) -> None:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-def _table(df: pd.DataFrame, week: pd.DataFrame) -> None:
-    """
-    Ο αναλυτικός πίνακας της εβδομάδας — ΤΡΙΑ χρόνια δίπλα-δίπλα.
-
-    Για κάθε μέρα: πωλήσεις / πελάτες / καλάθι, και για τις τρεις χρονιές
-    (φέτος · πέρσι · πρόπερσι), με χρώμα ανά χρονιά ώστε να ξεχωρίζουν:
-      • Φέτος    — χρυσό (το κανονικό)
-      • Πέρσι    — γκρι
-      • Πρόπερσι — ξεθωριασμένο χρυσό
-
-    Η στήλη «Πρόπερσι» εμφανίζεται ΜΟΝΟ αν υπάρχει έστω μία μέρα με δεδομένα
-    δύο χρόνια πίσω — αλλιώς δεν γεμίζουμε τον πίνακα με κενά.
-
-    ΠΟΤΕ pandas Styler — χτίζει τεράστιο HTML στη μνήμη και ρίχνει το cloud.
-    Φτιάχνουμε δικό μας HTML (ελαφρύ) με δική του CSS, που κάνει και σκρολ
-    δεξιά στο κινητό.
-    """
-    t = week.sort_values("date", ascending=False).copy()
-
-    # Μαζεύουμε φέτος/πέρσι/πρόπερσι για κάθε μέρα.
-    rows = []
-    has_prop = False
-    for _, r in t.iterrows():
-        d = r["date"].date() if hasattr(r["date"], "date") else r["date"]
-        ly = sales_row(df, last_year(d))
-        ly2 = sales_row(df, two_years_ago(d))
-        if ly2:
-            has_prop = True
-        rows.append({
-            "d": d,
-            "now": {"net": r.get("net_sales"), "cust": r.get("customers"), "bskt": r.get("avg_basket")},
-            "ly":  ly,
-            "ly2": ly2,
-        })
-
-    c.html(_table_html(rows, has_prop))
-
-
 def _cell(val, fmt, cls: str) -> str:
     """Ένα κελί τιμής, με την κλάση της χρονιάς (now/then/then2)."""
     return f'<td class="v {cls}">{fmt(val)}</td>'
 
 
-def _table_html(rows: list, has_prop: bool) -> str:
-    """Χτίζει το HTML του τρι-ετούς πίνακα. Καθαρό string — κανένα Styler."""
+def _table_html(rows: list, has_prop: bool, picked: date) -> str:
+    """
+    Ο αναλυτικός πίνακας της εβδομάδας — ΤΡΙΑ χρόνια δίπλα-δίπλα, Δευ → Κυρ.
+
+    Για κάθε μέρα: πωλήσεις / πελάτες / καλάθι, φέτος · πέρσι · πρόπερσι.
+    Μέρες χωρίς φετινά: «—» στο φέτος και αχνή ημερομηνία (.noyr). Η μέρα που
+    διάλεξες ξεχωρίζει (.picked). Η στήλη «Πρόπερσι» μόνο αν υπάρχει έστω μία
+    μέρα με δεδομένα δύο χρόνια πίσω.
+
+    ΠΟΤΕ pandas Styler — χτίζει τεράστιο HTML στη μνήμη και ρίχνει το cloud.
+    Καθαρό string, με δική του CSS, που κάνει και σκρολ δεξιά στο κινητό.
+    """
     # Πόσες υπο-στήλες ανά μέτρο: 2 (φέτος+πέρσι) ή 3 (+πρόπερσι).
     span = 3 if has_prop else 2
 
@@ -296,7 +281,7 @@ def _table_html(rows: list, has_prop: bool) -> str:
     body = []
     for row in rows:
         d = row["d"]
-        now, ly, ly2 = row["now"], row["ly"], row["ly2"]
+        now, ly, ly2 = row["now"] or {}, row["ly"], row["ly2"]
 
         tds = [
             f'<td class="day"><b>{day_name(d, short=True)}</b>'
@@ -304,24 +289,25 @@ def _table_html(rows: list, has_prop: bool) -> str:
         ]
 
         # Πωλήσεις
-        tds.append(_cell(now["net"], c.eur, "now"))
+        tds.append(_cell(now.get("net_sales"), c.eur, "now"))
         tds.append(_cell(ly["net_sales"] if ly else None, c.eur, "then"))
         if has_prop:
             tds.append(_cell(ly2["net_sales"] if ly2 else None, c.eur, "then2"))
 
         # Πελάτες
-        tds.append(_cell(now["cust"], c.num, "now"))
+        tds.append(_cell(now.get("customers"), c.num, "now"))
         tds.append(_cell(ly["customers"] if ly else None, c.num, "then"))
         if has_prop:
             tds.append(_cell(ly2["customers"] if ly2 else None, c.num, "then2"))
 
         # Καλάθι
-        tds.append(_cell(now["bskt"], c.eur, "now"))
+        tds.append(_cell(now.get("avg_basket"), c.eur, "now"))
         tds.append(_cell(ly["avg_basket"] if ly else None, c.eur, "then"))
         if has_prop:
             tds.append(_cell(ly2["avg_basket"] if ly2 else None, c.eur, "then2"))
 
-        body.append(f'<tr>{"".join(tds)}</tr>')
+        cls = " ".join(k for k, on in (("noyr", not now), ("picked", d == picked)) if on)
+        body.append(f'<tr class="{cls}">{"".join(tds)}</tr>')
 
     return (
         '<div class="tbl3-wrap">'
