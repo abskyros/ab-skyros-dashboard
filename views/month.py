@@ -41,12 +41,13 @@ CASH_SETTING = "cash_on_hand"   # κλειδί στο φύλλο settings για
 FIXED_SETTING = "fixed_expenses"  # κλειδί για τα πάγια έξοδα (JSON)
 
 COLS = ["Ημ. επιταγής", "Επιταγή", "Πωλήσεις περιόδου",
-        "Έξοδα", "Μένει", "Αρ. επιταγής", "", "Κάλυψη ταμείου"]
+        "Έξοδα", "Μένει", "Αρ. επιταγής", "Voucher"]
 
 # Ποιες στήλες γράφονται πίσω στο Sheet, και σε ποιο πεδίο.
 EDITABLE = {
     "Αρ. επιταγής": "check_number",
     "Έξοδα": "expenses",
+    "Voucher": "voucher",
 }
 
 
@@ -70,21 +71,14 @@ def render(df_t: pd.DataFrame, df_s: pd.DataFrame, today: date) -> None:
 
     _summary(rows)
 
-    # ── ΤΑΜΕΙΟ + ΚΑΛΥΨΗ ──
+    # ── ΤΑΜΕΙΟ ──
     #
-    # Το ταμείο μπαίνει πάνω από τον πίνακα. Η κάλυψη κάθε επιταγής μπαίνει
-    # ΜΕΣΑ στον πίνακα, ως στήλη με μπάρα — δίπλα στον αριθμό επιταγής.
+    # Το ταμείο μπαίνει πάνω από τον πίνακα, η σύνοψη κάλυψης κάτω. (Η κάλυψη
+    # φαίνεται και στην Επισκόπηση και στις Επιταγές — όχι ως στήλη του πίνακα.)
     cash = _cash_input(key="month")
     runway = cash_runway(df_t, today, cash)
 
-    # Χάρτης: ημερομηνία επιταγής → κάλυψη. Ο πίνακας δείχνει ΤΟΝ ΜΗΝΑ που
-    # διάλεξες, ενώ η κάλυψη υπολογίζεται σε ΟΛΕΣ τις μελλοντικές επιταγές.
-    coverage = {
-        _cov_key(ch["date"]): ch
-        for ch in runway["checks"]
-    }
-
-    _editor(rows, coverage)
+    _editor(rows)
     _runway_summary(runway)
 
 
@@ -117,8 +111,8 @@ def _cash_input(key: str) -> float:
             step=1000.0,
             format="%.0f",
             key=ss_key,
-            help="Το ποσό που έχεις τώρα. Η στήλη «Κάλυψη ταμείου» δείχνει ως "
-                 "πού φτάνει στις επόμενες επιταγές. Θυμάται την τελευταία τιμή.",
+            help="Το ποσό που έχεις τώρα. Από αυτό υπολογίζεται ως πού φτάνει στις "
+                 "επόμενες επιταγές. Θυμάται την τελευταία τιμή.",
         )
 
     last = st.session_state.get(f"{ss_key}_saved")
@@ -435,23 +429,13 @@ def _summary(rows: list[dict]) -> None:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-def _editor(rows: list[dict], coverage: dict | None = None) -> None:
+def _editor(rows: list[dict]) -> None:
     """
-    Ο πίνακας ανά περίοδο.
-
-    coverage: {ημερομηνία επιταγής → {"fraction": 0-1, "status": full|partial|empty}}
-    Αν δοθεί, προστίθεται στήλη «Κάλυψη ταμείου» με μπάρα σε ΚΑΘΕ γραμμή —
-    δίπλα στον αριθμό επιταγής, στο ύψος της κάθε επιταγής.
+    Ο πίνακας ανά περίοδο. Τρία πεδία συμπληρώνεις εσύ: έξοδα, αριθμό επιταγής
+    και voucher (ο κωδικός όταν στέλνεις το πακέτο).
     """
     c.section("Ανά περίοδο")
-    st.caption("Συμπλήρωσε τον αριθμό επιταγής και τα έξοδα — αποθηκεύονται αυτόματα.")
-
-    coverage = coverage or {}
-
-    # Σήμα κατάστασης — το ProgressColumn δίνει ΕΝΑ χρώμα σε όλη τη στήλη,
-    # οπότε το χρώμα το δίνουμε με μια λέξη δίπλα, βαμμένη από τον Styler.
-    MARK = {"full": "Πλήρης", "partial": "Μερική", "empty": "Δεν φτάνει", None: ""}
-    MARK_COLOR = {"Πλήρης": "#047857", "Μερική": "#B45309", "Δεν φτάνει": "#64748B"}
+    st.caption("Συμπλήρωσε έξοδα, αριθμό επιταγής και voucher — αποθηκεύονται αυτόματα.")
 
     table = pd.DataFrame([
         {
@@ -463,10 +447,7 @@ def _editor(rows: list[dict], coverage: dict | None = None) -> None:
             "Έξοδα":             r["expenses_raw"],
             "Μένει":             c.eur(r["balance"]),
             "Αρ. επιταγής":      r["check_number"],
-            "":                  MARK.get(
-                                     (coverage.get(_cov_key(r["check_date"])) or {}).get("status")
-                                 ),
-            "Κάλυψη ταμείου":    (coverage.get(_cov_key(r["check_date"])) or {}).get("fraction"),
+            "Voucher":           r["voucher"],
         }
         for r in rows
     ])
@@ -479,11 +460,11 @@ def _editor(rows: list[dict], coverage: dict | None = None) -> None:
     # κόκκινο, μπλε, πράσινο, κίτρινο — που «φώναζαν».)
     #
     # ΠΡΟΣΟΧΗ: το Streamlit εφαρμόζει Styler ΜΟΝΟ σε μη-επεξεργάσιμες στήλες.
-    # Άρα «Αρ. επιταγής» και «Έξοδα» μένουν λευκές — που βολεύει: ξεχωρίζουν
-    # αμέσως ως τα δύο πεδία που συμπληρώνεις εσύ.
+    # Άρα «Έξοδα», «Αρ. επιταγής» και «Voucher» μένουν λευκές — που βολεύει:
+    # ξεχωρίζουν αμέσως ως τα πεδία που συμπληρώνεις εσύ.
     READ_ONLY_TINT = "#F7F8FA"
     tinted = [col for col in ("Ημ. επιταγής", "Περίοδος", "Επιταγή", "Πωλήσεις περιόδου",
-                              "Μένει", "", "Κάλυψη ταμείου") if col in table.columns]
+                              "Μένει") if col in table.columns]
 
     # ── ΜΟΡΦΗ ΠΟΣΩΝ ──
     #
@@ -491,13 +472,8 @@ def _editor(rows: list[dict], coverage: dict | None = None) -> None:
     # δεν βάζει διαχωριστικό χιλιάδων, και τα κενά (μέλλουσες περίοδοι) ο Styler
     # τα γράφει «None». Άρα τα ποσά μπαίνουν στον πίνακα ΗΔΗ ως κείμενο με
     # ελληνική μορφή (c.eur → «81.584,88 €», κενό → «—»). Είναι στήλες μόνο για
-    # ανάγνωση, οπότε η αποθήκευση (Έξοδα, Αρ. επιταγής) δεν επηρεάζεται.
+    # ανάγνωση, οπότε η αποθήκευση των πεδίων σου δεν επηρεάζεται.
     styled = table.style.set_properties(subset=tinted, **{"background-color": READ_ONLY_TINT})
-    if "" in table.columns:
-        styled = styled.map(
-            lambda v: f"color: {MARK_COLOR[v]}; font-weight: 700" if v in MARK_COLOR else "",
-            subset=[""],
-        )
 
     st.data_editor(
         styled,
@@ -505,7 +481,7 @@ def _editor(rows: list[dict], coverage: dict | None = None) -> None:
         width="stretch",
         hide_index=True,
         column_order=COLS,
-        row_height=42,          # ψηλότερες γραμμές — να «αναπνέει» η μπάρα
+        row_height=42,
         column_config={
             "Ημ. επιταγής":      st.column_config.TextColumn(disabled=True, width="small"),
             "Περίοδος":          st.column_config.TextColumn(disabled=True),
@@ -516,19 +492,9 @@ def _editor(rows: list[dict], coverage: dict | None = None) -> None:
                 help="Ο αριθμός της επιταγής, όπως τον γράφεις στο μπλοκ",
                 width="small",
             ),
-            "": st.column_config.TextColumn(
-                disabled=True,
+            "Voucher": st.column_config.TextColumn(
+                help="Ο κωδικός voucher, όταν στέλνεις το πακέτο",
                 width="small",
-                help="Πλήρης: καλύπτεται όλη · Μερική: εν μέρει · Δεν φτάνει: το ταμείο δεν φτάνει",
-            ),
-            "Κάλυψη ταμείου": st.column_config.ProgressColumn(
-                "Κάλυψη ταμείου",
-                help="Πόσο καλύπτει το διαθέσιμο ταμείο αυτή την επιταγή, "
-                     "αν πληρώσεις τις επιταγές με τη σειρά",
-                format="percent",
-                min_value=0.0,
-                max_value=1.0,
-                width="medium",
             ),
             "Έξοδα": st.column_config.TextColumn(
                 help="Τα έξοδα της περιόδου σε ευρώ, π.χ. 1250.50",
@@ -536,12 +502,6 @@ def _editor(rows: list[dict], coverage: dict | None = None) -> None:
             ),
         },
     )
-
-
-def _cov_key(d) -> str:
-    """Κλειδί αντιστοίχισης επιταγής ↔ κάλυψης. Η ημερομηνία, ως κείμενο."""
-    dd = d.date() if hasattr(d, "date") else d
-    return f"{dd:%Y-%m-%d}"
 
 
 def _period_label(r: dict) -> str:

@@ -953,6 +953,7 @@ def month_rows(df_t: pd.DataFrame, df_s: pd.DataFrame, year: int, month: int | N
             "expenses":    expenses,
             "expenses_raw": str(r.get("expenses", "") or ""),
             "check_number": str(r.get("check_number", "") or ""),
+            "voucher":     str(r.get("voucher", "") or ""),
             "ly_amount":   match_last_year_check(df_t, cd),
             "ly_sales":    sales_between(df_s, ly_start, ly_end),
             "balance":     (period_sales - amount - expenses) if period_sales is not None else None,
