@@ -453,6 +453,26 @@ def monthly_breakdown(df: pd.DataFrame, year: int) -> list[dict]:
     return out
 
 
+def month_weeks(year: int, month: int) -> list[tuple[date, date]]:
+    """
+    Οι ΟΛΟΚΛΗΡΕΣ εβδομάδες (Δευτέρα → Κυριακή) ενός μήνα: 4 ή 5.
+
+    Μια εβδομάδα που μοιράζεται ανάμεσα σε δύο μήνες πάει εκεί που έχει τις
+    περισσότερες μέρες — δηλαδή στον μήνα της ΠΕΜΠΤΗΣ της. Έτσι κάθε εβδομάδα
+    έχει 7 μέρες και συγκρίνεται δίκαια με τις άλλες. Το άθροισμά τους ΔΕΝ
+    βγάζει ακριβώς το σύνολο του μήνα.
+    """
+    first = date(year, month, 1)
+    thursday = first + timedelta(days=(3 - first.weekday()) % 7)
+
+    out = []
+    while thursday.month == month:
+        monday = thursday - timedelta(days=3)
+        out.append((monday, monday + timedelta(days=6)))
+        thursday += timedelta(days=7)
+    return out
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # ΠΑΡΑΣΤΑΤΙΚΑ
 # ══════════════════════════════════════════════════════════════════════════════

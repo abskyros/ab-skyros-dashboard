@@ -19,7 +19,7 @@ from core.config import SHEET_SALES
 from core.metrics import (
     week_range, last_year, two_years_ago, day_name, as_dates,
     sales_on, sales_row, monthly_breakdown, weekly_series,
-    find_anomalies,
+    find_anomalies, month_name, month_weeks, YOY_OFFSET_DAYS,
 )
 from core.sheets import (
     load_sales, merge_sales, update_sales,
@@ -199,21 +199,67 @@ def _yearly(df: pd.DataFrame, today: date) -> None:
         cols=3,
     )
 
-    months = monthly_breakdown(df, year)
-    prev_months = {m["month"]: m["total"] for m in monthly_breakdown(df, year - 1)}
-
-    if months:
-        c.section("Ανά μήνα")
-        c.html("".join(
-            c.row(
-                m["name"],
-                m["total"],
-                f"{m['days']} ημέρες · {c.num(m['customers'])} πελάτες · ΜΟ {c.eur(m['avg_day'])}/ημέρα",
-            )
-            for m in months
-        ))
+    c.section("Ανά μήνα")
+    c.year_months(*_by_month(df, year, today))
 
     _download(cur, year)
+
+
+def _by_month(df: pd.DataFrame, year: int, today: date) -> tuple[list, list]:
+    """
+    Οι 12 μήνες, με το έτος που διάλεξες και τα δύο προηγούμενα, και κάτω από
+    κάθε μήνα οι εβδομάδες του. Χρονιές χωρίς κανένα στοιχείο δεν εμφανίζονται.
+
+    Στις προηγούμενες χρονιές η εβδομάδα είναι η ίδια με μετατόπιση 364/728
+    ημερών (ο κανόνας της εφαρμογής): Δευτέρα με Δευτέρα.
+
+    Η «καλύτερη εβδομάδα» μετράει μόνο τελειωμένες εβδομάδες — μια που τρέχει
+    ακόμα δεν έχει όλες τις μέρες της.
+
+    → (χρονιές, μήνες)
+    """
+    have = {d.year for d in as_dates(df["date"])}
+    years = [y for y in (year, year - 1, year - 2) if y in have]
+
+    # Λεξικό μέρα → πωλήσεις: 12 μήνες × 5 εβδομάδες × 3 χρονιές θα ήταν εκατοντάδες
+    # φιλτραρίσματα του πίνακα σε κάθε φόρτωση της σελίδας.
+    daily = dict(zip(as_dates(df["date"]), df["net_sales"].astype(float)))
+    totals = {y: {m["month"]: m for m in monthly_breakdown(df, y)} for y in years}
+
+    def week_sum(monday: date, back: int) -> float | None:
+        days = (monday + timedelta(days=i - back * YOY_OFFSET_DAYS) for i in range(7))
+        vals = [daily[d] for d in days if d in daily]
+        return float(sum(vals)) if vals else None
+
+    months = []
+    for m in range(1, 13):
+        weeks = [
+            {
+                "label": f"{i}η εβδομάδα · {mon:%d/%m}–{sun:%d/%m}",
+                "vals": [week_sum(mon, year - y) for y in years],
+                "running": mon <= today <= sun,
+            }
+            for i, (mon, sun) in enumerate(month_weeks(year, m), start=1)
+        ]
+
+        # Η καλύτερη εβδομάδα κάθε χρονιάς (δείκτης γραμμής ανά στήλη).
+        best = []
+        for col, y in enumerate(years):
+            done = [(w["vals"][col], i) for i, w in enumerate(weeks)
+                    if w["vals"][col] is not None and not (w["running"] and y == year)]
+            best.append(max(done)[1] if done else None)
+
+        cur = totals[years[0]].get(m)
+        months.append({
+            "name": month_name(m),
+            "running": year == today.year and m == today.month,
+            "vals": [(totals[y].get(m) or {}).get("total") for y in years],
+            "meta": (f"{cur['days']} ημέρες · {c.num(cur['customers'])} πελάτες · "
+                     f"ΜΟ {c.eur(cur['avg_day'])}/ημέρα") if cur else "",
+            "weeks": weeks,
+            "best": best,
+        })
+    return years, months
 
 
 def _download(df: pd.DataFrame, year: int) -> None:

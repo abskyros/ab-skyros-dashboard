@@ -617,6 +617,67 @@ a:hover > .stat {
 
 a.plain { text-decoration: none; color: inherit; display: block; height: 100%; }
 
+/* ── ΠΩΛΗΣΕΙΣ · ΑΝΑ ΜΗΝΑ (μήνες με 3 χρονιές, εβδομάδες από κάτω) ─────────── */
+.ym {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  margin-bottom: .75rem;
+}
+.ym-row {
+  display: grid;
+  align-items: center;
+  gap: .75rem;
+  padding: .7rem 1.1rem;
+  font-size: .9rem;
+}
+.ym-c1 .ym-row { grid-template-columns: minmax(0, 1fr) minmax(0, 150px); }
+.ym-c2 .ym-row { grid-template-columns: minmax(0, 1fr) repeat(2, minmax(0, 150px)); }
+.ym-c3 .ym-row { grid-template-columns: minmax(0, 1fr) repeat(3, minmax(0, 150px)); }
+
+.ym-head {
+  font-size: .78rem;
+  font-weight: 600;
+  background: var(--surface-alt);
+  border-bottom: 1px solid var(--line);
+}
+.ym-head .ym-name { color: var(--muted); }
+
+.ym-month + .ym-month { border-top: 1px solid var(--line-soft); }
+.ym-month > summary { cursor: pointer; list-style: none; }
+.ym-month > summary::-webkit-details-marker { display: none; }
+.ym-month > summary:hover { background: var(--surface-alt); }
+.ym-month > summary .ym-name { font-weight: 600; color: var(--ink); }
+.ym-month > summary .ym-name::before {
+  content: '›';
+  display: inline-block;
+  width: 1em;
+  color: var(--gold);
+  font-weight: 700;
+  transition: transform .12s ease;
+}
+.ym-month[open] > summary .ym-name::before { transform: rotate(90deg); }
+.ym-month[open] > summary { background: var(--gold-tint); }
+
+.ym-v {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.ym-v.y0 { color: var(--ink); font-weight: 600; }
+.ym-v.y1 { color: var(--muted); }
+.ym-v.y2 { color: var(--dim); }
+
+.ym-run { font-size: .7rem; font-weight: 500; color: var(--gold-deep); white-space: nowrap; }
+
+.ym-body { background: var(--surface-alt); border-top: 1px solid var(--line-soft); padding-bottom: .3rem; }
+.ym-meta { padding: .55rem 1.1rem .15rem; font-size: .78rem; color: var(--muted); }
+.ym-week { padding-top: .45rem; padding-bottom: .45rem; font-size: .84rem; }
+.ym-week .ym-name { color: var(--text); padding-left: 1em; }
+/* Η καλύτερη εβδομάδα κάθε χρονιάς */
+.ym-v.best { color: #0E7A45; font-weight: 700; }
+
 /* ── ΚΑΡΤΑ ΕΠΙΤΑΓΗΣ ──────────────────────────────────────────────────────── */
 /*
    Η επιταγή είναι το μόνο πράγμα εδώ που έχει ΠΡΟΘΕΣΜΙΑ.
@@ -1216,6 +1277,17 @@ button[data-testid="stBaseButton-primary"]:active {
   .g2, .g3 { grid-template-columns: 1fr; }
 
   .g4 { grid-template-columns: 1fr; }
+
+  /* Ανά μήνα: 3 ποσά + όνομα σε 350px — πιο στενά, οι εβδομάδες σε δύο γραμμές */
+  .ym-row { gap: .35rem; padding: .6rem .6rem; font-size: .76rem; }
+  .ym-c1 .ym-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .ym-c2 .ym-row { grid-template-columns: minmax(0, 1fr) repeat(2, auto); }
+  .ym-c3 .ym-row { grid-template-columns: minmax(0, 1fr) repeat(3, auto); }
+  .ym-v { min-width: 4.9rem; }
+  .ym-week { font-size: .72rem; }
+  .ym-week .ym-name { grid-column: 1 / -1; padding-left: 0; font-weight: 600; }
+  .ym-week > :nth-child(2) { grid-column-start: 2; }   /* τα ποσά κάτω από τις στήλες των ετών */
+  .ym-meta { padding: .5rem .6rem .1rem; font-size: .72rem; }
 
   /* Επισκόπηση: «Σήμερα» σε όλο το πλάτος, οι άλλες 4 σε 2×2 */
   .g5 { grid-template-columns: 1fr 1fr; }

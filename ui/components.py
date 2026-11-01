@@ -541,6 +541,52 @@ def kpi(
     return f'<a href="{href}" target="_self" class="plain">{body}</a>' if href else body
 
 
+def year_months(years: list, months: list[dict]) -> None:
+    """
+    Πίνακας «Ανά μήνα»: μια στήλη ανά χρονιά (από τη νεότερη). Κλικ σε μήνα →
+    ανοίγουν από κάτω οι εβδομάδες του, με τις ίδιες χρονιές.
+
+    <details> και όχι st.expander: ανοίγει ακαριαία στον browser (χωρίς rerun),
+    και οι στήλες των ποσών στοιχίζονται ανάμεσα στους μήνες.
+    """
+    tone = ["y0", "y1", "y2"]
+
+    def cells(vals: list, best=()) -> str:
+        return "".join(
+            f'<span class="ym-v {tone[i]}{" best" if i in best else ""}">{eur(v)}</span>'
+            for i, v in enumerate(vals)
+        )
+
+    head = "".join(f'<span class="ym-v {tone[i]}">{y}</span>' for i, y in enumerate(years))
+    rows = []
+    for m in months:
+        note = ' <span class="ym-run">ως τώρα</span>' if m["running"] else ""
+        weeks = "".join(
+            '<div class="ym-row ym-week">'
+            f'<span class="ym-name">{_esc(w["label"])}'
+            + (' <span class="ym-run">ως τώρα</span>' if w["running"] else "")
+            + '</span>'
+            + cells(w["vals"], [col for col, b in enumerate(m["best"]) if b == i])
+            + '</div>'
+            for i, w in enumerate(m["weeks"])
+        )
+        meta = f'<div class="ym-meta">{_esc(m["meta"])}</div>' if m["meta"] else ""
+        rows.append(
+            '<details class="ym-month">'
+            f'<summary class="ym-row"><span class="ym-name">{_esc(m["name"])}{note}</span>'
+            f'{cells(m["vals"])}</summary>'
+            f'<div class="ym-body">{meta}{weeks}</div>'
+            '</details>'
+        )
+
+    html(
+        f'<div class="ym ym-c{len(years)}">'
+        f'<div class="ym-row ym-head"><span class="ym-name">Μήνας</span>{head}</div>'
+        f'{"".join(rows)}'
+        '</div>'
+    )
+
+
 def grid(*cards: str, cols: int = 3) -> None:
     html(f'<div class="grid g{cols}">{"".join(cards)}</div>')
 
