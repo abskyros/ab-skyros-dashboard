@@ -615,6 +615,27 @@ def upcoming_checks(df: pd.DataFrame, today: date) -> list[dict]:
     return out
 
 
+def last_sent_check(df: pd.DataFrame, edits: dict | None = None) -> date | None:
+    """
+    Ως ποια επιταγή έχουν σταλεί τα πακέτα: η ΠΙΟ ΠΡΟΣΦΑΤΗ επιταγή με voucher.
+
+    Αυτή και ΟΛΕΣ οι προηγούμενές της θεωρούνται σταλμένες, ακόμα κι αν δεν έχουν
+    δικό τους voucher: ένα πακέτο πηγαίνει 4-5 επιταγές (το voucher μπαίνει στην
+    τελευταία), και τα παλιά πακέτα δεν καταχωρήθηκαν ποτέ.
+
+    edits: {ημερομηνία επιταγής → voucher} που μόλις γράφτηκαν — το df φορτώθηκε
+    πριν την αποθήκευση και δεν τα ξέρει ακόμα.
+    """
+    vouchers = {}
+    if not df.empty and "voucher" in df.columns:
+        for d, v in zip(as_dates(df["check_date"]), df["voucher"]):
+            vouchers[d] = str(v or "").strip()
+    vouchers.update(edits or {})
+
+    filled = [d for d, v in vouchers.items() if v and v.lower() != "nan"]
+    return max(filled) if filled else None
+
+
 def cash_runway(df: pd.DataFrame, today: date, cash: float) -> dict:
     """
     🛢️ Η ΔΕΞΑΜΕΝΗ — πόσο μακριά φτάνει το ταμείο στις επόμενες επιταγές.
@@ -974,6 +995,7 @@ def month_rows(df_t: pd.DataFrame, df_s: pd.DataFrame, year: int, month: int | N
             "expenses_raw": str(r.get("expenses", "") or ""),
             "check_number": str(r.get("check_number", "") or ""),
             "voucher":     str(r.get("voucher", "") or ""),
+            "sent_date":   str(r.get("sent_date", "") or ""),
             "ly_amount":   match_last_year_check(df_t, cd),
             "ly_sales":    sales_between(df_s, ly_start, ly_end),
             "balance":     (period_sales - amount - expenses) if period_sales is not None else None,

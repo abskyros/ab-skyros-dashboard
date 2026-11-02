@@ -31,7 +31,9 @@ import pandas as pd
 import streamlit as st
 
 from core.config import MONTHS_GR
-from core.metrics import as_dates, month_rows, check_period, cash_runway
+from core.metrics import (
+    as_dates, month_rows, check_period, cash_runway, last_sent_check, upcoming_checks,
+)
 from core.sheets import update_timologiseis_field, load_setting, save_setting
 from ui import components as c
 
@@ -41,13 +43,13 @@ CASH_SETTING = "cash_on_hand"   # κλειδί στο φύλλο settings για
 FIXED_SETTING = "fixed_expenses"  # κλειδί για τα πάγια έξοδα (JSON)
 
 COLS = ["Ημ. επιταγής", "Επιταγή", "Πωλήσεις περιόδου",
-        "Έξοδα", "Μένει", "Αρ. επιταγής", "Voucher"]
+        "Μένει", "Αρ. επιταγής", "Voucher", "Ημερομηνία"]
 
 # Ποιες στήλες γράφονται πίσω στο Sheet, και σε ποιο πεδίο.
 EDITABLE = {
     "Αρ. επιταγής": "check_number",
-    "Έξοδα": "expenses",
     "Voucher": "voucher",
+    "Ημερομηνία": "sent_date",
 }
 
 
@@ -67,7 +69,7 @@ def render(df_t: pd.DataFrame, df_s: pd.DataFrame, today: date) -> None:
     rows.sort(key=lambda r: r["check_date"], reverse=not ascending)
 
     # Ό,τι πάτησε ο χρήστης στην προηγούμενη εκτέλεση, γράφεται τώρα.
-    _flush(rows)
+    fresh_vouchers = _flush(rows)
 
     _summary(rows)
 
@@ -78,7 +80,8 @@ def render(df_t: pd.DataFrame, df_s: pd.DataFrame, today: date) -> None:
     cash = _cash_input(key="month")
     runway = cash_runway(df_t, today, cash)
 
-    _editor(rows)
+    sent_until = last_sent_check(df_t, fresh_vouchers)
+    _editor(rows, df_t, today, sent_until)
     _runway_summary(runway)
 
 
@@ -423,19 +426,29 @@ def _summary(rows: list[dict]) -> None:
         c.stat("Μένει", balance,
                tone="pos" if balance >= 0 else "neg",
                accent="var(--pos)" if balance >= 0 else "var(--neg)",
-               foot=f"Πωλήσεις − επιταγές − έξοδα ({c.eur(total_exp)})"),
+               foot=f"Πωλήσεις − επιταγές − έξοδα ({c.eur(total_exp)})" if total_exp
+                    else "Πωλήσεις − επιταγές"),
         cols=3,
     )
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-def _editor(rows: list[dict]) -> None:
+def _editor(rows: list[dict], df_t: pd.DataFrame, today: date, sent_until: date | None) -> None:
     """
-    Ο πίνακας ανά περίοδο. Τρία πεδία συμπληρώνεις εσύ: έξοδα, αριθμό επιταγής
-    και voucher (ο κωδικός όταν στέλνεις το πακέτο).
+    Ο πίνακας ανά περίοδο. Συμπληρώνεις: αριθμό επιταγής, voucher (ο κωδικός όταν
+    στέλνεις το πακέτο) και ημερομηνία αποστολής.
+
+    Σταλμένες = έως και την πιο πρόσφατη επιταγή με voucher (last_sent_check).
     """
     c.section("Ανά περίοδο")
-    st.caption("Συμπλήρωσε έξοδα, αριθμό επιταγής και voucher — αποθηκεύονται αυτόματα.")
+
+    ahead = upcoming_checks(df_t, today)
+    sent = sum(1 for ch in ahead if sent_until and ch["date"] <= sent_until)
+    st.caption(
+        f"Επόμενες επιταγές — **Σταλμένες: {sent} · Απομένουν: {len(ahead) - sent}**. "
+        "Γράψε το voucher στην τελευταία επιταγή του πακέτου — "
+        "οι προηγούμενες μετράνε αυτόματα ως σταλμένες."
+    )
 
     table = pd.DataFrame([
         {
@@ -444,27 +457,34 @@ def _editor(rows: list[dict]) -> None:
             # Τα ποσά μπαίνουν ΗΔΗ μορφοποιημένα (βλ. «ΜΟΡΦΗ ΠΟΣΩΝ» παρακάτω).
             "Επιταγή":           c.eur(r["amount"]),
             "Πωλήσεις περιόδου": c.eur(r["sales"]),
-            "Έξοδα":             r["expenses_raw"],
             "Μένει":             c.eur(r["balance"]),
             "Αρ. επιταγής":      r["check_number"],
             "Voucher":           r["voucher"],
+            "Ημερομηνία":        r["sent_date"],
         }
         for r in rows
     ])
 
     money = st.column_config.TextColumn(disabled=True)
 
-    # ── ΧΡΩΜΑ ΣΤΗΛΩΝ ──
+    # ── ΣΤΑΛΜΕΝΕΣ vs ΜΗ ΣΤΑΛΜΕΝΕΣ ──
     #
-    # ΕΝΑ απαλό γκρι για τις στήλες που απλώς διαβάζεις. (Πριν: πέντε παστέλ —
-    # κόκκινο, μπλε, πράσινο, κίτρινο — που «φώναζαν».)
+    # Ξεχωρίζουν μόνο με το χρώμα των γραμμάτων: σκούρα οι σταλμένες, απαλό γκρι
+    # οι υπόλοιπες. ΟΧΙ έντονο φόντο — τα γράμματα πρέπει να διαβάζονται άνετα
+    # στο κινητό. Το γκρι έχει αρκετή αντίθεση πάνω στο ανοιχτό φόντο.
     #
     # ΠΡΟΣΟΧΗ: το Streamlit εφαρμόζει Styler ΜΟΝΟ σε μη-επεξεργάσιμες στήλες.
-    # Άρα «Έξοδα», «Αρ. επιταγής» και «Voucher» μένουν λευκές — που βολεύει:
+    # Άρα «Αρ. επιταγής», «Voucher» και «Ημερομηνία» μένουν λευκές — που βολεύει:
     # ξεχωρίζουν αμέσως ως τα πεδία που συμπληρώνεις εσύ.
-    READ_ONLY_TINT = "#F7F8FA"
-    tinted = [col for col in ("Ημ. επιταγής", "Περίοδος", "Επιταγή", "Πωλήσεις περιόδου",
-                              "Μένει") if col in table.columns]
+    SENT = "background-color: #F7F8FA; color: #0F172A"
+    UNSENT = "background-color: #F7F8FA; color: #7A8496"
+    read_only = [col for col in ("Ημ. επιταγής", "Περίοδος", "Επιταγή", "Πωλήσεις περιόδου",
+                                 "Μένει") if col in table.columns]
+
+    css = pd.DataFrame("", index=table.index, columns=table.columns)
+    for i, r in enumerate(rows):
+        cd = r["check_date"].date() if hasattr(r["check_date"], "date") else r["check_date"]
+        css.loc[i, read_only] = SENT if sent_until and cd <= sent_until else UNSENT
 
     # ── ΜΟΡΦΗ ΠΟΣΩΝ ──
     #
@@ -473,7 +493,7 @@ def _editor(rows: list[dict]) -> None:
     # τα γράφει «None». Άρα τα ποσά μπαίνουν στον πίνακα ΗΔΗ ως κείμενο με
     # ελληνική μορφή (c.eur → «81.584,88 €», κενό → «—»). Είναι στήλες μόνο για
     # ανάγνωση, οπότε η αποθήκευση των πεδίων σου δεν επηρεάζεται.
-    styled = table.style.set_properties(subset=tinted, **{"background-color": READ_ONLY_TINT})
+    styled = table.style.apply(lambda _: css, axis=None)
 
     st.data_editor(
         styled,
@@ -496,8 +516,11 @@ def _editor(rows: list[dict]) -> None:
                 help="Ο κωδικός voucher, όταν στέλνεις το πακέτο",
                 width="small",
             ),
-            "Έξοδα": st.column_config.TextColumn(
-                help="Τα έξοδα της περιόδου σε ευρώ, π.χ. 1250.50",
+            # Κείμενο και όχι DateColumn: η DateColumn ζωγραφίζει «None» σε κάθε
+            # κενό κελί και δεν αλλάζει. ΟΧΙ validate= εδώ: με αυτό, οι αλλαγές
+            # ΟΛΟΥ του πίνακα δεν έφταναν στον server (χανόταν και το voucher).
+            "Ημερομηνία": st.column_config.TextColumn(
+                help="Πότε έστειλες το πακέτο, π.χ. 02/11/2026",
                 width="small",
             ),
         },
@@ -514,9 +537,12 @@ def _period_label(r: dict) -> str:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-def _flush(rows: list[dict]) -> None:
+def _flush(rows: list[dict]) -> dict:
     """
     Γράφει στο Sheet ό,τι πείραξε ο χρήστης.
+
+    → {ημερομηνία επιταγής → voucher} όσων voucher γράφτηκαν τώρα, για να
+      χρωματιστούν αμέσως (το df_t φορτώθηκε πριν την αποθήκευση).
 
     Το data_editor αφήνει στο session_state:
         {"edited_rows": {3: {"Έξοδα": "1250"}}, "added_rows": [], "deleted_rows": []}
@@ -525,13 +551,14 @@ def _flush(rows: list[dict]) -> None:
     """
     state = st.session_state.get(EDITOR_KEY)
     if not isinstance(state, dict):
-        return
+        return {}
 
     edits = state.get("edited_rows") or {}
     if not edits:
-        return
+        return {}
 
     saved, failed = 0, []
+    fresh = {}
 
     for idx, changes in edits.items():
         i = int(idx)
@@ -547,8 +574,13 @@ def _flush(rows: list[dict]) -> None:
             if not field:
                 continue
 
-            if update_timologiseis_field(sheet_row, field, str(value or "")):
+            text = str(value or "")
+
+            if update_timologiseis_field(sheet_row, field, text):
                 saved += 1
+                if field == "voucher":
+                    cd = rows[i]["check_date"]
+                    fresh[cd.date() if hasattr(cd, "date") else cd] = text.strip()
             else:
                 failed.append(str(sheet_row))
 
@@ -559,3 +591,5 @@ def _flush(rows: list[dict]) -> None:
         c.note(f"Αποθηκεύτηκαν {saved} αλλαγές.", "ok")
     if failed:
         c.note(f"Δεν αποθηκεύτηκαν οι γραμμές {', '.join(failed)}. Δοκίμασε ξανά.", "bad")
+
+    return fresh

@@ -326,7 +326,7 @@ def _load_all_sheets() -> dict:
     → {"sales": [[...]], "invoices": [[...]], "timologiseis": [[...]]}
       (ωμές λίστες γραμμών, ΜΕ την κεφαλίδα — ώστε το _row = index+2 να ισχύει)
     """
-    ranges = [f"{SHEET_SALES}!A:D", f"{SHEET_INV}!A:D", f"{SHEET_TIMOL}!A:F"]
+    ranges = [f"{SHEET_SALES}!A:D", f"{SHEET_INV}!A:D", f"{SHEET_TIMOL}!A:G"]
 
     def _fetch():
         # values_batch_get: μία κλήση, πολλά εύρη. Επιστρέφει τις τιμές με τη
@@ -812,7 +812,7 @@ def find_repeated_amounts(df: pd.DataFrame, within_days: int = 60) -> list[dict]
 @st.cache_data(ttl=300, max_entries=1, show_spinner=False)
 def load_timologiseis() -> pd.DataFrame:
     """
-    → DataFrame[check_date, period, amount, check_number, expenses, voucher, _row]
+    → DataFrame[check_date, period, amount, check_number, expenses, voucher, sent_date, _row]
     Η στήλη _row είναι ο αριθμός γραμμής στο Sheet — χρειάζεται για edit/delete.
     """
     cols = TIMOL_COLS + ["_row"]
@@ -832,6 +832,7 @@ def load_timologiseis() -> pd.DataFrame:
             r[3] if len(r) > 3 else "",        # check_number
             r[4] if len(r) > 4 else "",        # expenses
             r[5] if len(r) > 5 else "",        # voucher — κενό στις παλιές γραμμές
+            r[6] if len(r) > 6 else "",        # sent_date — πότε στάλθηκε το πακέτο
             i,                                 # _row
         ))
     del vals
@@ -847,6 +848,7 @@ def load_timologiseis() -> pd.DataFrame:
     df["check_number"] = df["check_number"].astype(str)
     df["expenses"]     = df["expenses"].astype(str)
     df["voucher"]      = df["voucher"].astype(str)
+    df["sent_date"]    = df["sent_date"].astype(str)
 
     df = df.dropna(subset=["check_date"])
     df = df.sort_values("check_date", ascending=False).reset_index(drop=True)
@@ -889,8 +891,8 @@ def merge_timologiseis(records: list) -> int:
 
 
 def update_timologiseis_field(row: int, field: str, value: str) -> bool:
-    """Γράφει check_number (στήλη D), expenses (E) ή voucher (F)."""
-    col = {"check_number": 4, "expenses": 5, "voucher": 6}.get(field)
+    """Γράφει check_number (στήλη D), expenses (E), voucher (F) ή sent_date (G)."""
+    col = {"check_number": 4, "expenses": 5, "voucher": 6, "sent_date": 7}.get(field)
     if not col or not row:
         return False
     try:
@@ -899,11 +901,17 @@ def update_timologiseis_field(row: int, field: str, value: str) -> bool:
         # update_cell αποτυγχάνει με «exceeds grid limits».
         if col > ws.col_count:
             ws.add_cols(col - ws.col_count)
-        # Η F δεν έχει ακόμα επικεφαλίδα στα υπάρχοντα φύλλα: τη γράφουμε μία φορά.
+        # Οι νέες στήλες δεν έχουν ακόμα επικεφαλίδα: τη γράφουμε μία φορά.
         header = (_load_all_sheets().get("timologiseis") or [[]])[0]
-        if col == 6 and len(header) < 6:
-            ws.update_cell(1, 6, "voucher")
-        ws.update_cell(int(row), col, str(value or ""))
+        for c in range(max(len(header) + 1, 6), col + 1):
+            ws.update_cell(1, c, TIMOL_COLS[c - 1])
+        if field in ("voucher", "sent_date"):
+            # RAW: το Sheet να κρατήσει ΑΚΡΙΒΩΣ ό,τι γράφτηκε. Αλλιώς ένα voucher
+            # «00123» γίνεται αριθμός 123 και η ημερομηνία αλλάζει μορφή.
+            a1 = gspread.utils.rowcol_to_a1(int(row), col)
+            ws.update([[str(value or "")]], a1, raw=True)
+        else:
+            ws.update_cell(int(row), col, str(value or ""))
         load_timologiseis.clear(); _clear_all()
         return True
     except Exception:
@@ -943,7 +951,7 @@ def purge_duplicate_timologiseis() -> tuple[int, int]:
         # Ποια αξίζει να μείνει; Αυτή με τα περισσότερα συμπληρωμένα πεδία.
         def filled(item):
             _, r = item
-            return sum(1 for c in (3, 4, 5) if len(r) > c and str(r[c]).strip())
+            return sum(1 for c in (3, 4, 5, 6) if len(r) > c and str(r[c]).strip())
 
         keeper = max(entries, key=filled)
         doomed += [i for i, _ in entries if i != keeper[0]]

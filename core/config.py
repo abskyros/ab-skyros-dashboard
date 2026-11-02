@@ -24,7 +24,7 @@ SALES_COLS = ["date", "net_sales", "customers", "avg_basket"]
 # Ο αριθμός είναι η ΜΟΝΗ ασφαλής ταυτότητα ενός παραστατικού.
 INV_COLS   = ["date", "type", "value", "number"]
 
-TIMOL_COLS = ["check_date", "period", "amount", "check_number", "expenses", "voucher"]
+TIMOL_COLS = ["check_date", "period", "amount", "check_number", "expenses", "voucher", "sent_date"]
 
 # ΣΗΜΑΝΤΙΚΟ: όλα τα ποσά αποθηκεύονται στο Sheet ως ΛΕΠΤΑ (ακέραιοι, ×100).
 # Αυτό αποφεύγει προβλήματα με το ελληνικό locale (κόμμα vs τελεία).
