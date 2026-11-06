@@ -3,7 +3,7 @@ core/mail.py — Κατεβάζει τα συνημμένα από τα email.
 
 Τρεις πηγές, τρεις ροές:
   • Παραστατικά  ← Notifications@WeDoConnect.com → abf.skyros@gmail.com
-  • Τιμολογήσεις ← ab.gr                         → abf.skyros@gmail.com
+  • Τιμολογήσεις ← ab.gr (pvletsas)              → ftoulisgm@gmail.com
   • Πωλήσεις     ← abf.skyros@gmail.com          → ftoulisgm@gmail.com  (PDF, θέλει OCR)
 """
 
@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from imap_tools import MailBox, AND
+from imap_tools import MailBox, MailMessage, AND
 
 from core.config import (
     IMAP_HOST,
@@ -19,7 +19,7 @@ from core.config import (
     SALES_EMAIL_USER, SALES_EMAIL_SENDER, SALES_SUBJECT_KW,
     TIMOL_EMAIL_USER, TIMOL_SUBJECT_KW,
 )
-from core.parsers import parse_invoices, parse_timologisi, parse_sales_pdf
+from core.parsers import parse_invoices, parse_timologisi, parse_sales_pdf, norm_greek
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -95,16 +95,55 @@ def fetch_all_invoices(
 # ══════════════════════════════════════════════════════════════════════════════
 # ΤΙΜΟΛΟΓΗΣΕΙΣ
 # ══════════════════════════════════════════════════════════════════════════════
-def _is_timologisi(msg) -> bool:
-    """Χαλαρό φίλτρο — το θέμα δεν είναι πάντα το ίδιο."""
-    subject = (getattr(msg, "subject", "") or "").upper()
-    sender = (getattr(msg, "from_", "") or "").lower()
+# Το θέμα το γράφει πλέον άνθρωπος → μπορεί να έχει ανακατεμένα λατινικά
+# («TIMOΛOΓHΣEIΣ») ή τόνους. Το norm_greek (core/parsers.py) τα ομαλοποιεί.
+_norm = norm_greek
 
-    if TIMOL_SUBJECT_KW in subject:
+
+def _is_timologisi(msg) -> bool:
+    """
+    Χαλαρό φίλτρο — το θέμα δεν είναι πάντα το ίδιο (και αλλάζει ο αποστολέας).
+
+    Δεκτό αν: το θέμα ή το όνομα του Excel έχει «ΤΙΜΟΛΟΓ», ή έρχεται από ab.gr.
+    Η πραγματική επαλήθευση γίνεται μετά: το Excel πρέπει να έχει τη γραμμή
+    «ΠΛΗΡΩΜΗ ΜΕ ΕΠΙΤΑΓΗ» με ημερομηνία και ποσό — αλλιώς απορρίπτεται μόνο του.
+    """
+    kw = _norm(TIMOL_SUBJECT_KW)[:7]   # «ΤΙΜΟΛΟΓ»
+    if kw in _norm(getattr(msg, "subject", "")):
         return True
-    if "ab.gr" in sender and ("ΤΙΜΟΛΟΓ" in subject or "ΒΑΣΙΛΟΠΟΥΛ" in subject):
+    if "ab.gr" in (getattr(msg, "from_", "") or "").lower():
         return True
-    return False
+    return any(kw in _norm(name) for name, _ in _excel_attachments(msg))
+
+
+def _excel_attachments(msg, depth: int = 0) -> list[tuple[str, bytes]]:
+    """
+    Όλα τα Excel ενός email → [(όνομα, bytes)].
+
+    Πιάνει ΚΑΙ την προώθηση «ως συνημμένο»: τότε το αρχικό email μπαίνει
+    ολόκληρο (.eml) μέσα στο νέο, και το Excel είναι ένα επίπεδο πιο μέσα.
+    (Το απλό Forward / ο αυτόματος κανόνας κρατά το Excel ως έχει.)
+    """
+    out = []
+    for att in getattr(msg, "attachments", []) or []:
+        name = att.filename or ""
+        ctype = (getattr(att, "content_type", "") or "").lower()
+        if name.lower().endswith((".xlsx", ".xls")):
+            out.append((name, att.payload))
+        elif depth < 2 and (ctype == "message/rfc822" or name.lower().endswith(".eml")):
+            try:
+                inner = MailMessage.from_bytes(att.payload)
+            except Exception:
+                continue
+            out.extend(_excel_attachments(inner, depth + 1))
+
+    # Το ίδιο Excel μπορεί να βρεθεί δύο φορές (μέσα στο .eml και απευθείας).
+    seen, unique = set(), []
+    for name, payload in out:
+        if payload and payload not in seen:
+            seen.add(payload)
+            unique.append((name, payload))
+    return unique
 
 
 def fetch_timologiseis(password: str, limit: int = 200) -> tuple[list, list]:
@@ -120,12 +159,10 @@ def fetch_timologiseis(password: str, limit: int = 200) -> tuple[list, list]:
                     continue
                 matched += 1
 
-                for att in msg.attachments:
-                    name = att.filename or ""
-                    if name.lower().endswith((".xlsx", ".xls")):
-                        rec = parse_timologisi(att.payload)
-                        if rec:
-                            records.append(rec)
+                for _name, payload in _excel_attachments(msg):
+                    rec = parse_timologisi(payload)
+                    if rec:
+                        records.append(rec)
     except Exception as e:
         errors.append(_friendly(e))
         return records, errors

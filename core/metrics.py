@@ -4,18 +4,22 @@ core/metrics.py — Η επιχειρηματική λογική, σε καθα�
 Εδώ ζουν οι κανόνες του μαγαζιού:
   • Η σύγκριση με πέρσι γίνεται στα 364 ημερολογιακά (= ίδια μέρα εβδομάδας).
   • Η εβδομάδα ξεκινά Δευτέρα.
-  • Η επιταγή πληρώνει τις πωλήσεις των 7 ημερών πριν από αυτήν.
+  • Τα έσοδα πριν από μια επιταγή = πωλήσεις από την προηγούμενη επιταγή ως
+    την παραμονή της (εβδομαδιαίες ως 07/12/2026, δεκαήμερες 5/15/25 μετά).
   • «Καθαρό» παραστατικών = τιμολόγια − πιστωτικά.
 """
 
 from __future__ import annotations
 
+import calendar
+import re
 from datetime import date, datetime, timedelta
 
 import pandas as pd
 
 from core.config import (
     YOY_OFFSET_DAYS, CHECK_PERIOD_DAYS, CHECK_MATCH_TOLERANCE,
+    CHECK_WEEKLY_LAG_DAYS, CHECK_DECADE_FROM, CHECK_PAY_DAYS,
     DAYS_GR, DAYS_GR_SHORT, MONTHS_GR,
     GREECE_TZ, SALES_REPORT_HOUR,
 )
@@ -522,12 +526,116 @@ def invoices_monthly(df: pd.DataFrame, year: int) -> list[dict]:
 # ══════════════════════════════════════════════════════════════════════════════
 # ΤΙΜΟΛΟΓΗΣΕΙΣ / ΕΠΙΤΑΓΕΣ
 # ══════════════════════════════════════════════════════════════════════════════
-def check_period(check_date: date) -> tuple[date, date]:
+_DECADE_FROM = date.fromisoformat(CHECK_DECADE_FROM)
+_PERIOD_DATES_RE = re.compile(r"(\d{1,2})\.(\d{1,2})\.(\d{4})\s*-\s*(\d{1,2})\.(\d{1,2})\.(\d{4})")
+
+
+def check_period(check_date: date, prev_check: date | None = None) -> tuple[date, date]:
     """
-    Ποιες πωλήσεις καλύπτει μια επιταγή.
-    Οι 7 ημέρες ΠΡΙΝ την ημερομηνία της (χωρίς την ίδια).
+    Ποιες πωλήσεις «μαζεύεις» για μια επιταγή: από την ΠΡΟΗΓΟΥΜΕΝΗ επιταγή ως
+    την παραμονή αυτής. Εβδομαδιαίες → 7 μέρες, δεκαήμερες → 10 (ή 8–11).
+    Χωρίς προηγούμενη → οι 7 μέρες πριν.
     """
-    return check_date - timedelta(days=CHECK_PERIOD_DAYS), check_date - timedelta(days=1)
+    end = check_date - timedelta(days=1)
+    if prev_check and prev_check < check_date:
+        return prev_check, end
+    return check_date - timedelta(days=CHECK_PERIOD_DAYS), end
+
+
+def parse_period(text) -> tuple[date, date] | None:
+    """«21.10.2026 -31.10.2026» → (21/10/2026, 31/10/2026). Λάθος/κενό → None."""
+    m = _PERIOD_DATES_RE.search(str(text or ""))
+    if not m:
+        return None
+    try:
+        a = date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
+        b = date(int(m.group(6)), int(m.group(5)), int(m.group(4)))
+    except ValueError:
+        return None
+    if not (0 <= (b - a).days <= 20):   # π.χ. τυπογραφικό «30.03.206»
+        return None
+    return a, b
+
+
+def _shift_months(y: int, m: int, k: int) -> tuple[int, int]:
+    i = y * 12 + (m - 1) + k
+    return i // 12, i % 12 + 1
+
+
+def purchase_period(check_date: date, period_text: str = "") -> tuple[date, date]:
+    """
+    Ποιες ΑΓΟΡΕΣ πληρώνει μια επιταγή.
+    Πρώτα από το Excel (στήλη period)· αν λείπει, από τον κανόνα:
+      • δεκαήμερη (5/15/25, από 15/12/2026): το δεκαήμερο δύο μήνες πριν
+      • εβδομαδιαία: Δευ–Κυρ που τελείωσε 57 μέρες πριν
+    """
+    p = parse_period(period_text)
+    if p:
+        return p
+    if check_date >= _DECADE_FROM and check_date.day in CHECK_PAY_DAYS:
+        y, m = _shift_months(check_date.year, check_date.month, -2)
+        if check_date.day == 5:
+            return date(y, m, 1), date(y, m, 10)
+        if check_date.day == 15:
+            return date(y, m, 11), date(y, m, 20)
+        return date(y, m, 21), date(y, m, calendar.monthrange(y, m)[1])
+    end = check_date - timedelta(days=CHECK_WEEKLY_LAG_DAYS)
+    return end - timedelta(days=6), end
+
+
+def next_pay_dates(after: date, until: date) -> list[date]:
+    """
+    Οι ημερομηνίες επιταγών ΜΕΤΑ το `after` ως το `until`: 5, 15, 25 κάθε
+    μήνα (από 15/12/2026)· πριν από αυτό, κάθε Δευτέρα.
+    """
+    out = []
+    last_weekly = _DECADE_FROM - timedelta(days=8)   # 07/12/2026
+    d = after + timedelta(days=1)
+    while d <= until:
+        if d >= _DECADE_FROM:
+            if d.day in CHECK_PAY_DAYS:
+                out.append(d)
+        elif d <= last_weekly and d.weekday() == 0:
+            out.append(d)
+        d += timedelta(days=1)
+    return out
+
+
+def daily_purchases(df: pd.DataFrame) -> dict:
+    """
+    Κάθε πραγματική επιταγή «σπασμένη» σε ποσό ανά ημέρα αγορών:
+    επιταγή ÷ μέρες της περιόδου της. → {ημέρα: ποσό}
+
+    Έτσι μια παλιά εβδομαδιαία επιταγή μοιράζεται σωστά σε δύο δεκαήμερα
+    (π.χ. 3 μέρες στο ένα, 4 στο άλλο).
+    """
+    out: dict = {}
+    if df.empty:
+        return out
+    for cd, amt, per in zip(as_dates(df["check_date"]), df["amount"],
+                            df.get("period", pd.Series([""] * len(df), index=df.index))):
+        if cd is None or pd.isna(cd) or pd.isna(amt):
+            continue
+        a, b = purchase_period(cd, per)
+        days = (b - a).days + 1
+        per_day = float(amt) / days
+        for i in range(days):
+            day = a + timedelta(days=i)
+            out[day] = out.get(day, 0.0) + per_day
+    return out
+
+
+def estimate_ly_check(daily: dict, start: date, end: date) -> float | None:
+    """
+    Πόσο ήταν ΠΕΡΣΙ (−364) οι αγορές των ημερών start..end.
+    Αν λείπουν κάποιες μέρες, αναλογική αναγωγή· κάτω από τις μισές → None.
+    """
+    days = (end - start).days + 1
+    vals = [daily.get(last_year(start + timedelta(days=i))) for i in range(days)]
+    have = [v for v in vals if v is not None]
+    if not have or len(have) < days / 2:
+        return None
+    return sum(have) * days / len(have)
 
 
 def check_falls_in_week(check_date: date, week_start: date) -> bool:
@@ -751,24 +859,24 @@ def project_checks_to_year_end(df_checks: pd.DataFrame, today: date,
     με την ΠΕΡΣΙΝΗ επιταγή της αντίστοιχης εβδομάδας — ακριβώς όπως κάνουμε με τις
     πωλήσεις. Έτσι βλέπουμε ΟΛΗ τη χρονιά μπροστά, με μέτρο σύγκρισης το πέρσι.
 
-    → [{"date": date, "amount": float, "estimated": True}, ...]
+    Ημερομηνίες: 5/15/25 (δεκαήμερες)· ποσό: οι ΠΕΡΣΙΝΕΣ αγορές των ίδιων
+    ημερών, από τις παλιές επιταγές «σπασμένες» ανά μέρα (daily_purchases).
+
+    → [{"date": date, "amount": float, "period": str, "estimated": True}, ...]
     """
     if df_checks.empty:
         return []
 
-    # Οι πραγματικές επιταγές συνήθως πέφτουν σε σταθερή μέρα (Δευτέρα). Βρες
-    # το βήμα από τις υπάρχουσες — συνήθως 7 μέρες.
     out = []
     year_end = date(today.year, 12, 31)
+    daily = daily_purchases(df_checks)
 
-    # Ξεκίνα μία εβδομάδα μετά την τελευταία πραγματική.
-    d = last_real + timedelta(days=7)
-    while d <= year_end:
-        # Ψάξε την περσινή επιταγή αυτής της εβδομάδας.
-        amount = match_last_year_check(df_checks, d)
+    for d in next_pay_dates(last_real, year_end):
+        a, b = purchase_period(d)
+        amount = estimate_ly_check(daily, a, b)
         if amount and amount > 0:
-            out.append({"date": d, "amount": amount, "estimated": True})
-        d += timedelta(days=7)
+            out.append({"date": d, "amount": amount,
+                        "period": f"{a:%d.%m} – {b:%d.%m}", "estimated": True})
 
     return out
 
@@ -840,7 +948,7 @@ def cash_forecast(df_checks: pd.DataFrame, df_sales: pd.DataFrame,
             events.append({
                 "date": pc["date"],
                 "amount": pc["amount"],
-                "period": "",
+                "period": pc.get("period", ""),
                 "kind": "check",
                 "name": "",
                 "estimated": True,    # ΠΡΟΒΛΕΠΟΜΕΝΗ (περσινή)
@@ -873,26 +981,29 @@ def cash_forecast(df_checks: pd.DataFrame, df_sales: pd.DataFrame,
     rows = []
     balance = cash
     first_gap = None
+    # Από πότε μετράμε πωλήσεις για την επόμενη επιταγή. Το ταμείο που έδωσες
+    # είναι το σημερινό → για την πρώτη επιταγή μετράμε από ΣΗΜΕΡΑ.
+    sales_from = today
 
     for ev in events:
         cd = ev["date"]
 
-        # ── ΠΩΛΗΣΕΙΣ: ΜΟΝΟ ΣΤΙΣ ΕΠΙΤΑΓΕΣ, ΑΝΑ ΕΒΔΟΜΑΔΑ ──
+        # ── ΠΩΛΗΣΕΙΣ: ΜΟΝΟ ΣΤΙΣ ΕΠΙΤΑΓΕΣ ──
         #
-        # Την ημέρα που πληρώνεις μια επιταγή (Δευτέρα), έχει ήδη μπει στο ταμείο
-        # η ΠΡΟΗΓΟΥΜΕΝΗ ολόκληρη εβδομάδα πωλήσεων. Την προβλέπουμε από πέρσι:
-        # τις ίδιες 7 μέρες (Δευτέρα ως Κυριακή) της περασμένης εβδομάδας.
+        # Ως την ημέρα μιας επιταγής έχουν μπει στο ταμείο οι πωλήσεις από την
+        # ΠΡΟΗΓΟΥΜΕΝΗ επιταγή ως την παραμονή της (7 μέρες στις εβδομαδιαίες,
+        # ~10 στις δεκαήμερες). Τις προβλέπουμε από πέρσι (−364).
         #
-        # Τα πάγια (μισθοδοσία, ΦΠΑ κλπ) που πέφτουν ΜΕΣΑ στην εβδομάδα ΔΕΝ
-        # προσθέτουν πωλήσεις — απλώς αφαιρούνται από το τρέχον υπόλοιπο. Έτσι
-        # οι πωλήσεις μετρώνται μία φορά ανά εβδομάδα, στο σημείο της επιταγής.
+        # Τα πάγια (μισθοδοσία, ΦΠΑ κλπ) ΔΕΝ προσθέτουν πωλήσεις — απλώς
+        # αφαιρούνται. Έτσι κάθε μέρα πωλήσεων μετράει μία φορά.
         if ev["kind"] == "check":
-            # Η περασμένη εβδομάδα: [cd-7 .. cd-1]. Πέρσι: -364 μέρες.
-            wk_start = cd - timedelta(days=7)
             wk_end = cd - timedelta(days=1)
-            predicted = sales_between(
-                df_sales, last_year(wk_start), last_year(wk_end)
-            ) or 0.0
+            predicted = 0.0
+            if sales_from <= wk_end:
+                predicted = sales_between(
+                    df_sales, last_year(sales_from), last_year(wk_end)
+                ) or 0.0
+            sales_from = max(sales_from, cd)
         else:
             predicted = 0.0
 
@@ -971,6 +1082,14 @@ def month_rows(df_t: pd.DataFrame, df_s: pd.DataFrame, year: int, month: int | N
     else:
         sub = df_t[dts.map(lambda d: d.year == year and d.month == month)]
 
+    # Όλες οι ημερομηνίες επιταγών, για να βρούμε την ΠΡΟΗΓΟΥΜΕΝΗ κάθε μίας.
+    all_dates = sorted({d for d in dts if d is not None and not pd.isna(d)})
+    daily = daily_purchases(df_t)
+
+    def _prev(d: date) -> date | None:
+        earlier = [x for x in all_dates if x < d]
+        return earlier[-1] if earlier else None
+
     rows = []
     for _, r in sub.iterrows():
         cd = r["check_date"]
@@ -979,11 +1098,13 @@ def month_rows(df_t: pd.DataFrame, df_s: pd.DataFrame, year: int, month: int | N
         amount = float(r["amount"])
         expenses = _to_float(r.get("expenses", ""))
 
-        p_start, p_end = check_period(cd)
+        prev = _prev(cd)
+        p_start, p_end = check_period(cd, prev)
         period_sales = sales_between(df_s, p_start, p_end)
 
-        ly_cd = last_year(cd)
-        ly_start, ly_end = check_period(ly_cd)
+        # Πέρσι: ίδιες μέρες πωλήσεων (−364) και οι αγορές των ίδιων ημερών.
+        ly_start, ly_end = last_year(p_start), last_year(p_end)
+        a, b = purchase_period(cd, r.get("period", ""))
 
         rows.append({
             "_row":        int(r["_row"]) if pd.notna(r.get("_row")) else None,
@@ -996,7 +1117,7 @@ def month_rows(df_t: pd.DataFrame, df_s: pd.DataFrame, year: int, month: int | N
             "check_number": str(r.get("check_number", "") or ""),
             "voucher":     str(r.get("voucher", "") or ""),
             "sent_date":   str(r.get("sent_date", "") or ""),
-            "ly_amount":   match_last_year_check(df_t, cd),
+            "ly_amount":   estimate_ly_check(daily, a, b),
             "ly_sales":    sales_between(df_s, ly_start, ly_end),
             "balance":     (period_sales - amount - expenses) if period_sales is not None else None,
         })

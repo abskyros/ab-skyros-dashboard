@@ -134,6 +134,19 @@ _PERIOD_RE = re.compile(r"ΠΕΡΙΟΔΟΥ?\s*([\d.]+\s*-\s*[\d.]+)")
 
 AMOUNT_COL = 8  # «Ποσό Χρέωσης/Πίστωσης»
 
+# Λατινικά κεφαλαία που ΜΟΙΑΖΟΥΝ με ελληνικά. Όταν ένα κείμενο το γράφει
+# άνθρωπος, συχνά βγαίνει «TIMOΛOΓHΣEIΣ» με ανακατεμένα λατινικά — φαίνεται
+# ίδιο, αλλά για τον υπολογιστή είναι άλλη λέξη. Τα κάνουμε όλα ελληνικά.
+_LOOKALIKE = str.maketrans("ABEHIKMNOPTXYZ", "ΑΒΕΗΙΚΜΝΟΡΤΧΥΖ")
+
+
+def norm_greek(text) -> str:
+    """Κεφαλαία, χωρίς τόνους, λατινικά-σωσίες → ελληνικά. Τα ψηφία μένουν ίδια."""
+    import unicodedata
+    s = unicodedata.normalize("NFD", str(text or "").upper())
+    s = "".join(ch for ch in s if not unicodedata.combining(ch))
+    return s.translate(_LOOKALIKE)
+
 
 def parse_timologisi(content: bytes) -> dict | None:
     """
@@ -149,7 +162,7 @@ def parse_timologisi(content: bytes) -> dict | None:
 
     for i in range(len(df) - 1, -1, -1):
         row = df.iloc[i]
-        text = " ".join(str(x) for x in row.values if pd.notna(x))
+        text = norm_greek(" ".join(str(x) for x in row.values if pd.notna(x)))
 
         m = _CHECK_RE.search(text)
         if not m:

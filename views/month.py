@@ -32,7 +32,7 @@ import streamlit as st
 
 from core.config import MONTHS_GR
 from core.metrics import (
-    as_dates, month_rows, check_period, cash_runway, last_sent_check, upcoming_checks,
+    as_dates, month_rows, purchase_period, cash_runway, last_sent_check, upcoming_checks,
 )
 from core.sheets import update_timologiseis_field, load_setting, save_setting
 from ui import components as c
@@ -528,11 +528,11 @@ def _editor(rows: list[dict], df_t: pd.DataFrame, today: date, sent_until: date 
 
 
 def _period_label(r: dict) -> str:
-    """Αν το Excel δεν έδωσε περίοδο, τη φτιάχνουμε από τις 7 μέρες πριν την επιταγή."""
+    """Αν το Excel δεν έδωσε περίοδο, τη βγάζουμε από τον κανόνα (εβδομάδα ή δεκαήμερο)."""
     p = r["period"]
     if p and p.lower() != "nan":
         return p
-    start, end = check_period(r["check_date"])
+    start, end = purchase_period(r["check_date"])
     return f"{start:%d/%m} – {end:%d/%m}"
 
 

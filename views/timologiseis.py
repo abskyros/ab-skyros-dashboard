@@ -117,7 +117,7 @@ def _tools() -> None:
     c.spacer(0.8)
 
     with st.expander("Έλεγχος δεδομένων"):
-        st.caption("Ψάχνει διπλές ημερομηνίες επιταγής και εβδομάδες που λείπουν.")
+        st.caption("Ψάχνει διπλές ημερομηνίες επιταγής και επιταγές που λείπουν.")
 
         if st.button("Έλεγχος τώρα", key="timol_check", width='stretch'):
             st.session_state["timol_checked"] = True
@@ -131,7 +131,7 @@ def _tools() -> None:
         dups, gaps = result["duplicates"], result["gaps"]
 
         if not dups and not gaps:
-            c.note("Καθαρά. Καμία διπλή επιταγή, καμία εβδομάδα δεν λείπει.", "ok")
+            c.note("Καθαρά. Καμία διπλή επιταγή, καμία επιταγή δεν λείπει.", "ok")
             return
 
         if dups:
@@ -167,7 +167,7 @@ def _tools() -> None:
         if gaps:
             lines = "<br>".join(
                 f"Μεταξύ <b>{g['after']}</b> και <b>{g['before']}</b> — "
-                f"{g['gap_days']} ημέρες, περίπου {g['approx_missing']} εβδομάδες λείπουν"
+                f"{g['gap_days']} ημέρες, περίπου {g['approx_missing']} επιταγές λείπουν"
                 for g in gaps[:12]
             )
             c.note(f"Πιθανά κενά:<br><br>{lines}", "bad")

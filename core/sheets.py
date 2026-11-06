@@ -1070,16 +1070,20 @@ def check_quality(sheet: str) -> dict:
     if dates:
         lo, hi = min(dates), max(dates)
         if sheet == SHEET_TIMOL:
-            # Τιμολογήσεις: εβδομαδιαίες → κενό = >10 μέρες απόσταση
+            # Τιμολογήσεις: εβδομαδιαίες (κενό = >10 μέρες) ως 07/12/2026,
+            # δεκαήμερες 5/15/25 μετά (κενό = >12 μέρες· 25→5 είναι ως 11).
+            from core.config import CHECK_DECADE_FROM
+            decade_from = date.fromisoformat(CHECK_DECADE_FROM)
             ordered = sorted(dates)
             for a, b in zip(ordered, ordered[1:]):
                 delta = (b - a).days
-                if delta > 10:
+                step = 10 if b >= decade_from else 7
+                if delta > step + 3:
                     gaps.append({
                         "after": a.isoformat(),
                         "before": b.isoformat(),
                         "gap_days": delta,
-                        "approx_missing": round(delta / 7) - 1,
+                        "approx_missing": max(1, round(delta / step) - 1),
                     })
         else:
             # Πωλήσεις & παραστατικά: καθημερινά
