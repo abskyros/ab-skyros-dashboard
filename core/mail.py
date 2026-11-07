@@ -146,6 +146,12 @@ def _excel_attachments(msg, depth: int = 0) -> list[tuple[str, bytes]]:
     return unique
 
 
+# Ψάξιμο ΣΤΟΝ ΙΔΙΟ ΤΟΝ GMAIL: μόνο email με συνημμένο Excel (ή .eml, για το
+# «forward ως συνημμένο»). Αλλιώς κατεβάζαμε ολόκληρα τα 200 τελευταία email
+# (PDF πωλήσεων, Skroutz κλπ) ένα-ένα — 6-13 λεπτά για 2-3 τιμολογήσεις τον μήνα.
+_TIMOL_GMAIL_SEARCH = 'X-GM-RAW "has:attachment {filename:xlsx filename:xls filename:eml} newer_than:400d"'
+
+
 def fetch_timologiseis(password: str, limit: int = 200) -> tuple[list, list]:
     """→ (records, errors)"""
     records, errors = [], []
@@ -153,7 +159,16 @@ def fetch_timologiseis(password: str, limit: int = 200) -> tuple[list, list]:
 
     try:
         with MailBox(IMAP_HOST).login(TIMOL_EMAIL_USER, password) as mb:
-            for msg in mb.fetch(limit=limit, reverse=True, mark_seen=False):
+            # Αν για κάποιο λόγο ο server δεν δέχεται το ψάξιμο του Gmail,
+            # γυρνάμε στον παλιό (αργό αλλά σίγουρο) τρόπο.
+            try:
+                mb.uids(_TIMOL_GMAIL_SEARCH)
+                criteria, bulk = _TIMOL_GMAIL_SEARCH, True
+            except Exception:
+                criteria, bulk = "ALL", False
+
+            for msg in mb.fetch(criteria, limit=limit, reverse=True,
+                                mark_seen=False, bulk=bulk):
                 scanned += 1
                 if not _is_timologisi(msg):
                     continue

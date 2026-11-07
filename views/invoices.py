@@ -13,8 +13,8 @@ import streamlit as st
 
 from core.config import SHEET_INV
 from core.metrics import (
-    week_range, invoice_totals, invoices_in_week, invoices_monthly,
-    today_greece,
+    invoice_totals, invoices_between, invoices_monthly,
+    billing_period, billing_check_date, today_greece,
 )
 from core.sheets import (
     load_invoices, check_quality, delete_row,
@@ -36,10 +36,10 @@ def render(df: pd.DataFrame, today: date) -> None:
         )
         return
 
-    weekly, yearly = st.tabs(["Εβδομαδιαία", "Ετήσια"])
+    decade, yearly = st.tabs(["Περίοδος", "Ετήσια"])
 
-    with weekly:
-        _weekly(df, today)
+    with decade:
+        _decade(df, today)
 
     with yearly:
         _yearly(df, today)
@@ -89,37 +89,46 @@ def _health_warning(df: pd.DataFrame) -> None:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-def _weekly(df: pd.DataFrame, today: date) -> None:
+def _decade(df: pd.DataFrame, today: date) -> None:
+    """
+    Παραστατικά ανά ΠΕΡΙΟΔΟ ΤΙΜΟΛΟΓΗΣΗΣ — όπως τα πληρώνει η επιταγή:
+    εβδομάδα Δευ–Κυρ ως 11/10/2026, 12–20/10/2026 ενδιάμεση, και από 21/10/2026
+    δεκαήμερα 1–10 / 11–20 / 21–τέλος (επιταγή 5/15/25, δύο μήνες μετά).
+    """
     col, _ = st.columns([1, 2])
     with col:
         picked = st.date_input("Ημέρα", today, key="inv_day", format="DD/MM/YYYY")
 
-    start, end = week_range(picked)
-    week = invoices_in_week(df, picked)
+    start, end = billing_period(picked)
+    period = invoices_between(df, start, end)
 
-    if week.empty:
+    if period.empty:
         c.empty(f"Κανένα παραστατικό από {start:%d/%m} έως {end:%d/%m/%Y}")
         return
 
-    t = invoice_totals(week)
+    t = invoice_totals(period)
 
-    ly_start, ly_end = week_range(picked)
-    prev_week = invoices_in_week(df, picked - pd.Timedelta(days=7).to_pytimedelta())
-    prev_net = invoice_totals(prev_week)["net"] if not prev_week.empty else None
+    # Προηγούμενη περίοδος = αυτή που περιέχει την παραμονή του start.
+    p_start, p_end = billing_period(start - timedelta(days=1))
+    prev = invoices_between(df, p_start, p_end)
+    prev_net = invoice_totals(prev)["net"] if not prev.empty else None
 
+    foot = f"{start:%d/%m} — {end:%d/%m} vs {p_start:%d/%m} — {p_end:%d/%m}"
+    foot += f" · πληρώνεται με επιταγή {billing_check_date(start, end):%d/%m/%Y}"
+
+    is_credit = period["type"].str.upper().str.contains("ΠΙΣΤΩΤΙΚΟ", na=False)
     c.grid(
         c.stat("Τιμολόγια", t["invoices"], accent="var(--brand)",
-               foot=f"{len(week[~week['type'].str.upper().str.contains('ΠΙΣΤΩΤΙΚΟ', na=False)])} παραστατικά"),
+               foot=f"{int((~is_credit).sum())} παραστατικά"),
         c.stat("Πιστωτικά", -t["credits"] if t["credits"] else 0, tone="neg", accent="var(--neg)",
-               foot=f"{len(week[week['type'].str.upper().str.contains('ΠΙΣΤΩΤΙΚΟ', na=False)])} παραστατικά"),
+               foot=f"{int(is_credit.sum())} παραστατικά"),
         c.scale("Καθαρό", t["net"], prev_net,
-                now_tag="Τώρα", then_tag="Προηγ.",
-                foot=f"{start:%d/%m} — {end:%d/%m} vs προηγούμενη εβδομάδα"),
+                now_tag="Τώρα", then_tag="Προηγ.", foot=foot),
         cols=3,
     )
 
     c.section("Αναλυτικά")
-    _table(week)
+    _table(period)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -179,9 +188,9 @@ def _download(df: pd.DataFrame, year: int) -> None:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-def _table(week: pd.DataFrame) -> None:
+def _table(period: pd.DataFrame) -> None:
     """Μορφοποίηση ΠΡΙΝ το dataframe — ποτέ .style.format() (τρώει τη μνήμη)."""
-    t = week.sort_values("date", ascending=False)
+    t = period.sort_values("date", ascending=False)
 
     cols = {
         "ΗΜΕΡΟΜΗΝΙΑ": t["date"].dt.strftime("%d/%m/%Y"),
@@ -205,7 +214,7 @@ def _tools(df: pd.DataFrame) -> None:
     ΤΡΕΙΣ ΚΑΡΤΕΛΕΣ, ΤΡΕΙΣ ΔΟΥΛΕΙΕΣ:
 
       🧹 ΚΑΘΑΡΙΣΜΟΣ — όλα τα χρόνια, μία φορά. Γεμίζει αριθμούς, σβήνει διπλά.
-      ✅ ΕΠΑΛΗΘΕΥΣΗ — μία εβδομάδα, Sheet vs email. Για έλεγχο μετά.
+      ✅ ΕΠΑΛΗΘΕΥΣΗ — μία περίοδος τιμολόγησης, Sheet vs email. Για έλεγχο μετά.
       ⚠️ ΔΙΠΛΕΣ ΧΡΕΩΣΕΙΣ — ίδιο ποσό, ΑΛΛΟΣ αριθμός. Πιθανό λάθος του προμηθευτή.
     """
     # Αν υπάρχουν γραμμές χωρίς αριθμό, το expander ανοίγει ΜΟΝΟ ΤΟΥ.
@@ -228,7 +237,7 @@ def _tools(df: pd.DataFrame) -> None:
         dup_tab, clean_tab, verify_tab, charge_tab, repeat_tab = st.tabs([
             "🔁 Διπλοκαταχωρήσεις (ίδιος αριθμός)",
             "🔄 Ξαναχτίσιμο (όλα τα χρόνια)",
-            "✅ Επαλήθευση εβδομάδας",
+            "✅ Επαλήθευση περιόδου",
             "⚠️ Διπλές χρεώσεις (ίδια μέρα)",
             "🔎 Ίδιο ποσό, άλλη μέρα",
         ])
@@ -255,7 +264,7 @@ def _tools(df: pd.DataFrame) -> None:
 # ══════════════════════════════════════════════════════════════════════════════
 def _verify(df: pd.DataFrame) -> None:
     """
-    Βάζει το Sheet δίπλα στα email, για μία εβδομάδα.
+    Βάζει το Sheet δίπλα στα email, για μία περίοδο τιμολόγησης.
 
     Τα email είναι η ΠΗΓΗ. Το Sheet είναι αντίγραφο. Αν διαφέρουν, το Sheet έχει
     σκουπίδια — και τα σύνολά σου είναι λάθος.
@@ -263,7 +272,7 @@ def _verify(df: pd.DataFrame) -> None:
     Χρήσιμο ΜΕΤΑ τον καθαρισμό: επιβεβαιώνει ότι όλα πήγαν καλά.
     """
     st.caption(
-        "Συγκρίνει το Sheet με τα **πραγματικά email** μιας εβδομάδας. "
+        "Συγκρίνει το Sheet με τα **πραγματικά email** μιας περιόδου τιμολόγησης. "
         "Αν τα σύνολα διαφέρουν, δείχνει ποιες γραμμές φταίνε."
     )
 
@@ -274,9 +283,9 @@ def _verify(df: pd.DataFrame) -> None:
 
     col, _ = st.columns([1, 2])
     with col:
-        picked = st.date_input("Εβδομάδα", today_greece(), key="vf_day", format="DD/MM/YYYY")
+        picked = st.date_input("Περίοδος (διάλεξε μια μέρα)", today_greece(), key="vf_day", format="DD/MM/YYYY")
 
-    start, end = week_range(picked)
+    start, end = billing_period(picked)
     st.caption(f"Περίοδος: **{start:%d/%m/%Y}** — **{end:%d/%m/%Y}**")
 
     if not st.button("Σύγκριση με τα email", key="vf_run", width="stretch"):
@@ -359,9 +368,9 @@ def _verify(df: pd.DataFrame) -> None:
     # session_state που ΚΑΝΕΙΣ ΔΕΝ ΔΙΑΒΑΖΕ. Το Streamlit δεν αλλάζει καρτέλα
     # προγραμματιστικά. Άρα το κουμπί δεν έκανε τίποτα.
     #
-    # Τώρα η επισκευή γίνεται ΕΔΩ, για αυτή την εβδομάδα.
+    # Τώρα η επισκευή γίνεται ΕΔΩ, για αυτή την περίοδο.
     st.divider()
-    c.section("Επισκευή αυτής της εβδομάδας")
+    c.section("Επισκευή αυτής της περιόδου")
 
     with st.spinner("Υπολογισμός…"):
         rep = repair(records, start, end)
@@ -377,7 +386,7 @@ def _verify(df: pd.DataFrame) -> None:
         )
         return
 
-    _repair_ui(rep, key="vf", label="Επισκευή εβδομάδας")
+    _repair_ui(rep, key="vf", label="Επισκευή περιόδου")
 
 
 # ══════════════════════════════════════════════════════════════════════════════

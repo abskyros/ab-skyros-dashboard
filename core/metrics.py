@@ -501,9 +501,70 @@ def invoices_in_week(df: pd.DataFrame, d: date) -> pd.DataFrame:
         return df
 
     start, end = week_range(d)
+    return invoices_between(df, start, end)
+
+
+def invoices_between(df: pd.DataFrame, start: date, end: date) -> pd.DataFrame:
+    """Τα παραστατικά από start ως end (μαζί και οι δύο μέρες)."""
+    if df.empty:
+        return df
     mask = (df["date"] >= pd.Timestamp(start)) & \
            (df["date"] <= pd.Timestamp(end) + pd.Timedelta(hours=23, minutes=59))
     return df.loc[mask]
+
+
+def decade_range(d: date) -> tuple[date, date]:
+    """
+    Το δεκαήμερο τιμολόγησης που περιέχει τη μέρα d:
+    1–10, 11–20 ή 21–τέλος μήνα (28/29/30/31).
+    """
+    if d.day <= 10:
+        return date(d.year, d.month, 1), date(d.year, d.month, 10)
+    if d.day <= 20:
+        return date(d.year, d.month, 11), date(d.year, d.month, 20)
+    last = calendar.monthrange(d.year, d.month)[1]
+    return date(d.year, d.month, 21), date(d.year, d.month, last)
+
+
+# Η αλλαγή στις ΑΓΟΡΕΣ (όχι στις επιταγές):
+#   ως 11/10/2026  → εβδομάδες Δευ–Κυρ (επιταγή Δευτέρα, 57 μέρες μετά)
+#   12–20/10/2026  → ενδιάμεση περίοδος 9 ημερών (επιταγή 15/12/2026)
+#   από 21/10/2026 → δεκαήμερα 1–10 / 11–20 / 21–τέλος (επιταγή 5/15/25)
+_WEEKLY_LAST_END = date(2026, 10, 11)
+_TRANSITION = (date(2026, 10, 12), date(2026, 10, 20))
+_TRANSITION_CHECK = date(2026, 12, 15)
+
+
+def billing_period(d: date) -> tuple[date, date]:
+    """Η περίοδος τιμολόγησης της ΑΒ που περιέχει τη μέρα d (βλ. πάνω)."""
+    if d <= _WEEKLY_LAST_END:
+        return week_range(d)
+    if d <= _TRANSITION[1]:
+        return _TRANSITION
+    return decade_range(d)
+
+
+def billing_check_date(start: date, end: date) -> date:
+    """Ποια επιταγή πληρώνει την περίοδο τιμολόγησης start..end."""
+    if end <= _WEEKLY_LAST_END:
+        return end + timedelta(days=CHECK_WEEKLY_LAG_DAYS)
+    if (start, end) == _TRANSITION:
+        return _TRANSITION_CHECK
+    return decade_check_date(start) or end + timedelta(days=CHECK_WEEKLY_LAG_DAYS)
+
+
+def decade_check_date(start: date) -> date | None:
+    """
+    Ποια επιταγή πληρώνει το δεκαήμερο που ξεκινά στο start:
+    1–10 → 5, 11–20 → 15, 21–τέλος → 25, δύο μήνες μετά.
+    None για τα δεκαήμερα πριν την αλλαγή (τότε πλήρωναν εβδομαδιαίες).
+    """
+    y, m = _shift_months(start.year, start.month, 2)
+    day = {1: 5, 11: 15, 21: 25}.get(start.day)
+    if day is None:
+        return None
+    cd = date(y, m, day)
+    return cd if cd >= _DECADE_FROM else None
 
 
 def invoices_monthly(df: pd.DataFrame, year: int) -> list[dict]:
