@@ -36,7 +36,7 @@ from core.github import trigger_workflow, last_run, available as gh_available
 from ui import components as c
 from ui import mobile
 
-from views import overview, sales, invoices, timologiseis, month, checks, forecast
+from views import overview, sales, invoices, timologiseis, month, checks, forecast, manual
 
 
 VERSION = "9.5"
@@ -139,6 +139,7 @@ def main() -> None:
     # Τα εργαλεία ζουν στο «Ενημέρωση» της κεφαλίδας — όχι στο τέλος κάθε σελίδας.
     with tools:
         sync_panel(df_s)
+        manual.render(df_s, df_i, df_t, today)
     footer()
     c.tabbar(page)
 

@@ -337,12 +337,12 @@ def _forecast_display(forecast: dict) -> None:
             f"<div style='font-size:.78rem;color:var(--muted);margin:.4rem 0 .2rem'>"
             f"<b>{n_real}</b> πραγματικές επιταγές (σταλμένες) · "
             f"<span style='color:var(--prev)'><b>{n_est}</b> ~προβλεπόμενες (πέρσι)</span> "
-            f"ως το τέλος του έτους"
+            f"ως τις {checks[-1]['date']:%d/%m/%Y}"
             f"</div>"
         )
 
     # Αναλυτικά: μία γραμμή ανά υποχρέωση, με το τρέχον προβλεπόμενο υπόλοιπο.
-    # ΧΡΟΝΟΛΟΓΙΚΑ — από σήμερα (πάνω) προς το τέλος του έτους (κάτω).
+    # ΧΡΟΝΟΛΟΓΙΚΑ — από σήμερα (πάνω) προς το τέλος του διαστήματος (κάτω).
     lines = []
     for ch in checks:
         if ch["covered"]:

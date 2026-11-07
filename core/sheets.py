@@ -936,6 +936,56 @@ def update_timologiseis_field(row: int, field: str, value: str) -> bool:
         return False
 
 
+def update_timologisi(row: int, old_check_date: str, check_date, period: str,
+                      amount: float) -> tuple[bool, str]:
+    """
+    Χειροκίνητη διόρθωση μιας επιταγής: ημερομηνία (A), περίοδος (B), ποσό (C).
+
+    ΑΣΦΑΛΕΙΑ: πριν γράψουμε, ξαναδιαβάζουμε τη γραμμή και ελέγχουμε ότι είναι
+    ΑΚΟΜΑ η ίδια επιταγή (old_check_date). Αν στο μεταξύ μπήκε/σβήστηκε γραμμή
+    και άλλαξε η αρίθμηση, ΔΕΝ γράφουμε — αλλιώς θα πειράζαμε λάθος επιταγή.
+    """
+    try:
+        ws = _ws(SHEET_TIMOL)
+        current = ws.row_values(int(row))
+        if not current or str(current[0]).strip() != str(old_check_date).strip():
+            return False, "Το Sheet άλλαξε στο μεταξύ — ανανέωσε τη σελίδα και ξαναδοκίμασε."
+        cd = check_date.strftime("%Y-%m-%d") if hasattr(check_date, "strftime") else str(check_date)[:10]
+        ws.update([[cd, str(period or ""), to_cents(amount)]], f"A{int(row)}:C{int(row)}", raw=True)
+        load_timologiseis.clear(); _clear_all()
+        return True, f"Η επιταγή {cd} ενημερώθηκε."
+    except Exception as e:
+        return False, f"Δεν ενημερώθηκε: {e}"
+
+
+def delete_invoice_by_number(number: str) -> tuple[bool, str]:
+    """
+    Σβήνει ΕΝΑ παραστατικό με βάση τον αριθμό του (στήλη D).
+
+    Ψάχνουμε τη γραμμή ΤΗ ΣΤΙΓΜΗ της διαγραφής (όχι από παλιά λίστα), ώστε να
+    μη σβηστεί λάθος γραμμή αν άλλαξε η αρίθμηση. Αν ο αριθμός υπάρχει σε
+    πάνω από μία γραμμή, δεν σβήνουμε τίποτα — αυτό είναι δουλειά του
+    «Έλεγχος δεδομένων» (διπλά).
+    """
+    num = str(number or "").strip()
+    if not num:
+        return False, "Δώσε αριθμό παραστατικού."
+    try:
+        ws = _ws(SHEET_INV)
+        rows = [i for i, r in enumerate(_get_all(ws)[1:], start=2)
+                if len(r) > 3 and str(r[3]).strip() == num]
+        if not rows:
+            return False, f"Δεν βρέθηκε παραστατικό με αριθμό {num}."
+        if len(rows) > 1:
+            return False, (f"Ο αριθμός {num} υπάρχει {len(rows)} φορές — "
+                           f"χρησιμοποίησε τον «Έλεγχο δεδομένων» στα Παραστατικά.")
+        _delete(ws, rows[0], rows[0])
+        load_invoices.clear(); _clear_all()
+        return True, f"Το παραστατικό {num} διαγράφηκε."
+    except Exception as e:
+        return False, f"Δεν διαγράφηκε: {e}"
+
+
 def purge_duplicate_timologiseis() -> tuple[int, int]:
     """
     Σβήνει διπλές επιταγές. Κρατάει αυτή που έχει συμπληρωμένα πεδία.

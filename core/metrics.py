@@ -963,9 +963,10 @@ def _expand_fixed(fixed: list, start: date, end: date) -> list:
 
 
 def project_checks_to_year_end(df_checks: pd.DataFrame, today: date,
-                                last_real: date) -> list[dict]:
+                                last_real: date, until: date | None = None) -> list[dict]:
     """
-    Προβλεπόμενες επιταγές από την τελευταία πραγματική ως το τέλος του έτους.
+    Προβλεπόμενες επιταγές από την τελευταία πραγματική ως το `until` (αν
+    λείπει: ως το τέλος του έτους). Περνάει κανονικά στη νέα χρονιά.
 
     Όπου ΔΕΝ έχουμε πραγματική επιταγή (μετά την τελευταία που ξέρουμε), «γεμίζουμε»
     με την ΠΕΡΣΙΝΗ επιταγή της αντίστοιχης εβδομάδας — ακριβώς όπως κάνουμε με τις
@@ -980,7 +981,7 @@ def project_checks_to_year_end(df_checks: pd.DataFrame, today: date,
         return []
 
     out = []
-    year_end = date(today.year, 12, 31)
+    year_end = until or date(today.year, 12, 31)
     daily = daily_purchases(df_checks)
 
     for d in next_pay_dates(last_real, year_end):
@@ -995,7 +996,7 @@ def project_checks_to_year_end(df_checks: pd.DataFrame, today: date,
 
 def cash_forecast(df_checks: pd.DataFrame, df_sales: pd.DataFrame,
                   today: date, cash: float, fixed: list | None = None,
-                  project_to_year_end: bool = True) -> dict:
+                  project_to_year_end: bool = True, until: date | None = None) -> dict:
     """
     🔮 ΠΡΟΒΛΕΨΗ ΡΕΥΣΤΟΤΗΤΑΣ — θα βγει ο μήνας;
 
@@ -1017,6 +1018,9 @@ def cash_forecast(df_checks: pd.DataFrame, df_sales: pd.DataFrame,
 
     fixed : προαιρετική λίστα πάγιων [{"name", "amount", "day"}], που
             επαναλαμβάνονται κάθε μήνα στη μέρα `day`.
+    until : ως ποια μέρα δείχνουμε (π.χ. σήμερα + 3 μήνες). Αν λείπει: ως το
+            τέλος του έτους (η παλιά συμπεριφορά). Επιταγές και πάγια μετά
+            από αυτή τη μέρα δεν μπαίνουν.
 
     → {
         "cash": float,
@@ -1038,6 +1042,8 @@ def cash_forecast(df_checks: pd.DataFrame, df_sales: pd.DataFrame,
       }
     """
     checks = upcoming_checks(df_checks, today)
+    if until:
+        checks = [ch for ch in checks if ch["date"] <= until]
     cash = max(0.0, float(cash or 0))
 
     # ── ΦΤΙΑΞΕ ΕΝΙΑΙΑ ΛΙΣΤΑ ΕΚΡΟΩΝ (επιταγές + πάγια) ──
@@ -1058,7 +1064,7 @@ def cash_forecast(df_checks: pd.DataFrame, df_sales: pd.DataFrame,
     # εβδομάδας — ίδια λογική με τις πωλήσεις. Έτσι βλέπουμε όλη τη χρονιά.
     if project_to_year_end and checks:
         last_real = checks[-1]["date"]
-        for pc in project_checks_to_year_end(df_checks, today, last_real):
+        for pc in project_checks_to_year_end(df_checks, today, last_real, until):
             events.append({
                 "date": pc["date"],
                 "amount": pc["amount"],
@@ -1072,7 +1078,7 @@ def cash_forecast(df_checks: pd.DataFrame, df_sales: pd.DataFrame,
     # απλώνονται κι αυτά ως εκεί. Αλλιώς, μόνο ως την τελευταία πραγματική.
     if fixed and events:
         check_dates = [e["date"] for e in events if e["kind"] == "check"]
-        horizon = max(check_dates) if check_dates else today
+        horizon = until or (max(check_dates) if check_dates else today)
         for fx in _expand_fixed(fixed, today, horizon):
             events.append({
                 "date": fx["date"],

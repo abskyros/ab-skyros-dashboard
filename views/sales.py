@@ -25,10 +25,7 @@ from core.metrics import (
     sales_row, monthly_breakdown,
     find_anomalies, month_name, YOY_OFFSET_DAYS,
 )
-from core.sheets import (
-    load_sales, merge_sales, update_sales,
-    check_quality, delete_row,
-)
+from core.sheets import check_quality, delete_row
 from ui import components as c
 
 
@@ -72,7 +69,7 @@ def _anomalies(df: pd.DataFrame, today: date) -> None:
     c.note(
         f"<b>{len(flagged)} {'ημέρα χρειάζεται' if len(flagged) == 1 else 'ημέρες χρειάζονται'} έλεγχο</b> — "
         f"οι αριθμοί τους αποκλίνουν πολύ από το συνηθισμένο. "
-        f"Διόρθωσέ τις κάτω στο «Διόρθωση · Προσθήκη · Έλεγχος».",
+        f"Διόρθωσέ τις στο «Ενημέρωση» πάνω δεξιά → «✏️ Χειροκίνητη καταχώρηση».",
         "warn",
     )
 
@@ -376,76 +373,12 @@ def _table_html(rows: list, has_prop: bool, picked: date) -> str:
 # ΕΡΓΑΛΕΙΑ
 # ══════════════════════════════════════════════════════════════════════════════
 def _tools(df: pd.DataFrame, today: date) -> None:
-    with st.expander("Διόρθωση · Προσθήκη · Έλεγχος"):
-        fix, add, check = st.tabs(["Διόρθωση", "Προσθήκη", "Έλεγχος"])
-
-        with fix:
-            _fix(df, today)
-        with add:
-            _add(df, today)
-        with check:
-            _check()
-
-
-def _fix(df: pd.DataFrame, today: date) -> None:
-    st.caption("Άλλαξε τα στοιχεία μιας ημέρας που έχει ήδη καταχωρηθεί.")
-
-    picked = st.date_input("Ημέρα", today, key="fix_day", format="DD/MM/YYYY")
-    current = sales_row(df, picked)
-
-    if not current:
-        c.note(f"Η {picked:%d/%m/%Y} δεν υπάρχει. Χρησιμοποίησε την «Προσθήκη».", "warn")
-        return
-
-    a, b, d = st.columns(3)
-    with a:
-        net = st.number_input("Πωλήσεις (€)", value=float(current["net_sales"]),
-                              step=100.0, format="%.2f", key="fix_net")
-    with b:
-        cust = st.number_input("Πελάτες", value=int(current["customers"] or 0),
-                               step=1, key="fix_cust")
-    with d:
-        basket = st.number_input("Μέσο καλάθι (€)", value=float(current["avg_basket"] or 0),
-                                 step=0.5, format="%.2f", key="fix_basket")
-
-    if st.button("Αποθήκευση", key="fix_save", width='stretch'):
-        ok, msg = update_sales(picked, net, cust or None, basket or None)
-        c.note(msg, "ok" if ok else "bad")
-        if ok:
-            st.rerun()
-
-
-def _add(df: pd.DataFrame, today: date) -> None:
-    st.caption("Καταχώρησε μια μέρα με το χέρι, όταν το αυτόματο δεν την έπιασε.")
-
-    picked = st.date_input("Ημέρα", today - timedelta(days=1), key="add_day", format="DD/MM/YYYY")
-
-    if sales_row(df, picked):
-        c.note(f"Η {picked:%d/%m/%Y} υπάρχει ήδη. Χρησιμοποίησε τη «Διόρθωση».", "warn")
-        return
-
-    a, b, d = st.columns(3)
-    with a:
-        net = st.number_input("Πωλήσεις (€)", min_value=0.0, step=100.0, format="%.2f", key="add_net")
-    with b:
-        cust = st.number_input("Πελάτες", min_value=0, step=1, key="add_cust")
-    with d:
-        auto = (net / cust) if (net and cust) else 0.0
-        basket = st.number_input("Μέσο καλάθι (€)", min_value=0.0, value=round(auto, 2),
-                                 step=0.5, format="%.2f", key="add_basket")
-
-    if st.button("Καταχώρηση", key="add_save", width='stretch', disabled=not net):
-        n = merge_sales([{
-            "date": picked,
-            "net_sales": net,
-            "customers": cust or None,
-            "avg_basket": basket or None,
-        }])
-        if n:
-            c.note(f"Η {picked:%d/%m/%Y} καταχωρήθηκε.", "ok")
-            st.rerun()
-        else:
-            c.note("Δεν καταχωρήθηκε — η ημέρα υπάρχει ήδη.", "warn")
+    # Η Προσθήκη/Διόρθωση ημέρας ζει πλέον στο «Ενημέρωση → ✏️ Χειροκίνητη
+    # καταχώρηση» (views/manual.py), μαζί με παραστατικά και τιμολογήσεις.
+    with st.expander("Έλεγχος (διπλά · μέρες που λείπουν)"):
+        st.caption("Για προσθήκη ή διόρθωση ημέρας: «Ενημέρωση» πάνω δεξιά → "
+                   "«✏️ Χειροκίνητη καταχώρηση».")
+        _check()
 
 
 def _check() -> None:
