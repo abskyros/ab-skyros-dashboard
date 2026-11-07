@@ -363,9 +363,10 @@ def _forecast_display(forecast: dict) -> None:
             )
         elif is_est:
             # ΠΡΟΒΛΕΠΟΜΕΝΗ επιταγή (περσινή) — ξεθωριασμένη, με «~» και ένδειξη.
+            basis = ch.get("basis") or "πέρσι"
             label = (
                 f"<span style='color:var(--prev)'>~επιταγή {c.eur(ch['amount'])} "
-                f"<span style='font-size:.72rem;opacity:.8'>(πέρσι)</span></span>"
+                f"<br><span style='font-size:.72rem;opacity:.8'>({basis})</span></span>"
             )
         else:
             label = f"επιταγή {c.eur(ch['amount'])}"

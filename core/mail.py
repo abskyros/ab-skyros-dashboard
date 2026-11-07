@@ -19,7 +19,7 @@ from core.config import (
     SALES_EMAIL_USER, SALES_EMAIL_SENDER, SALES_SUBJECT_KW,
     TIMOL_EMAIL_USER, TIMOL_SUBJECT_KW,
 )
-from core.parsers import parse_invoices, parse_timologisi, parse_sales_pdf, norm_greek
+from core.parsers import parse_invoices, parse_timologisi, parse_timologisi_daily, parse_sales_pdf, norm_greek
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -149,11 +149,19 @@ def _excel_attachments(msg, depth: int = 0) -> list[tuple[str, bytes]]:
 # Ψάξιμο ΣΤΟΝ ΙΔΙΟ ΤΟΝ GMAIL: μόνο email με συνημμένο Excel (ή .eml, για το
 # «forward ως συνημμένο»). Αλλιώς κατεβάζαμε ολόκληρα τα 200 τελευταία email
 # (PDF πωλήσεων, Skroutz κλπ) ένα-ένα — 6-13 λεπτά για 2-3 τιμολογήσεις τον μήνα.
-_TIMOL_GMAIL_SEARCH = 'X-GM-RAW "has:attachment {filename:xlsx filename:xls filename:eml} newer_than:400d"'
+_TIMOL_GMAIL_SEARCH = 'X-GM-RAW "has:attachment {{filename:xlsx filename:xls filename:eml}} newer_than:{days}d"'
 
 
-def fetch_timologiseis(password: str, limit: int = 200) -> tuple[list, list]:
-    """→ (records, errors)"""
+def fetch_timologiseis(password: str, limit: int = 200, days: int = 400) -> tuple[list, list]:
+    """
+    → (records, errors)
+
+    Κάθε record: {"check_date", "period", "amount"} και, όταν το Excel περνάει
+    τον έλεγχο αθροίσματος, "daily": {ημέρα: αγορές} (βλ. parse_timologisi_daily)
+    — αυτά γεμίζουν το φύλλο «agores» για την πρόβλεψη ανά δεκαήμερο.
+    days: πόσο πίσω ψάχνει στο Gmail (η ανάκτηση παλιών Excel δίνει περισσότερες).
+    """
+    search = _TIMOL_GMAIL_SEARCH.format(days=int(days))
     records, errors = [], []
     scanned = matched = 0
 
@@ -162,8 +170,8 @@ def fetch_timologiseis(password: str, limit: int = 200) -> tuple[list, list]:
             # Αν για κάποιο λόγο ο server δεν δέχεται το ψάξιμο του Gmail,
             # γυρνάμε στον παλιό (αργό αλλά σίγουρο) τρόπο.
             try:
-                mb.uids(_TIMOL_GMAIL_SEARCH)
-                criteria, bulk = _TIMOL_GMAIL_SEARCH, True
+                mb.uids(search)
+                criteria, bulk = search, True
             except Exception:
                 criteria, bulk = "ALL", False
 
@@ -175,7 +183,7 @@ def fetch_timologiseis(password: str, limit: int = 200) -> tuple[list, list]:
                 matched += 1
 
                 for _name, payload in _excel_attachments(msg):
-                    rec = parse_timologisi(payload)
+                    rec = parse_timologisi_daily(payload) or parse_timologisi(payload)
                     if rec:
                         records.append(rec)
     except Exception as e:

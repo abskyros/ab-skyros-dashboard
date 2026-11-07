@@ -188,6 +188,60 @@ def parse_timologisi(content: bytes) -> dict | None:
     return None
 
 
+def parse_timologisi_daily(content: bytes) -> dict | None:
+    """
+    → {"check_date", "period", "amount", "daily": {date: ποσό}, "lines": int} ή None
+
+    Οι ΑΓΟΡΕΣ ανά ημέρα από το Excel τιμολόγησης: κάθε γραμμή είναι ένα
+    παραστατικό (τιμολόγιο RV, επιστροφή RT, χρέωση κάρτας DZ…) με ημερομηνία
+    και ποσό. Τα αθροίζουμε ανά ημέρα.
+
+    ΕΛΕΓΧΟΣ: το άθροισμα όλων των γραμμών πρέπει να βγαίνει ΙΣΟ με την επιταγή
+    (π.χ. 21.10–31.10.2026: 112 γραμμές = 96.985,32 €). Αν δεν βγαίνει, κάτι
+    διαβάστηκε λάθος → None (καλύτερα καθόλου, παρά λάθος νούμερα στην πρόβλεψη).
+
+    Οι στήλες βρίσκονται από την ΚΕΦΑΛΙΔΑ («ΗΜΕΡΟΜΗΝΙΑ…», «ΠΟΣΟ…»), όχι από
+    σταθερή θέση — τα παλιά Excel μπορεί να έχουν μία στήλη λιγότερη/περισσότερη.
+    """
+    rec = parse_timologisi(content)
+    if not rec:
+        return None
+    try:
+        df = pd.read_excel(io.BytesIO(content), header=None)
+    except Exception:
+        return None
+
+    date_col = amt_col = head_row = None
+    for i in range(min(len(df), 15)):
+        cells = [norm_greek(str(v)) if pd.notna(v) else "" for v in df.iloc[i].values]
+        d = next((j for j, t in enumerate(cells) if t.startswith("ΗΜΕΡΟΜΗΝΙΑ")), None)
+        a = next((j for j, t in enumerate(cells) if t.startswith("ΠΟΣΟ")), None)
+        if d is not None and a is not None:
+            date_col, amt_col, head_row = d, a, i
+            break
+    if head_row is None:
+        return None
+
+    daily: dict = {}
+    n = 0
+    for i in range(head_row + 1, len(df)):
+        dv = pd.to_datetime(df.iat[i, date_col], errors="coerce", dayfirst=True)
+        if pd.isna(dv):
+            continue                      # π.χ. η τελευταία γραμμή (σύνολο)
+        av = df.iat[i, amt_col]
+        amount = float(av) if isinstance(av, (int, float)) and pd.notna(av) else parse_number(av)
+        if amount is None:
+            continue
+        day = dv.date()
+        daily[day] = daily.get(day, 0.0) + float(amount)
+        n += 1
+
+    if not daily or abs(sum(daily.values()) - rec["amount"]) > 0.05:
+        return None
+
+    return {**rec, "daily": {d: round(v, 2) for d, v in daily.items()}, "lines": n}
+
+
 def _extract_amount(row: pd.Series) -> float | None:
     """Το ποσό είναι στη στήλη 8. Αν λείπει, παίρνουμε την πρώτη δεκαδική τιμή."""
     vals = list(row.values)

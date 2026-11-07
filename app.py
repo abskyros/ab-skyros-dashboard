@@ -178,6 +178,16 @@ def sync_panel(df_s) -> None:
             if st.button("Τιμολογήσεις", key="sync_timol", width="stretch"):
                 _sync_timologiseis()
 
+        # ── ΑΓΟΡΕΣ ΑΝΑ ΗΜΕΡΑ (για την πρόβλεψη ανά δεκαήμερο) ──
+        st.caption(
+            "**Αγορές από τα Excel τιμολόγησης** — διαβάζει όλα τα παλιά Excel "
+            "(έως 2 χρόνια πίσω) και κρατά τις αγορές κάθε ημέρας. Από αυτές "
+            "βγαίνει η πρόβλεψη των επιταγών ανά δεκαήμερο. Αρκεί μία φορά· "
+            "μετά οι νέες τιμολογήσεις μπαίνουν μόνες τους."
+        )
+        if st.button("Ανάκτηση αγορών από παλιά Excel", key="backfill_agores", width="stretch"):
+            _backfill_agores()
+
         # ── ΒΑΘΙΑ ΣΑΡΩΣΗ ΠΩΛΗΣΕΩΝ ──
         #
         # Διαφορά από το κουμπί «Πωλήσεις»: ανοίγει ΟΛΑ τα email αναφοράς μέσα
@@ -743,6 +753,41 @@ def _sync_timologiseis() -> None:
     )
     if saved:
         st.rerun()
+
+
+def _backfill_agores() -> None:
+    """
+    Μία φορά: όλα τα Excel τιμολόγησης των 2 τελευταίων χρόνων → φύλλο «agores».
+    Γράφει ΜΟΝΟ αγορές (όχι επιταγές) — οι παλιές επιταγές υπάρχουν ήδη, και
+    δεν θέλουμε να ξαναμπεί κάποια με λίγο διαφορετική γραφή περιόδου.
+    """
+    from core.sheets import merge_agores, load_agores
+
+    if not SALES_PW:
+        c.note("Λείπει το SALES_EMAIL_PASS από τα secrets.", "bad")
+        return
+
+    with st.spinner("Διάβασμα όλων των Excel τιμολόγησης (έως 2 χρόνια)…"):
+        records, errors = fetch_timologiseis(SALES_PW, limit=400, days=800)
+    if errors and not records:
+        c.note(errors[0], "warn")
+        return
+
+    ok = [r for r in records if r.get("daily")]
+    bad = sorted({r["check_date"] for r in records if not r.get("daily")})
+    added = merge_agores(ok)
+
+    df = load_agores()
+    span = (f"{df['date'].min():%d/%m/%Y} — {df['date'].max():%d/%m/%Y}"
+            if not df.empty else "—")
+    msg = (f"Βρέθηκαν <b>{len(records)}</b> Excel · <b>{len(ok)}</b> πέρασαν τον έλεγχο "
+           f"αθροίσματος · <b>{added}</b> νέες επιταγές γράφτηκαν στο «agores».<br>"
+           f"Αγορές ανά ημέρα διαθέσιμες: <b>{span}</b>.")
+    if bad:
+        msg += ("<br>Δεν διαβάστηκαν ανά ημέρα (άλλη μορφή ή άθροισμα ≠ επιταγή): "
+                + ", ".join(f"{d:%d/%m/%Y}" for d in bad[:20])
+                + (f" και άλλες {len(bad) - 20}" if len(bad) > 20 else ""))
+    c.note(msg, "ok" if ok else "warn")
 
 
 # ══════════════════════════════════════════════════════════════════════════════

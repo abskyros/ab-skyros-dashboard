@@ -262,7 +262,7 @@ def save_setting(key: str, value: str) -> bool:
                 _load_settings.clear()
                 return True
         # Δεν υπάρχει — πρόσθεσέ το
-        ws.append_row([key, str(value)])
+        ws.append_row([key, str(value)], table_range="A1")
         _load_settings.clear()
         return True
     except Exception:
@@ -905,6 +905,14 @@ def merge_timologiseis(records: list) -> int:
         _append(ws, new_rows)
         load_timologiseis.clear(); _clear_all()
 
+    # Οι αγορές ανά ημέρα (γραμμές του Excel) πάνε στο φύλλο «agores» — ΚΑΙ για
+    # τις επιταγές που υπήρχαν ήδη (έτσι γεμίζει και το παρελθόν). Δευτερεύον:
+    # αν αποτύχει, οι τιμολογήσεις έχουν ήδη γραφτεί.
+    try:
+        merge_agores(records)
+    except Exception as e:  # noqa: BLE001
+        print(f"  ! Αγορές ανά ημέρα: {e}")
+
     return len(new_rows)
 
 
@@ -934,6 +942,75 @@ def update_timologiseis_field(row: int, field: str, value: str) -> bool:
         return True
     except Exception:
         return False
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ΑΓΟΡΕΣ ΑΝΑ ΗΜΕΡΑ (από τις γραμμές των Excel τιμολόγησης)
+# ══════════════════════════════════════════════════════════════════════════════
+SHEET_AGORES = "agores"
+AGORES_COLS = ["date", "amount", "check_date"]
+
+
+def _agores_ws():
+    """Το φύλλο «agores» (date | amount σε λεπτά | check_date). Αν λείπει, το φτιάχνει."""
+    ss = _spreadsheet()
+    try:
+        return ss.worksheet(SHEET_AGORES)
+    except Exception:
+        ws = ss.add_worksheet(title=SHEET_AGORES, rows=1000, cols=3)
+        ws.update([AGORES_COLS], "A1")
+        return ws
+
+
+@st.cache_data(ttl=600, max_entries=1, show_spinner=False)
+def load_agores() -> pd.DataFrame:
+    """
+    → DataFrame[date, amount, check_date] — οι αγορές κάθε ημέρας, όπως τις
+    γράφουν τα Excel τιμολόγησης (άθροισμα όλων των παραστατικών της ημέρας).
+    Κενό DataFrame αν δεν υπάρχει ακόμη το φύλλο ή δεν διαβάζεται.
+    """
+    try:
+        vals = _with_retry(lambda: _agores_ws().get_all_values())
+    except Exception:
+        return pd.DataFrame(columns=AGORES_COLS)
+    rows = [r[:3] for r in (vals or [])[1:] if len(r) >= 3 and r[0]]
+    if not rows:
+        return pd.DataFrame(columns=AGORES_COLS)
+    df = pd.DataFrame(rows, columns=AGORES_COLS)
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df["check_date"] = pd.to_datetime(df["check_date"], errors="coerce")
+    df["amount"] = df["amount"].map(from_cents).astype(float)
+    return df.dropna(subset=["date"])
+
+
+def merge_agores(records: list) -> int:
+    """
+    Γράφει τις αγορές ανά ημέρα από Excel τιμολόγησης (parse_timologisi_daily).
+
+    Κλειδί: η ΕΠΙΤΑΓΗ (check_date). Αν μια επιταγή έχει ήδη γραμμές, δεν
+    ξαναγράφεται — έτσι το ίδιο Excel σε δεύτερο email δεν διπλασιάζει τις αγορές.
+    → πόσες ΕΠΙΤΑΓΕΣ προστέθηκαν.
+    """
+    recs = [r for r in records if r and r.get("daily") and r.get("check_date")]
+    if not recs:
+        return 0
+    ws = _agores_ws()
+    have = {str(r[2]).strip() for r in _get_all(ws)[1:] if len(r) >= 3 and r[2]}
+
+    rows, added = [], 0
+    for rec in sorted(recs, key=lambda r: r["check_date"]):
+        cd = rec["check_date"].strftime("%Y-%m-%d")
+        if cd in have:
+            continue
+        have.add(cd)
+        added += 1
+        for d, v in sorted(rec["daily"].items()):
+            rows.append([d.strftime("%Y-%m-%d"), to_cents(v), cd])
+
+    if rows:
+        _append(ws, rows)
+        load_agores.clear()
+    return added
 
 
 def update_timologisi(row: int, old_check_date: str, check_date, period: str,
@@ -1282,3 +1359,4 @@ def clear_all_caches() -> None:
     load_timologiseis.clear()
     _load_all_sheets.clear()
     load_setting.clear()
+    load_agores.clear()

@@ -962,8 +962,57 @@ def _expand_fixed(fixed: list, start: date, end: date) -> list:
     return out
 
 
+def ly_period(start: date, end: date) -> tuple[date, date]:
+    """
+    Η ΠΕΡΣΙΝΗ περίοδος αγορών που αντιστοιχεί σε start..end.
+
+    Δεκαήμερο → το ΙΔΙΟ ημερολογιακό δεκαήμερο πέρσι (01–10/11/2026 → 01–10/11/2025,
+    21–28/02/2027 → 21–29/02/2026 αν ήταν δίσεκτο). Η τιμολόγηση είναι πλέον
+    ημερολογιακή, άρα συγκρίνουμε ημερολογιακά — ΟΧΙ −364.
+    Οτιδήποτε άλλο (εβδομάδα) → ίδιες μέρες εβδομάδας πέρσι (−364).
+    """
+    if start.day in (1, 11, 21) and decade_range(start) == (start, end):
+        return decade_range(date(start.year - 1, start.month, start.day))
+    return last_year(start), last_year(end)
+
+
+def agores_coverage(df_agores: pd.DataFrame, df_checks: pd.DataFrame) -> list[tuple[date, date]]:
+    """
+    Ποιες περίοδοι αγορών είναι ΠΛΗΡΩΣ γνωστές από Excel: για κάθε επιταγή που
+    έχει γραμμές στο «agores», η περίοδος που πληρώνει (από το Excel/κανόνα).
+    Μια μέρα χωρίς αγορές (Κυριακή) ΜΕΣΑ σε γνωστή περίοδο σημαίνει 0, όχι «λείπει».
+    """
+    if df_agores is None or df_agores.empty:
+        return []
+    periods = {}
+    if not df_checks.empty:
+        for cd, per in zip(as_dates(df_checks["check_date"]), df_checks["period"].astype(str)):
+            periods[cd] = per
+    out = []
+    for cd in sorted(set(as_dates(df_agores["check_date"].dropna()))):
+        out.append(purchase_period(cd, periods.get(cd, "")))
+    return out
+
+
+def estimate_from_agores(daily: dict, coverage: list, start: date, end: date) -> tuple | None:
+    """
+    → (ποσό, περσινό_από, περσινό_ως) ή None αν η περσινή περίοδος δεν είναι
+    ΟΛΗ καλυμμένη από Excel (τότε η πρόβλεψη πέφτει στον παλιό τρόπο).
+    Ποσό = άθροισμα των ΠΡΑΓΜΑΤΙΚΩΝ περσινών αγορών των ίδιων ημερών.
+    """
+    la, lb = ly_period(start, end)
+    d = la
+    while d <= lb:
+        if not any(a <= d <= b for a, b in coverage):
+            return None
+        d += timedelta(days=1)
+    total = sum(v for k, v in daily.items() if la <= k <= lb)
+    return round(total, 2), la, lb
+
+
 def project_checks_to_year_end(df_checks: pd.DataFrame, today: date,
-                                last_real: date, until: date | None = None) -> list[dict]:
+                                last_real: date, until: date | None = None,
+                                df_agores: pd.DataFrame | None = None) -> list[dict]:
     """
     Προβλεπόμενες επιταγές από την τελευταία πραγματική ως το `until` (αν
     λείπει: ως το τέλος του έτους). Περνάει κανονικά στη νέα χρονιά.
@@ -982,13 +1031,25 @@ def project_checks_to_year_end(df_checks: pd.DataFrame, today: date,
 
     out = []
     year_end = until or date(today.year, 12, 31)
-    daily = daily_purchases(df_checks)
+    daily = daily_purchases(df_checks)          # ο παλιός τρόπος (εφεδρεία)
+
+    # Ο ΣΩΣΤΟΣ τρόπος: οι πραγματικές περσινές αγορές ανά ημέρα, από τα Excel.
+    real_daily, coverage = {}, []
+    if df_agores is not None and not df_agores.empty:
+        real_daily = df_agores.groupby(as_dates(df_agores["date"]))["amount"].sum().to_dict()
+        coverage = agores_coverage(df_agores, df_checks)
 
     for d in next_pay_dates(last_real, year_end):
         a, b = purchase_period(d)
-        amount = estimate_ly_check(daily, a, b)
+        est = estimate_from_agores(real_daily, coverage, a, b) if coverage else None
+        if est:
+            amount, la, lb = est
+            basis = f"αγορές {la:%d/%m}–{lb:%d/%m/%Y}"
+        else:
+            amount = estimate_ly_check(daily, a, b)
+            basis = "κατά προσέγγιση — λείπουν Excel"
         if amount and amount > 0:
-            out.append({"date": d, "amount": amount,
+            out.append({"date": d, "amount": amount, "basis": basis,
                         "period": f"{a:%d.%m} – {b:%d.%m}", "estimated": True})
 
     return out
@@ -996,7 +1057,8 @@ def project_checks_to_year_end(df_checks: pd.DataFrame, today: date,
 
 def cash_forecast(df_checks: pd.DataFrame, df_sales: pd.DataFrame,
                   today: date, cash: float, fixed: list | None = None,
-                  project_to_year_end: bool = True, until: date | None = None) -> dict:
+                  project_to_year_end: bool = True, until: date | None = None,
+                  df_agores: pd.DataFrame | None = None) -> dict:
     """
     🔮 ΠΡΟΒΛΕΨΗ ΡΕΥΣΤΟΤΗΤΑΣ — θα βγει ο μήνας;
 
@@ -1064,11 +1126,12 @@ def cash_forecast(df_checks: pd.DataFrame, df_sales: pd.DataFrame,
     # εβδομάδας — ίδια λογική με τις πωλήσεις. Έτσι βλέπουμε όλη τη χρονιά.
     if project_to_year_end and checks:
         last_real = checks[-1]["date"]
-        for pc in project_checks_to_year_end(df_checks, today, last_real, until):
+        for pc in project_checks_to_year_end(df_checks, today, last_real, until, df_agores):
             events.append({
                 "date": pc["date"],
                 "amount": pc["amount"],
                 "period": pc.get("period", ""),
+                "basis": pc.get("basis", ""),
                 "kind": "check",
                 "name": "",
                 "estimated": True,    # ΠΡΟΒΛΕΠΟΜΕΝΗ (περσινή)
