@@ -1025,7 +1025,9 @@ def cash_forecast(df_checks: pd.DataFrame, df_sales: pd.DataFrame,
               "date", "amount", "period",
               "kind": "check" | "fixed",   # τι είδους εκροή
               "name": str,                 # όνομα (για τα πάγια)
-              "sales_until": float,        # πωλήσεις από την προηγούμενη εκροή
+              "sales_until": float,        # πωλήσεις των ημερών της επιταγής
+              "sales_from", "sales_to",    # οι μέρες αυτές (μόνο στις επιταγές)
+              "sales_actual", "sales_ly",  # πραγματικές φετινές + περσινές
               "balance_before", "balance_after",
               "covered": bool, "shortfall": float,
             }, ...
@@ -1093,9 +1095,19 @@ def cash_forecast(df_checks: pd.DataFrame, df_sales: pd.DataFrame,
     rows = []
     balance = cash
     first_gap = None
-    # Από πότε μετράμε πωλήσεις για την επόμενη επιταγή. Το ταμείο που έδωσες
-    # είναι το σημερινό → για την πρώτη επιταγή μετράμε από ΣΗΜΕΡΑ.
-    sales_from = today
+
+    # ── ΟΙ ΜΕΡΕΣ ΚΑΘΕ ΕΠΙΤΑΓΗΣ ──
+    #
+    # Κάθε επιταγή «πληρώνεται» από τις πωλήσεις των ημερών ΤΗΣ: από την
+    # προηγούμενη επιταγή ως την παραμονή της (εβδομάδα στις εβδομαδιαίες,
+    # δεκαήμερο στις δεκαήμερες). ΚΑΙ για την πρώτη: η 09/11/2026 μετράει
+    # 02/11–08/11, όχι μόνο από σήμερα. Τα «Διαθέσιμα μετρητά» είναι ΞΕΧΩΡΙΣΤΑ
+    # από αυτές τις πωλήσεις (επιλογή του χρήστη) — άρα δεν μετριούνται διπλά.
+    #
+    # Μέρες που πέρασαν → ΠΡΑΓΜΑΤΙΚΕΣ φετινές πωλήσεις. Μέρες που έρχονται (ή
+    # λείπει η αναφορά) → οι ίδιες μέρες ΠΕΡΣΙ (−364).
+    daily = dict(zip(as_dates(df_sales["date"]), df_sales["net_sales"].astype(float)))         if not df_sales.empty else {}
+    sales_from = None
 
     for ev in events:
         cd = ev["date"]
@@ -1108,13 +1120,22 @@ def cash_forecast(df_checks: pd.DataFrame, df_sales: pd.DataFrame,
         #
         # Τα πάγια (μισθοδοσία, ΦΠΑ κλπ) ΔΕΝ προσθέτουν πωλήσεις — απλώς
         # αφαιρούνται. Έτσι κάθε μέρα πωλήσεων μετράει μία φορά.
+        win = {}
         if ev["kind"] == "check":
+            if sales_from is None:
+                sales_from = _previous_check_date(df_checks, cd) or cd - timedelta(days=7)
             wk_end = cd - timedelta(days=1)
-            predicted = 0.0
-            if sales_from <= wk_end:
-                predicted = sales_between(
-                    df_sales, last_year(sales_from), last_year(wk_end)
-                ) or 0.0
+            actual = ly = 0.0
+            d = sales_from
+            while d <= wk_end:
+                if d < today and d in daily:
+                    actual += daily[d]
+                else:
+                    ly += daily.get(last_year(d), 0.0)
+                d += timedelta(days=1)
+            predicted = actual + ly
+            win = {"sales_from": sales_from, "sales_to": wk_end,
+                   "sales_actual": actual, "sales_ly": ly}
             sales_from = max(sales_from, cd)
         else:
             predicted = 0.0
@@ -1126,6 +1147,7 @@ def cash_forecast(df_checks: pd.DataFrame, df_sales: pd.DataFrame,
 
         row = {
             **ev,
+            **win,
             "sales_until": predicted,
             "balance_before": balance_before,
             "balance_after": balance_after,
@@ -1146,6 +1168,14 @@ def cash_forecast(df_checks: pd.DataFrame, df_sales: pd.DataFrame,
         "all_covered": first_gap is None,
         "based_on_year": today.year - 1,
     }
+
+
+def _previous_check_date(df_checks: pd.DataFrame, cd: date) -> date | None:
+    """Η τελευταία επιταγή ΠΡΙΝ την cd (η αρχή των ημερών πωλήσεων της cd)."""
+    if df_checks.empty:
+        return None
+    prev = [d for d in as_dates(df_checks["check_date"]) if d < cd]
+    return max(prev) if prev else None
 
 
 def check_this_week(df: pd.DataFrame, today: date) -> pd.Series | None:

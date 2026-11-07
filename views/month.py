@@ -279,6 +279,20 @@ def _runway_summary(runway: dict) -> None:
 # ══════════════════════════════════════════════════════════════════════════════
 # ΠΡΟΒΛΕΨΗ ΡΕΥΣΤΟΤΗΤΑΣ — τι θα φτάνει όταν λήξει κάθε επιταγή
 # ══════════════════════════════════════════════════════════════════════════════
+def _sales_detail(ch: dict) -> str:
+    """
+    Κάτω από τις πωλήσεις μιας επιταγής: ποιες μέρες, και πόσα είναι ήδη
+    πραγματικά (φέτος) και πόσα πρόβλεψη (πέρσι).
+    """
+    if not ch.get("sales_from"):
+        return ""
+    txt = f"{ch['sales_from']:%d/%m}–{ch['sales_to']:%d/%m}"
+    if ch.get("sales_actual"):
+        txt += (f" · πραγματικά {c.eur(ch['sales_actual'])}"
+                f" + πρόβλεψη {c.eur(ch.get('sales_ly') or 0)}")
+    return f"<br><span style='font-size:.72rem;opacity:.85'>{txt}</span>"
+
+
 def _forecast_display(forecast: dict) -> None:
     """
     Δείχνει πώς εξελίσσεται το ταμείο μπροστά, επιταγή-επιταγή, με βάση τις
@@ -357,7 +371,8 @@ def _forecast_display(forecast: dict) -> None:
             label = f"επιταγή {c.eur(ch['amount'])}"
 
         sales_part = (
-            f"<span style='color:var(--dim)'>+{c.eur(ch['sales_until'])} πωλήσεις</span>"
+            f"<span style='color:var(--dim)'>+{c.eur(ch['sales_until'])} πωλήσεις"
+            + _sales_detail(ch) + "</span>"
             if ch["sales_until"] > 0 else
             "<span style='color:var(--dim)'>—</span>"
         )
