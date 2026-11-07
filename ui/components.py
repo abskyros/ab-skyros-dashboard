@@ -8,7 +8,7 @@ ui/components.py — Τα δομικά κομμάτια της οθόνης.
 from __future__ import annotations
 
 import urllib.parse
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import pandas as pd
@@ -584,6 +584,60 @@ def year_months(years: list, months: list[dict]) -> None:
         f'<div class="ym-row ym-head"><span class="ym-name">Μήνας</span>{head}</div>'
         f'{"".join(rows)}'
         '</div>'
+    )
+
+
+_EN_DAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+_EN_MONTHS = ("January", "February", "March", "April", "May", "June", "July",
+              "August", "September", "October", "November", "December")
+
+
+def _cal_label(d: date) -> str:
+    """
+    Η ετικέτα (aria-label) που δίνει το ημερολόγιο του Streamlit σε κάθε μέρα,
+    π.χ. «Choose Saturday, November 7th 2026. It's available.» — ΠΑΝΤΑ αγγλικά.
+    Επιστρέφουμε το κομμάτι «, November 7th 2026» για να τη βρει το CSS.
+    """
+    n = d.day
+    suf = "th" if 11 <= n % 100 <= 13 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f", {_EN_MONTHS[d.month - 1]} {n}{suf} {d.year}"
+
+
+def period_calendar(prev: tuple, cur: tuple, nxt: tuple) -> None:
+    """
+    Χρωματίζει στο αναδυόμενο ημερολόγιο (st.date_input) τρεις περιόδους
+    τιμολόγησης: την τρέχουσα (χρυσό), την προηγούμενη (μπλε), την επόμενη
+    (πράσινο) — και γράφει από κάτω τα όριά τους με λόγια.
+
+    Το Streamlit δεν έχει επιλογή για χρώμα ανά μέρα. Κάθε μέρα όμως έχει
+    ετικέτα με την πλήρη ημερομηνία της, και τη «σημαδεύουμε» με CSS. Αν
+    κάποτε αλλάξει η ετικέτα, απλώς χάνεται το χρώμα — τίποτα δεν σπάει.
+    """
+    colors = (
+        (prev, "rgba(74,120,200,.22)"),
+        (cur,  "rgba(200,153,46,.38)"),
+        (nxt,  "rgba(60,160,110,.22)"),
+    )
+    rules = []
+    for (start, end), color in colors:
+        sel = ",".join(
+            f'[data-baseweb="calendar"] [role="gridcell"][aria-label*="{_cal_label(start + timedelta(days=i))}"]'
+            for i in range((end - start).days + 1)
+        )
+        rules.append(f"{sel}{{background:{color} !important;border-radius:6px}}")
+
+    def chip(p: tuple, color: str, label: str) -> str:
+        return (f'<span style="display:inline-flex;align-items:center;gap:.3rem;margin-right:.9rem">'
+                f'<span style="width:.75rem;height:.75rem;border-radius:3px;background:{color}"></span>'
+                f'{label} {p[0]:%d/%m}–{p[1]:%d/%m}</span>')
+
+    html(
+        f'<style>{"".join(rules)}</style>'
+        '<div style="font-size:.74rem;color:var(--dim);margin:-.3rem 0 .8rem">'
+        + chip(prev, colors[0][1], "Προηγ.")
+        + chip(cur, colors[1][1], "<b>Περίοδος</b>")
+        + chip(nxt, colors[2][1], "Επόμ.")
+        + '</div>'
     )
 
 

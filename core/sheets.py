@@ -160,8 +160,17 @@ def _get_all(ws) -> list:
 
 
 def _append(ws, rows: list) -> None:
-    """ws.append_rows(...) με retry στο 429."""
-    _with_retry(lambda: ws.append_rows(rows, value_input_option="RAW"),
+    """
+    ws.append_rows(...) με retry στο 429.
+
+    table_range="A1": ΠΑΝΤΑ από τη στήλη A. Χωρίς αυτό, το Google ψάχνει μόνο
+    του «τον πίνακα» — και στο timologiseis, όπου οι στήλες F–G (voucher,
+    sent_date) είναι γεμάτες μόνο στις τελευταίες γραμμές, έγραφε τις νέες
+    γραμμές από τη στήλη F. Η εφαρμογή διάβαζε κενή στήλη A και τις αγνοούσε
+    (έτσι «χανόταν» η επιταγή 25/12/2026 και ξαναγραφόταν σε κάθε ενημέρωση).
+    """
+    _with_retry(lambda: ws.append_rows(rows, value_input_option="RAW",
+                                       table_range="A1"),
                 tries=4, base_wait=5.0)
 
 
@@ -856,17 +865,26 @@ def load_timologiseis() -> pd.DataFrame:
 
 
 def merge_timologiseis(records: list) -> int:
-    """Κλειδί διπλότυπου: check_date + amount."""
+    """
+    Κλειδί διπλότυπου: check_date + περίοδος (όχι ποσό).
+
+    Η ίδια επιταγή μπορεί να έρθει σε δεύτερο email με άλλο ποσό (π.χ. η 22/06/2026:
+    63.441,08 στο Sheet, 63.262,19 σε άλλο email). Με κλειδί το ποσό έμπαινε δεύτερη
+    γραμμή για την ίδια επιταγή. Τώρα: ίδια μέρα + ίδια περίοδος = ίδια επιταγή,
+    και κρατάμε ό,τι υπάρχει ήδη (μπορεί να το έχεις διορθώσει με το χέρι).
+    """
     if not records:
         return 0
 
     ws = _ws(SHEET_TIMOL)
 
-    # Το Sheet δίνει λεπτά ως string. Κανονικοποιούμε σε ακέραιο, ώστε το
-    # "21351" και το 21351 να δίνουν το ίδιο κλειδί.
+    def key(cd: str, period: str) -> str:
+        # Η περίοδος γράφεται άλλοτε «12.10.2026 -20.10.2026», άλλοτε με κενά.
+        return cd.strip() + "|" + "".join((period or "").split())
+
     existing = {
-        f"{str(r[0]).strip()}|{int(parse_number(r[2]))}"
-        for r in _get_all(ws)[1:] if len(r) >= 3 and r[0]
+        key(str(r[0]), str(r[1]) if len(r) > 1 else "")
+        for r in _get_all(ws)[1:] if r and r[0]
     }
 
     new_rows = []
@@ -877,10 +895,10 @@ def merge_timologiseis(records: list) -> int:
         cd_str = cd.strftime("%Y-%m-%d") if hasattr(cd, "strftime") else str(cd)[:10]
         v = to_cents(rec.get("amount", 0))
 
-        key = f"{cd_str}|{v}"
-        if key in existing:
+        k = key(cd_str, str(rec.get("period", "")))
+        if k in existing:
             continue
-        existing.add(key)
+        existing.add(k)
         new_rows.append([cd_str, str(rec.get("period", "")), v, "", ""])
 
     if new_rows:

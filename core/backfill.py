@@ -386,7 +386,7 @@ def apply(p: Plan, on_progress=None) -> dict:
         tick("Προσθήκη", 1, 1)
 
         ok = _write_with_retry(
-            lambda: ws.append_rows(p.add, value_input_option="RAW"),
+            lambda: ws.append_rows(p.add, value_input_option="RAW", table_range="A1"),
             "Προσθήκη",
             done["errors"],
         )
@@ -1045,7 +1045,7 @@ def apply_rebuild(plan: dict, on_progress=None) -> dict:
         tick("Γράψιμο", n, len(batches))
 
         ok = _write_with_retry(
-            lambda b=batch: ws.append_rows(b, value_input_option="RAW"),
+            lambda b=batch: ws.append_rows(b, value_input_option="RAW", table_range="A1"),
             "Γράψιμο",
             done["errors"],
         )

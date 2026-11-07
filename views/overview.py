@@ -4,7 +4,7 @@ views/overview.py — Η πρώτη οθόνη (εταιρικό στυλ).
 Μια απλή, γρήγορη ματιά: ΠΕΝΤΕ όμοιες κάρτες, τίποτα άλλο.
 
   ┌──────────┬──────────┬──────────┬──────────┬──────────┐
-  │ ΣΗΜΕΡΑ   │ ΧΘΕΣ     │ ΕΒΔΟΜΑΔΑ │ ΤΙΜΟΛΟΓΙΑ│ ΕΠΟΜΕΝΗ  │
+  │ ΣΗΜΕΡΑ   │ ΧΘΕΣ     │ ΠΕΡΙΟΔΟΣ │ ΤΙΜΟΛΟΓΙΑ│ ΕΠΟΜΕΝΗ  │
   │ (στόχος) │          │ ΩΣ ΤΩΡΑ  │ (καθαρό) │ ΕΠΙΤΑΓΗ  │
   └──────────┴──────────┴──────────┴──────────┴──────────┘
 
@@ -17,7 +17,8 @@ views/overview.py — Η πρώτη οθόνη (εταιρικό στυλ).
 ίδιας μέρας είναι ο στόχος σου: «σήμερα πρέπει να πιάσω 7.400». Είναι το πιο
 σημαντικό νούμερο της μέρας → πρώτη θέση, με λεπτή χρυσή γραμμή.
 
-Η εβδομάδα είναι ΠΑΝΤΑ η τρέχουσα. Κάθε Δευτέρα μηδενίζει μόνη της.
+Η περίοδος είναι ΠΑΝΤΑ η τρέχουσα περίοδος τιμολόγησης (εβδομάδα ως 11/10/2026,
+δεκαήμερο από 21/10/2026) και μηδενίζει μόνη της στην αρχή της επόμενης.
 """
 
 from datetime import date, timedelta
@@ -26,7 +27,7 @@ import pandas as pd
 
 from core.metrics import (
     last_year, two_years_ago, day_name,
-    sales_on, week_to_date,
+    sales_on, period_to_date, period_kind,
     invoice_totals, invoices_between, billing_period,
     checks_ahead_with_number, cash_runway,
 )
@@ -162,22 +163,22 @@ def _yesterday_card(df_s: pd.DataFrame, today: date) -> str:
 
 
 def _week_cards(df_s: pd.DataFrame, df_i: pd.DataFrame, today: date) -> tuple[str, str]:
-    """→ (κάρτα «Εβδομάδα ως τώρα», κάρτα «Τιμολόγια — καθαρό»)."""
+    """→ (κάρτα «Περίοδος ως τώρα», κάρτα «Τιμολόγια — καθαρό»)."""
 
-    wtd = week_to_date(df_s, today)
+    wtd = period_to_date(df_s, today)
 
-    foot = f"{wtd['label']} · πέρσι {c.eur(wtd['previous'])}"
+    foot = f"{wtd['start']:%d/%m}–{wtd['end']:%d/%m} · πέρσι {c.eur(wtd['previous'])}"
     if wtd.get("two_previous") is not None:
         foot += f" · πρόπερσι {c.eur(wtd['two_previous'])}"
 
-    wk_card = c.kpi("Εβδομάδα ως τώρα", wtd["current"], then=wtd["previous"],
+    d_start, d_end = billing_period(today)
+    wk_card = c.kpi(f"Περίοδος {d_start:%d/%m}–{d_end:%d/%m}", wtd["current"], then=wtd["previous"],
                     foot=foot, href=c.link("Πωλήσεις"))
 
     # Τα τιμολόγια είναι δευτερεύοντα — χωρίς σύγκριση. Ανά ΠΕΡΙΟΔΟ
     # ΤΙΜΟΛΟΓΗΣΗΣ (δεκαήμερο από 21/10/2026), όπως τα πληρώνει η επιταγή.
-    d_start, d_end = billing_period(today)
     inv_net = invoice_totals(invoices_between(df_i, d_start, d_end))["net"]
-    inv_card = c.kpi("Τιμολόγια · καθαρό", inv_net, badge="Δεκαήμερο",
+    inv_card = c.kpi("Τιμολόγια · καθαρό", inv_net, badge=period_kind(d_start, d_end),
                      foot=f"{d_start:%d/%m} — {d_end:%d/%m} · τιμολόγια μείον πιστωτικά",
                      href=c.link("Παραστατικά"))
     return wk_card, inv_card

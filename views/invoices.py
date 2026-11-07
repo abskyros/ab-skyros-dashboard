@@ -14,7 +14,7 @@ import streamlit as st
 from core.config import SHEET_INV
 from core.metrics import (
     invoice_totals, invoices_between, invoices_monthly,
-    billing_period, billing_check_date, today_greece,
+    billing_period, billing_check_date, neighbor_periods, today_greece,
 )
 from core.sheets import (
     load_invoices, check_quality, delete_row,
@@ -98,6 +98,7 @@ def _decade(df: pd.DataFrame, today: date) -> None:
     col, _ = st.columns([1, 2])
     with col:
         picked = st.date_input("Ημέρα", today, key="inv_day", format="DD/MM/YYYY")
+    c.period_calendar(*neighbor_periods(picked))
 
     start, end = billing_period(picked)
     period = invoices_between(df, start, end)

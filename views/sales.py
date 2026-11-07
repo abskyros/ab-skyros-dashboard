@@ -2,12 +2,15 @@
 views/sales.py — Πωλήσεις.
 
 Δύο όψεις:
-  • Εβδομαδιαία — μια εβδομάδα κάθε φορά, με τις μέρες της
-  • Ετήσια      — ανά μήνα, με λήψη CSV
+  • Περίοδος — μια περίοδος τιμολόγησης κάθε φορά, με τις μέρες της
+  • Ετήσια   — ανά μήνα (και ανά περίοδο), με λήψη CSV
 
-Η εβδομαδιαία δείχνει ΠΑΝΤΑ όλη την εβδομάδα (Δευ → Κυρ) — και μελλοντική: οι
-μέρες χωρίς φετινά δείχνουν πέρσι/πρόπερσι. Χρήσιμο για προγραμματισμό βάρδιας:
-«τι έκανε πέρσι το Σάββατο πριν το Πάσχα;»
+ΠΕΡΙΟΔΟΣ = όπως τιμολογεί η ΑΒ (core.metrics.billing_period): εβδομάδα Δευ–Κυρ
+ως 11/10/2026, 12–20/10/2026 ενδιάμεση, δεκαήμερα από 21/10/2026. Η τιμολόγηση
+ορίζει την περίοδο· πωλήσεις, παραστατικά και επιταγές την ακολουθούν.
+
+Δείχνει ΠΑΝΤΑ όλη την περίοδο — και μελλοντική: οι μέρες χωρίς φετινά δείχνουν
+πέρσι/πρόπερσι. Χρήσιμο για προγραμματισμό: «τι έκανε πέρσι αυτό το δεκαήμερο;»
 """
 
 from datetime import date, timedelta
@@ -17,9 +20,10 @@ import streamlit as st
 
 from core.config import SHEET_SALES
 from core.metrics import (
-    week_range, last_year, two_years_ago, day_name, as_dates,
-    sales_on, sales_row, monthly_breakdown, weekly_series,
-    find_anomalies, month_name, month_weeks, YOY_OFFSET_DAYS,
+    billing_period, neighbor_periods, month_periods, period_kind,
+    last_year, two_years_ago, day_name, as_dates,
+    sales_row, monthly_breakdown,
+    find_anomalies, month_name, YOY_OFFSET_DAYS,
 )
 from core.sheets import (
     load_sales, merge_sales, update_sales,
@@ -40,10 +44,10 @@ def render(df: pd.DataFrame, today: date) -> None:
     # πρέπει να το δεις πριν εμπιστευτείς τα νούμερα της σελίδας.
     _anomalies(df, today)
 
-    weekly, yearly = st.tabs(["Εβδομαδιαία", "Ετήσια"])
+    period, yearly = st.tabs(["Περίοδος", "Ετήσια"])
 
-    with weekly:
-        _weekly(df, today)
+    with period:
+        _period(df, today)
 
     with yearly:
         _yearly(df, today)
@@ -87,25 +91,26 @@ def _anomalies(df: pd.DataFrame, today: date) -> None:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-def _weekly(df: pd.DataFrame, today: date) -> None:
+def _period(df: pd.DataFrame, today: date) -> None:
     """
-    ΟΛΗ η εβδομάδα (Δευτέρα → Κυριακή) της μέρας που διάλεξες — παλιά,
-    τρέχουσα ή μελλοντική.
+    ΟΛΗ η περίοδος τιμολόγησης της μέρας που διάλεξες — παλιά, τρέχουσα ή
+    μελλοντική (εβδομάδα ως 11/10/2026, δεκαήμερο από 21/10/2026).
 
     Κάθε μέρα δείχνει φέτος (αν υπάρχει), πέρσι και πρόπερσι. Έτσι βλέπεις και
-    τι ΕΡΧΕΤΑΙ: «τι έκανε πέρσι αυτή η εβδομάδα, μέρα-μέρα;»
+    τι ΕΡΧΕΤΑΙ: «τι έκανε πέρσι αυτή η περίοδος, μέρα-μέρα;»
 
     Οι κάρτες:
       • Με φετινά στοιχεία → φέτος vs τις ΙΔΙΕΣ μέρες πέρσι (ίδια λογική με
-        week_to_date), + «όλη η εβδομάδα πέρσι» στην υποσημείωση.
-      • Χωρίς φετινά (π.χ. μελλοντική) → τα περσινά σύνολα όλης της εβδομάδας,
+        period_to_date), + «όλη η περίοδος πέρσι» στην υποσημείωση.
+      • Χωρίς φετινά (π.χ. μελλοντική) → τα περσινά σύνολα όλης της περιόδου,
         σε σύγκριση με πρόπερσι.
     """
     col, _ = st.columns([1, 2])
     with col:
         picked = st.date_input("Ημέρα", today, key="sales_day", format="DD/MM/YYYY")
+    c.period_calendar(*neighbor_periods(picked))
 
-    start, end = week_range(picked)
+    start, end = billing_period(picked)
     rows = [
         {
             "d": d,
@@ -113,7 +118,7 @@ def _weekly(df: pd.DataFrame, today: date) -> None:
             "ly": sales_row(df, last_year(d)),
             "ly2": sales_row(df, two_years_ago(d)),
         }
-        for d in (start + timedelta(days=i) for i in range(7))
+        for d in (start + timedelta(days=i) for i in range((end - start).days + 1))
     ]
     with_now = [r for r in rows if r["now"]]
 
@@ -124,7 +129,7 @@ def _weekly(df: pd.DataFrame, today: date) -> None:
         same = [r for r in rows if r["d"] <= last_now]
 
         full_ly = _sum(rows, "ly", "net_sales")
-        foot = f"Όλη η εβδομάδα πέρσι: {c.eur(full_ly)}" if full_ly is not None else ""
+        foot = f"Όλη η περίοδος πέρσι: {c.eur(full_ly)}" if full_ly is not None else ""
 
         c.grid(
             c.scale("Καθαρές πωλήσεις", _sum(with_now, "now", "net_sales"),
@@ -139,7 +144,7 @@ def _weekly(df: pd.DataFrame, today: date) -> None:
         why = ("δεν έχει έρθει ακόμη" if start > today
                else "δεν έχει φετινές πωλήσεις")
         c.note(
-            f"Η εβδομάδα <b>{start:%d/%m} — {end:%d/%m/%Y}</b> {why}. "
+            f"Η περίοδος <b>{start:%d/%m} — {end:%d/%m/%Y}</b> {why}. "
             f"Παρακάτω βλέπεις <b>πέρσι</b> και <b>πρόπερσι</b>, μέρα-μέρα.",
             "info",
         )
@@ -154,7 +159,7 @@ def _weekly(df: pd.DataFrame, today: date) -> None:
             cols=3,
         )
 
-    c.section(f"Ημέρες · {start:%d/%m} — {end:%d/%m/%Y}")
+    c.section(f"{period_kind(start, end)} · {start:%d/%m} — {end:%d/%m/%Y}")
     has_prop = any(r["ly2"] for r in rows)
     c.html(_table_html(rows, has_prop, picked))
 
@@ -208,26 +213,28 @@ def _yearly(df: pd.DataFrame, today: date) -> None:
 def _by_month(df: pd.DataFrame, year: int, today: date) -> tuple[list, list]:
     """
     Οι 12 μήνες, με το έτος που διάλεξες και τα δύο προηγούμενα, και κάτω από
-    κάθε μήνα οι εβδομάδες του. Χρονιές χωρίς κανένα στοιχείο δεν εμφανίζονται.
+    κάθε μήνα οι περίοδοι τιμολόγησής του (εβδομάδες ως 11/10/2026, δεκαήμερα
+    από 21/10/2026). Χρονιές χωρίς κανένα στοιχείο δεν εμφανίζονται.
 
-    Στις προηγούμενες χρονιές η εβδομάδα είναι η ίδια με μετατόπιση 364/728
-    ημερών (ο κανόνας της εφαρμογής): Δευτέρα με Δευτέρα.
+    Στις προηγούμενες χρονιές η περίοδος είναι οι ίδιες μέρες με μετατόπιση
+    364/728 ημερών (ο κανόνας της εφαρμογής): Δευτέρα με Δευτέρα.
 
-    Η «καλύτερη εβδομάδα» μετράει μόνο τελειωμένες εβδομάδες — μια που τρέχει
-    ακόμα δεν έχει όλες τις μέρες της.
+    Η «καλύτερη περίοδος» μετράει μόνο τελειωμένες — μια που τρέχει ακόμα δεν
+    έχει όλες τις μέρες της.
 
     → (χρονιές, μήνες)
     """
     have = {d.year for d in as_dates(df["date"])}
     years = [y for y in (year, year - 1, year - 2) if y in have]
 
-    # Λεξικό μέρα → πωλήσεις: 12 μήνες × 5 εβδομάδες × 3 χρονιές θα ήταν εκατοντάδες
+    # Λεξικό μέρα → πωλήσεις: 12 μήνες × 3-5 περίοδοι × 3 χρονιές θα ήταν εκατοντάδες
     # φιλτραρίσματα του πίνακα σε κάθε φόρτωση της σελίδας.
     daily = dict(zip(as_dates(df["date"]), df["net_sales"].astype(float)))
     totals = {y: {m["month"]: m for m in monthly_breakdown(df, y)} for y in years}
 
-    def week_sum(monday: date, back: int) -> float | None:
-        days = (monday + timedelta(days=i - back * YOY_OFFSET_DAYS) for i in range(7))
+    def period_sum(start: date, end: date, back: int) -> float | None:
+        days = (start + timedelta(days=i - back * YOY_OFFSET_DAYS)
+                for i in range((end - start).days + 1))
         vals = [daily[d] for d in days if d in daily]
         return float(sum(vals)) if vals else None
 
@@ -235,14 +242,14 @@ def _by_month(df: pd.DataFrame, year: int, today: date) -> tuple[list, list]:
     for m in range(1, 13):
         weeks = [
             {
-                "label": f"{i}η εβδομάδα · {mon:%d/%m}–{sun:%d/%m}",
-                "vals": [week_sum(mon, year - y) for y in years],
-                "running": mon <= today <= sun,
+                "label": f"{period_kind(s, e)} · {s:%d/%m}–{e:%d/%m}",
+                "vals": [period_sum(s, e, year - y) for y in years],
+                "running": s <= today <= e,
             }
-            for i, (mon, sun) in enumerate(month_weeks(year, m), start=1)
+            for s, e in month_periods(year, m)
         ]
 
-        # Η καλύτερη εβδομάδα κάθε χρονιάς (δείκτης γραμμής ανά στήλη).
+        # Η καλύτερη περίοδος κάθε χρονιάς (δείκτης γραμμής ανά στήλη).
         best = []
         for col, y in enumerate(years):
             done = [(w["vals"][col], i) for i, w in enumerate(weeks)
@@ -290,7 +297,7 @@ def _cell(val, fmt, cls: str) -> str:
 
 def _table_html(rows: list, has_prop: bool, picked: date) -> str:
     """
-    Ο αναλυτικός πίνακας της εβδομάδας — ΤΡΙΑ χρόνια δίπλα-δίπλα, Δευ → Κυρ.
+    Ο αναλυτικός πίνακας της περιόδου — ΤΡΙΑ χρόνια δίπλα-δίπλα, μέρα-μέρα.
 
     Για κάθε μέρα: πωλήσεις / πελάτες / καλάθι, φέτος · πέρσι · πρόπερσι.
     Μέρες χωρίς φετινά: «—» στο φέτος και αχνή ημερομηνία (.noyr). Η μέρα που

@@ -367,7 +367,21 @@ def week_to_date(df: pd.DataFrame, today: date) -> dict:
     └────────────────────────────────────────────────────────────────────────┘
     """
     start, _ = week_range(today)
+    return _to_date(df, today, start)
 
+
+def period_to_date(df: pd.DataFrame, today: date) -> dict:
+    """
+    Η ΠΕΡΙΟΔΟΣ ΤΙΜΟΛΟΓΗΣΗΣ ως τώρα vs οι ίδιες μέρες πέρσι — ίδια λογική με
+    το week_to_date, αλλά η αρχή είναι η αρχή της περιόδου (εβδομάδα ως 11/10/2026,
+    δεκαήμερο από 21/10/2026). Όλα κρίνονται με την περίοδο της τιμολόγησης.
+    """
+    start, _ = billing_period(today)
+    return _to_date(df, today, start)
+
+
+def _to_date(df: pd.DataFrame, today: date, start: date) -> dict:
+    """Από start ως την τελευταία μέρα με φετινά, vs ίδιες μέρες πέρσι/πρόπερσι."""
     # ── ΩΣ ΠΟΥ ΕΧΟΥΜΕ ΠΡΑΓΜΑΤΙΚΑ ΔΕΔΟΜΕΝΑ ΦΕΤΟΣ; ──
     #
     # Η τελευταία μέρα ΜΕΣΑ στην τρέχουσα εβδομάδα με καταχωρημένες πωλήσεις.
@@ -542,6 +556,43 @@ def billing_period(d: date) -> tuple[date, date]:
     if d <= _TRANSITION[1]:
         return _TRANSITION
     return decade_range(d)
+
+
+def period_kind(start: date, end: date) -> str:
+    """«Εβδομάδα», «Ενδιάμεση» ή «Δεκαήμερο» — για ετικέτες."""
+    if end <= _WEEKLY_LAST_END:
+        return "Εβδομάδα"
+    if (start, end) == _TRANSITION:
+        return "Ενδιάμεση"
+    return "Δεκαήμερο"
+
+
+def neighbor_periods(d: date) -> tuple[tuple, tuple, tuple]:
+    """→ (προηγούμενη, τρέχουσα, επόμενη) περίοδος τιμολόγησης γύρω από τη d."""
+    cur = billing_period(d)
+    prev = billing_period(cur[0] - timedelta(days=1))
+    nxt = billing_period(cur[1] + timedelta(days=1))
+    return prev, cur, nxt
+
+
+def month_periods(year: int, month: int) -> list[tuple[date, date]]:
+    """
+    Οι περίοδοι τιμολόγησης ενός μήνα, με τη σειρά.
+
+    Μια περίοδος που μοιράζεται ανάμεσα σε δύο μήνες πάει στον μήνα της ΜΕΣΑΙΑΣ
+    της μέρας — για εβδομάδα αυτό είναι η Πέμπτη (ίδιος κανόνας με month_weeks).
+    Τα δεκαήμερα είναι πάντα μέσα στον μήνα τους.
+    """
+    first = date(year, month, 1)
+    last = date(year, month, calendar.monthrange(year, month)[1])
+    out, d = [], first - timedelta(days=10)
+    while d <= last + timedelta(days=10):
+        p = billing_period(d)
+        mid = p[0] + timedelta(days=(p[1] - p[0]).days // 2)
+        if mid.month == month and mid.year == year and p not in out:
+            out.append(p)
+        d = p[1] + timedelta(days=1)
+    return out
 
 
 def billing_check_date(start: date, end: date) -> date:
