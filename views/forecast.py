@@ -20,7 +20,7 @@ import pandas as pd
 import streamlit as st
 
 from core.metrics import cash_forecast
-from core.sheets import load_agores, load_setting, save_setting
+from core.sheets import load_agores, load_invoices, load_setting, save_setting
 from ui import components as c
 
 # Πόσο μπροστά δείχνει η πρόβλεψη. Μετράει ΑΠΟ ΣΗΜΕΡΑ και περνάει κανονικά
@@ -75,5 +75,5 @@ def render(df_t: pd.DataFrame, df_s: pd.DataFrame, today: date) -> None:
     # Η πρόβλεψη, ως το διάστημα που διάλεξες.
     until = _horizon(today)
     forecast = cash_forecast(df_t, df_s, today, cash, fixed=fixed, until=until,
-                             df_agores=load_agores())
+                             df_agores=load_agores(), df_invoices=load_invoices())
     _forecast_display(forecast)

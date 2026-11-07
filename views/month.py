@@ -60,7 +60,8 @@ def render(df_t: pd.DataFrame, df_s: pd.DataFrame, today: date) -> None:
 
     year, month, ascending = _filters(df_t, today)
 
-    rows = month_rows(df_t, df_s, year, month)
+    from core.sheets import load_agores
+    rows = month_rows(df_t, df_s, year, month, df_agores=load_agores())
     if not rows:
         label = f"το {year}" if not month else f"τον {MONTHS_GR[month - 1]} {year}"
         c.empty(f"Καμία επιταγή για {label}")
