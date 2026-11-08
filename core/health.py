@@ -177,16 +177,21 @@ def check_all(df_s: pd.DataFrame, df_i: pd.DataFrame, df_t: pd.DataFrame,
                             f"προώθησέ την και κάνε «Βαθιά σάρωση», ή πρόσθεσέ τη στη "
                             f"«Χειροκίνητη καταχώρηση»."})
 
+    def eur(v: float) -> str:
+        """1234.5 → «1.234,50 €» — μόνο ο αριθμός, όχι όλο το κείμενο."""
+        return f"{v:,.2f} €".replace(",", "X").replace(".", ",").replace("X", ".")
+
     for r in reconcile(df_t, df_i, today):
         if r["diff"] is None:
             txt = (f"Δεν υπάρχουν παραστατικά για τις αγορές {r['start']:%d/%m}–{r['end']:%d/%m/%Y}, "
-                   f"ενώ η επιταγή είναι {r['amount']:,.2f} €.")
+                   f"ενώ η επιταγή είναι {eur(r['amount'])}.")
         else:
-            txt = (f"Παραστατικά {r['start']:%d/%m}–{r['end']:%d/%m}: {r['net']:,.2f} € · "
-                   f"επιταγή {r['amount']:,.2f} € ({r['diff'] * 100:+.1f}%). Συνήθως διαφέρουν "
-                   f"~1–2% (χρεώσεις κάρτας). Μπορεί να λείπουν ή να είναι διπλά παραστατικά.")
+            pct = f"{r['diff'] * 100:+.1f}%".replace(".", ",")
+            txt = (f"Παραστατικά {r['start']:%d/%m}–{r['end']:%d/%m}: {eur(r['net'])} · "
+                   f"επιταγή {eur(r['amount'])} ({pct}). Συνήθως διαφέρουν ~1–2% "
+                   f"(χρεώσεις κάρτας). Μπορεί να λείπουν ή να είναι διπλά παραστατικά.")
         out.append({"level": "warn", "title": f"Η επιταγή {r['check']:%d/%m/%Y} δεν συμφωνεί με τα Παραστατικά",
-                    "text": txt.replace(",", "X").replace(".", ",").replace("X", ".")})
+                    "text": txt})
 
     for name, run in (jobs or {}).items():
         if run and run.get("status") == "completed" and run.get("conclusion") == "failure":
