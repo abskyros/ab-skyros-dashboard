@@ -48,6 +48,7 @@ def render(df_s: pd.DataFrame, df_i: pd.DataFrame, df_t: pd.DataFrame, today: da
     # Ειδοποιήσεις πρώτα — αν κάτι θέλει προσοχή, να το δεις αμέσως.
     _check_supply_alert(df_t, today)
     _freshness(df_s, today)
+    _health(df_s, df_i, df_t, today)
 
     c.grid(
         _today_card(df_s, today),
@@ -56,6 +57,45 @@ def render(df_s: pd.DataFrame, df_i: pd.DataFrame, df_t: pd.DataFrame, today: da
         _next_check(df_t, today),
         cols=5,
     )
+
+
+def _health(df_s: pd.DataFrame, df_i: pd.DataFrame, df_t: pd.DataFrame, today: date) -> None:
+    """
+    ΕΛΕΓΧΟΣ ΥΓΕΙΑΣ (core/health.py): μία διακριτική γραμμή αν κάτι δεν στέκει
+    — λείπει τιμολόγηση ή μέρα πωλήσεων, σπασμένες γραμμές στο Sheet,
+    επιταγή που δεν συμφωνεί με τα Παραστατικά, αποτυχία συγχρονισμού.
+    Κλικ → η λίστα. Αν όλα είναι καλά, δεν δείχνει τίποτα.
+    """
+    import streamlit as st
+    from core.health import check_all
+    from core.sheets import _load_all_sheets, load_agores
+    from core.github import last_run, available as gh_available
+
+    try:
+        raw = _load_all_sheets()
+    except Exception:
+        raw = {}
+    jobs = {}
+    if gh_available():
+        for name, wf in (("Παραστατικά & τιμολογήσεις", "data_sync.yml"),
+                         ("Πωλήσεις", "sales_sync.yml")):
+            try:
+                jobs[name] = last_run(wf)
+            except Exception:
+                pass
+
+    issues = check_all(df_s, df_i, df_t, today, raw=raw,
+                       df_agores=load_agores(), jobs=jobs)
+    serious = [x for x in issues if x["level"] in ("bad", "warn")]
+    if not serious:
+        return
+
+    icon = "🔴" if any(x["level"] == "bad" for x in serious) else "🟠"
+    with st.expander(f"{icon} Έλεγχος δεδομένων: {len(serious)} "
+                     f"{'θέμα θέλει' if len(serious) == 1 else 'θέματα θέλουν'} προσοχή"):
+        for x in issues:
+            kind = {"bad": "bad", "warn": "warn", "info": "info"}[x["level"]]
+            c.note(f"<b>{x['title']}</b><br>{x['text']}", kind)
 
 
 def _check_supply_alert(df_t: pd.DataFrame, today: date) -> None:
