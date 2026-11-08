@@ -372,11 +372,11 @@ def week_to_date(df: pd.DataFrame, today: date) -> dict:
 
 def period_to_date(df: pd.DataFrame, today: date) -> dict:
     """
-    Η ΠΕΡΙΟΔΟΣ ΤΙΜΟΛΟΓΗΣΗΣ ως τώρα vs οι ίδιες μέρες πέρσι — ίδια λογική με
-    το week_to_date, αλλά η αρχή είναι η αρχή της περιόδου (εβδομάδα ως 11/10/2026,
-    δεκαήμερο από 21/10/2026). Όλα κρίνονται με την περίοδο της τιμολόγησης.
+    Το ΔΙΑΣΤΗΜΑ ΠΩΛΗΣΕΩΝ ως τώρα vs οι ίδιες μέρες πέρσι — ίδια λογική με το
+    week_to_date, αλλά η αρχή είναι η αρχή του διαστήματος που πληρώνει την
+    επόμενη επιταγή (εβδομάδα ως 06/12/2026, μετά 25→04 / 05→14 / 15→24).
     """
-    start, _ = billing_period(today)
+    start = sales_window(today)[0]
     return _to_date(df, today, start)
 
 
@@ -567,32 +567,72 @@ def period_kind(start: date, end: date) -> str:
     return "Δεκαήμερο"
 
 
-def neighbor_periods(d: date) -> tuple[tuple, tuple, tuple]:
-    """→ (προηγούμενη, τρέχουσα, επόμενη) περίοδος τιμολόγησης γύρω από τη d."""
-    cur = billing_period(d)
-    prev = billing_period(cur[0] - timedelta(days=1))
-    nxt = billing_period(cur[1] + timedelta(days=1))
+def neighbor_periods(d: date, fn=None) -> tuple[tuple, tuple, tuple]:
+    """
+    → (προηγούμενο, τρέχον, επόμενο) διάστημα γύρω από τη d.
+    fn: ο κανόνας (billing_period = αγορές, default · sales_window = πωλήσεις).
+    """
+    fn = fn or billing_period
+    cur = fn(d)[:2]
+    prev = fn(cur[0] - timedelta(days=1))[:2]
+    nxt = fn(cur[1] + timedelta(days=1))[:2]
     return prev, cur, nxt
 
 
-def month_periods(year: int, month: int) -> list[tuple[date, date]]:
+def month_periods(year: int, month: int, fn=None) -> list[tuple[date, date]]:
     """
-    Οι περίοδοι τιμολόγησης ενός μήνα, με τη σειρά.
+    Τα διαστήματα ενός μήνα, με τη σειρά (fn: billing_period ή sales_window).
 
-    Μια περίοδος που μοιράζεται ανάμεσα σε δύο μήνες πάει στον μήνα της ΜΕΣΑΙΑΣ
-    της μέρας — για εβδομάδα αυτό είναι η Πέμπτη (ίδιος κανόνας με month_weeks).
-    Τα δεκαήμερα είναι πάντα μέσα στον μήνα τους.
+    Ένα διάστημα που μοιράζεται ανάμεσα σε δύο μήνες πάει στον μήνα της ΜΕΣΑΙΑΣ
+    του μέρας — για εβδομάδα αυτό είναι η Πέμπτη (ίδιος κανόνας με month_weeks).
     """
+    fn = fn or billing_period
     first = date(year, month, 1)
     last = date(year, month, calendar.monthrange(year, month)[1])
-    out, d = [], first - timedelta(days=10)
-    while d <= last + timedelta(days=10):
-        p = billing_period(d)
+    out, d = [], first - timedelta(days=12)
+    while d <= last + timedelta(days=12):
+        p = fn(d)[:2]
         mid = p[0] + timedelta(days=(p[1] - p[0]).days // 2)
         if mid.month == month and mid.year == year and p not in out:
             out.append(p)
         d = p[1] + timedelta(days=1)
     return out
+
+
+# ── ΔΙΑΣΤΗΜΑΤΑ ΠΩΛΗΣΕΩΝ (ανά ΠΛΗΡΩΜΗ επιταγής) ──
+#
+# Οι πωλήσεις «πληρώνουν» την επόμενη επιταγή: οι μέρες από την προηγούμενη
+# επιταγή ως την παραμονή της. Ακολουθούν τις ΗΜΕΡΟΜΗΝΙΕΣ ΠΛΗΡΩΜΗΣ, όχι τις
+# περιόδους αγορών (αυτές είναι στα Παραστατικά):
+#   ως 06/12/2026   → εβδομάδα Δευ–Κυρ, επιταγή τη Δευτέρα μετά
+#   07–14/12/2026   → επιταγή 15/12/2026 (η πρώτη δεκαήμερη)
+#   μετά            → 25→04 (επιταγή 5), 05→14 (επιταγή 15), 15→24 (επιταγή 25)
+_LAST_WEEKLY_CHECK = date(2026, 12, 7)
+_FIRST_DECADE_CHECK = date(2026, 12, 15)
+
+
+def sales_window(d: date) -> tuple[date, date, date]:
+    """→ (από, ως, επιταγή που πληρώνουν) για το διάστημα πωλήσεων της d."""
+    if d < _LAST_WEEKLY_CHECK:
+        s, e = week_range(d)
+        return s, e, e + timedelta(days=1)
+    if d < _FIRST_DECADE_CHECK:
+        return _LAST_WEEKLY_CHECK, _FIRST_DECADE_CHECK - timedelta(days=1), _FIRST_DECADE_CHECK
+    y, m = d.year, d.month
+    if 5 <= d.day <= 14:
+        return date(y, m, 5), date(y, m, 14), date(y, m, 15)
+    if 15 <= d.day <= 24:
+        return date(y, m, 15), date(y, m, 24), date(y, m, 25)
+    if d.day >= 25:
+        ny, nm = _shift_months(y, m, 1)
+        return date(y, m, 25), date(ny, nm, 4), date(ny, nm, 5)
+    py, pm = _shift_months(y, m, -1)
+    return date(py, pm, 25), date(y, m, 4), date(y, m, 5)
+
+
+def sales_window_kind(start: date, end: date) -> str:
+    """«Εβδομάδα» (επιταγή κάθε Δευτέρα) ή «Δεκαήμερο» (επιταγή 5/15/25)."""
+    return "Εβδομάδα" if end < _LAST_WEEKLY_CHECK else "Δεκαήμερο"
 
 
 def billing_check_date(start: date, end: date) -> date:

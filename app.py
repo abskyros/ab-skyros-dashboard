@@ -119,7 +119,7 @@ def main() -> None:
         overview.render(df_s, df_i, df_t, today)
 
     elif page == "Πωλήσεις":
-        sales.render(df_s, today)
+        sales.render(df_s, today, df_t)
 
     elif page == "Παραστατικά":
         invoices.render(df_i, today)

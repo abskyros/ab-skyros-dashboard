@@ -2,15 +2,16 @@
 views/sales.py — Πωλήσεις.
 
 Δύο όψεις:
-  • Περίοδος — μια περίοδος τιμολόγησης κάθε φορά, με τις μέρες της
-  • Ετήσια   — ανά μήνα (και ανά περίοδο), με λήψη CSV
+  • Περίοδος — ένα διάστημα πωλήσεων κάθε φορά, με τις μέρες του
+  • Ετήσια   — ανά μήνα (και ανά διάστημα), με λήψη CSV
 
-ΠΕΡΙΟΔΟΣ = όπως τιμολογεί η ΑΒ (core.metrics.billing_period): εβδομάδα Δευ–Κυρ
-ως 11/10/2026, 12–20/10/2026 ενδιάμεση, δεκαήμερα από 21/10/2026. Η τιμολόγηση
-ορίζει την περίοδο· πωλήσεις, παραστατικά και επιταγές την ακολουθούν.
+ΔΙΑΣΤΗΜΑ = οι πωλήσεις που ΠΛΗΡΩΝΟΥΝ την επόμενη επιταγή (core.metrics.sales_window):
+εβδομάδα Δευ–Κυρ ως 06/12/2026 (επιταγή τη Δευτέρα), 07–14/12/2026 (επιταγή 15/12),
+και μετά 25→04 / 05→14 / 15→24 (επιταγές 5/15/25). Έτσι φαίνεται αν «βγήκε» η επιταγή.
+(Τα Παραστατικά μένουν στις περιόδους ΑΓΟΡΩΝ — άλλο πράγμα.)
 
-Δείχνει ΠΑΝΤΑ όλη την περίοδο — και μελλοντική: οι μέρες χωρίς φετινά δείχνουν
-πέρσι/πρόπερσι. Χρήσιμο για προγραμματισμό: «τι έκανε πέρσι αυτό το δεκαήμερο;»
+Δείχνει ΠΑΝΤΑ όλο το διάστημα — και μελλοντικό: οι μέρες χωρίς φετινά δείχνουν
+πέρσι/πρόπερσι.
 """
 
 from datetime import date, timedelta
@@ -20,7 +21,7 @@ import streamlit as st
 
 from core.config import SHEET_SALES
 from core.metrics import (
-    billing_period, neighbor_periods, month_periods, period_kind,
+    sales_window, sales_window_kind, neighbor_periods, month_periods,
     last_year, two_years_ago, day_name, as_dates,
     sales_row, monthly_breakdown,
     find_anomalies, month_name, YOY_OFFSET_DAYS,
@@ -29,7 +30,7 @@ from core.sheets import check_quality, delete_row
 from ui import components as c
 
 
-def render(df: pd.DataFrame, today: date) -> None:
+def render(df: pd.DataFrame, today: date, df_t: pd.DataFrame | None = None) -> None:
     if df.empty:
         c.empty(
             "Δεν υπάρχουν πωλήσεις ακόμη",
@@ -44,7 +45,7 @@ def render(df: pd.DataFrame, today: date) -> None:
     period, yearly = st.tabs(["Περίοδος", "Ετήσια"])
 
     with period:
-        _period(df, today)
+        _period(df, today, df_t)
 
     with yearly:
         _yearly(df, today)
@@ -88,10 +89,10 @@ def _anomalies(df: pd.DataFrame, today: date) -> None:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-def _period(df: pd.DataFrame, today: date) -> None:
+def _period(df: pd.DataFrame, today: date, df_t: pd.DataFrame | None = None) -> None:
     """
-    ΟΛΗ η περίοδος τιμολόγησης της μέρας που διάλεξες — παλιά, τρέχουσα ή
-    μελλοντική (εβδομάδα ως 11/10/2026, δεκαήμερο από 21/10/2026).
+    ΟΛΟ το διάστημα πωλήσεων της μέρας που διάλεξες — οι μέρες που πληρώνουν
+    την ίδια επιταγή (εβδομάδα ως 06/12/2026, μετά δεκαήμερο 25→04/05→14/15→24).
 
     Κάθε μέρα δείχνει φέτος (αν υπάρχει), πέρσι και πρόπερσι. Έτσι βλέπεις και
     τι ΕΡΧΕΤΑΙ: «τι έκανε πέρσι αυτή η περίοδος, μέρα-μέρα;»
@@ -105,9 +106,9 @@ def _period(df: pd.DataFrame, today: date) -> None:
     col, _ = st.columns([1, 2])
     with col:
         picked = st.date_input("Ημέρα", today, key="sales_day", format="DD/MM/YYYY")
-    c.period_calendar(*neighbor_periods(picked))
+    c.period_calendar(*neighbor_periods(picked, sales_window))
 
-    start, end = billing_period(picked)
+    start, end, check_day = sales_window(picked)
     rows = [
         {
             "d": d,
@@ -126,7 +127,8 @@ def _period(df: pd.DataFrame, today: date) -> None:
         same = [r for r in rows if r["d"] <= last_now]
 
         full_ly = _sum(rows, "ly", "net_sales")
-        foot = f"Όλη η περίοδος πέρσι: {c.eur(full_ly)}" if full_ly is not None else ""
+        whole = "Όλη η εβδομάδα" if sales_window_kind(start, end) == "Εβδομάδα" else "Όλο το δεκαήμερο"
+        foot = f"{whole} πέρσι: {c.eur(full_ly)}" if full_ly is not None else ""
 
         c.grid(
             c.scale("Καθαρές πωλήσεις", _sum(with_now, "now", "net_sales"),
@@ -156,9 +158,54 @@ def _period(df: pd.DataFrame, today: date) -> None:
             cols=3,
         )
 
-    c.section(f"{period_kind(start, end)} · {start:%d/%m} — {end:%d/%m/%Y}")
+    _check_card(rows, check_day, df_t)
+
+    c.section(f"{sales_window_kind(start, end)} · {start:%d/%m} — {end:%d/%m/%Y}"
+              f" · πληρώνει την επιταγή {check_day:%d/%m}")
     has_prop = any(r["ly2"] for r in rows)
     c.html(_table_html(rows, has_prop, picked))
+
+
+def _check_card(rows: list, check_day: date, df_t: pd.DataFrame | None) -> None:
+    """
+    Η ΕΠΙΤΑΓΗ που πληρώνει αυτό το διάστημα: την καλύψαμε;
+
+    Πωλήσεις ως τώρα (φέτος) απέναντι στο ποσό της επιταγής, με μπάρα κάλυψης.
+    Και πού «θα κλείσει» το διάστημα αν οι υπόλοιπες μέρες πάνε όπως πέρσι.
+    """
+    amount = None
+    if df_t is not None and not df_t.empty:
+        hit = df_t[as_dates(df_t["check_date"]) == check_day]
+        if not hit.empty:
+            amount = float(hit["amount"].sum())
+
+    now = _sum(rows, "now", "net_sales") or 0.0
+    rest = sum(r["ly"]["net_sales"] for r in rows
+               if not r["now"] and r["ly"] and r["ly"].get("net_sales") is not None)
+    done = all(r["now"] for r in rows)
+    expected = now + rest
+
+    if not amount:
+        c.note(f"Αυτό το διάστημα πληρώνει την επιταγή <b>{day_name(check_day)} "
+               f"{check_day:%d/%m/%Y}</b> — δεν έχει έρθει ακόμη η τιμολόγησή της. "
+               f"Πωλήσεις ως τώρα: <b>{c.eur(now)}</b>"
+               + ("" if done else f" · με πέρσι για τις υπόλοιπες μέρες: <b>{c.eur(expected)}</b>"),
+               "info")
+        return
+
+    diff = now - amount
+    state = (f"καλύφθηκε — περισσεύουν {c.eur(diff)}" if diff >= 0
+             else f"λείπουν {c.eur(-diff)}")
+    foot = f"Πωλήσεις ως τώρα {c.eur(now)} · {state}"
+    if not done:
+        e_diff = expected - amount
+        foot += (f" · με πέρσι για τις υπόλοιπες μέρες κλείνει {c.eur(expected)} "
+                 f"({'+' if e_diff >= 0 else '−'}{c.eur(abs(e_diff))})")
+    c.html(c.kpi(f"Επιταγή {day_name(check_day, short=True)} {check_day:%d/%m}", amount,
+                 badge=f"Κάλυψη {now / amount * 100:.0f}%",
+                 progress=min(now / amount, 1.0),
+                 foot=foot, accent=True))
+    c.spacer(0.4)
 
 
 def _sum(rows: list, year: str, key: str) -> float | None:
@@ -210,8 +257,8 @@ def _yearly(df: pd.DataFrame, today: date) -> None:
 def _by_month(df: pd.DataFrame, year: int, today: date) -> tuple[list, list]:
     """
     Οι 12 μήνες, με το έτος που διάλεξες και τα δύο προηγούμενα, και κάτω από
-    κάθε μήνα οι περίοδοι τιμολόγησής του (εβδομάδες ως 11/10/2026, δεκαήμερα
-    από 21/10/2026). Χρονιές χωρίς κανένα στοιχείο δεν εμφανίζονται.
+    κάθε μήνα τα διαστήματα πωλήσεων ανά επιταγή (εβδομάδες ως 06/12/2026, μετά
+    25→04 / 05→14 / 15→24). Χρονιές χωρίς κανένα στοιχείο δεν εμφανίζονται.
 
     Στις προηγούμενες χρονιές η περίοδος είναι οι ίδιες μέρες με μετατόπιση
     364/728 ημερών (ο κανόνας της εφαρμογής): Δευτέρα με Δευτέρα.
@@ -239,11 +286,11 @@ def _by_month(df: pd.DataFrame, year: int, today: date) -> tuple[list, list]:
     for m in range(1, 13):
         weeks = [
             {
-                "label": f"{period_kind(s, e)} · {s:%d/%m}–{e:%d/%m}",
+                "label": f"{sales_window_kind(s, e)} · {s:%d/%m}–{e:%d/%m}",
                 "vals": [period_sum(s, e, year - y) for y in years],
                 "running": s <= today <= e,
             }
-            for s, e in month_periods(year, m)
+            for s, e in month_periods(year, m, sales_window)
         ]
 
         # Η καλύτερη περίοδος κάθε χρονιάς (δείκτης γραμμής ανά στήλη).
@@ -359,11 +406,28 @@ def _table_html(rows: list, has_prop: bool, picked: date) -> str:
         cls = " ".join(k for k, on in (("noyr", not now), ("picked", d == picked)) if on)
         body.append(f'<tr class="{cls}">{"".join(tds)}</tr>')
 
+    # ── ΣΥΝΟΛΟ (με έντονα): όλο το διάστημα, ανά χρονιά ──
+    # Καλάθι συνόλου = πωλήσεις / πελάτες (όχι μέσος όρος των καλαθιών).
+    def tot(year: str, key: str):
+        return _sum(rows, year, key)
+
+    def basket(year: str):
+        n, k = tot(year, "net_sales"), tot(year, "customers")
+        return (n / k) if n and k else None
+
+    years = ["now", "ly"] + (["ly2"] if has_prop else [])
+    cls = {"now": "now", "ly": "then", "ly2": "then2"}
+    foot = ['<td class="day"><b>Σύνολο</b></td>']
+    foot += [f'<td class="v {cls[y]}"><b>{c.eur(tot(y, "net_sales"))}</b></td>' for y in years]
+    foot += [f'<td class="v {cls[y]}"><b>{c.num(tot(y, "customers"))}</b></td>' for y in years]
+    foot += [f'<td class="v {cls[y]}"><b>{c.eur(basket(y))}</b></td>' for y in years]
+
     return (
         '<div class="tbl3-wrap">'
         '<table class="tbl3">'
         f'<thead>{head1}{head2}</thead>'
         f'<tbody>{"".join(body)}</tbody>'
+        f'<tfoot><tr class="total" style="border-top:2px solid currentColor">{"".join(foot)}</tr></tfoot>'
         '</table>'
         '</div>'
     )

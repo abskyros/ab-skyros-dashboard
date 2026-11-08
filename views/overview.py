@@ -27,7 +27,7 @@ import pandas as pd
 
 from core.metrics import (
     last_year, two_years_ago, day_name,
-    sales_on, period_to_date, period_kind,
+    sales_on, period_to_date, period_kind, sales_window, sales_window_kind,
     invoice_totals, invoices_between, billing_period,
     checks_ahead_with_number, cash_runway,
 )
@@ -171,12 +171,16 @@ def _week_cards(df_s: pd.DataFrame, df_i: pd.DataFrame, today: date) -> tuple[st
     if wtd.get("two_previous") is not None:
         foot += f" · πρόπερσι {c.eur(wtd['two_previous'])}"
 
-    d_start, d_end = billing_period(today)
-    wk_card = c.kpi(f"Περίοδος {d_start:%d/%m}–{d_end:%d/%m}", wtd["current"], then=wtd["previous"],
+    # Το ΔΙΑΣΤΗΜΑ ΠΩΛΗΣΕΩΝ που πληρώνει την επόμενη επιταγή (εβδομάδα ως 06/12/2026,
+    # μετά 25→04 / 05→14 / 15→24) — όχι η περίοδος αγορών.
+    s_start, s_end, s_check = sales_window(today)
+    wk_card = c.kpi(f"{sales_window_kind(s_start, s_end)} {s_start:%d/%m}–{s_end:%d/%m} "
+                    f"· επιταγή {s_check:%d/%m}", wtd["current"], then=wtd["previous"],
                     foot=foot, href=c.link("Πωλήσεις"))
 
     # Τα τιμολόγια είναι δευτερεύοντα — χωρίς σύγκριση. Ανά ΠΕΡΙΟΔΟ
     # ΤΙΜΟΛΟΓΗΣΗΣ (δεκαήμερο από 21/10/2026), όπως τα πληρώνει η επιταγή.
+    d_start, d_end = billing_period(today)
     inv_net = invoice_totals(invoices_between(df_i, d_start, d_end))["net"]
     inv_card = c.kpi("Τιμολόγια · καθαρό", inv_net, badge=period_kind(d_start, d_end),
                      foot=f"{d_start:%d/%m} — {d_end:%d/%m} · τιμολόγια μείον πιστωτικά",
