@@ -22,6 +22,39 @@ st.set_page_config(
     initial_sidebar_state="expanded",   # το πλευρικό μενού (στο κινητό κρύβεται με CSS)
 )
 
+def _reload_changed_modules() -> None:
+    """
+    ΝΕΟΣ ΚΩΔΙΚΑΣ ΧΩΡΙΣ REBOOT.
+
+    Το πρόβλημα: μετά από push, το Streamlit Cloud ξανατρέχει το app.py (νέο),
+    αλλά τα core/ui/views που έχει ήδη φορτώσει μένουν ΠΑΛΙΑ στη μνήμη. Νέο
+    app.py + παλιό views/sales.py = TypeError/ImportError, ώσπου να γίνει Reboot.
+
+    Η λύση: σε κάθε εκτέλεση κοιτάμε αν άλλαξε κάποιο αρχείο μας (ώρα + μέγεθος).
+    Αν ναι, πετάμε ΟΛΑ τα modules της εφαρμογής από τη μνήμη, ώστε τα import
+    παρακάτω να φορτώσουν τα καινούργια — όλα μαζί, ποτέ μισά παλιά/μισά νέα.
+    Αν δεν άλλαξε τίποτα, δεν κάνει τίποτα (λίγα stat αρχείων, χιλιοστά).
+    """
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent
+    stamp = {}
+    for folder in ("core", "ui", "views"):
+        for f in (root / folder).glob("*.py"):
+            st_ = f.stat()
+            stamp[str(f)] = (st_.st_mtime_ns, st_.st_size)
+
+    prev = getattr(sys, "_abskyros_module_stamp", None)
+    if prev is not None and prev != stamp:
+        for name in [m for m in sys.modules
+                     if m.split(".")[0] in ("core", "ui", "views")]:
+            del sys.modules[name]
+    sys._abskyros_module_stamp = stamp
+
+
+_reload_changed_modules()
+
 from core.config import PAGES, DEFAULT_PAGE
 from core.sheets import (
     load_sales, load_invoices, load_timologiseis,
