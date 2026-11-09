@@ -370,13 +370,13 @@ def week_to_date(df: pd.DataFrame, today: date) -> dict:
     return _to_date(df, today, start)
 
 
-def period_to_date(df: pd.DataFrame, today: date) -> dict:
+def period_to_date(df: pd.DataFrame, today: date, df_t: pd.DataFrame | None = None) -> dict:
     """
     Το ΔΙΑΣΤΗΜΑ ΠΩΛΗΣΕΩΝ ως τώρα vs οι ίδιες μέρες πέρσι — ίδια λογική με το
     week_to_date, αλλά η αρχή είναι η αρχή του διαστήματος που πληρώνει την
     επόμενη επιταγή (εβδομάδα ως 06/12/2026, μετά 25→04 / 05→14 / 15→24).
     """
-    start = sales_window(today)[0]
+    start = sales_window_from(df_t)(today)[0]
     return _to_date(df, today, start)
 
 
@@ -631,8 +631,41 @@ def sales_window(d: date) -> tuple[date, date, date]:
 
 
 def sales_window_kind(start: date, end: date) -> str:
-    """«Εβδομάδα» (επιταγή κάθε Δευτέρα) ή «Δεκαήμερο» (επιταγή 5/15/25)."""
-    return "Εβδομάδα" if end < _LAST_WEEKLY_CHECK else "Δεκαήμερο"
+    """«Εβδομάδα» (ως 7 μέρες) ή «Δεκαήμερο» (8–11 μέρες, επιταγές 5/15/25)."""
+    return "Εβδομάδα" if (end - start).days + 1 <= 7 else "Δεκαήμερο"
+
+
+# Το μεγαλύτερο νόμιμο κενό ανάμεσα σε δύο επιταγές: 25 → 05 του επόμενου
+# μήνα = 11 μέρες. Μεγαλύτερο κενό = λείπει μια τιμολόγηση στη μέση → τότε
+# ΔΕΝ ενώνουμε δύο διαστήματα σε ένα, πέφτουμε στον κανόνα.
+_MAX_CHECK_GAP = 11
+
+
+def sales_window_from(df_t: pd.DataFrame | None):
+    """
+    Ο κανόνας «διάστημα πωλήσεων» με ΠΗΓΗ ΤΑ EXCEL ΤΗΣ ΑΒ.
+
+    → συνάρτηση d → (από, ως, επιταγή), όπως η sales_window.
+
+    Όπου υπάρχουν πραγματικές επιταγές (από τα Excel τιμολόγησης), το διάστημα
+    είναι: από την ΠΡΟΗΓΟΥΜΕΝΗ επιταγή ως την ΠΑΡΑΜΟΝΗ της επόμενης — όποιες κι
+    αν είναι οι ημερομηνίες (Δευτέρα, 5/15/25, ή μια αλλαγή της ΑΒ στο μέλλον).
+    Ο σταθερός κανόνας (sales_window) μένει μόνο για τις επιταγές που δεν
+    έχουν σταλεί ακόμη, ή αν λείπει μια τιμολόγηση στη μέση.
+    """
+    import bisect
+
+    real = sorted(set(as_dates(df_t["check_date"]))) if df_t is not None and not df_t.empty else []
+
+    def fn(d: date) -> tuple[date, date, date]:
+        i = bisect.bisect_right(real, d)
+        if 0 < i < len(real):
+            prev, nxt = real[i - 1], real[i]
+            if (nxt - prev).days <= _MAX_CHECK_GAP:
+                return prev, nxt - timedelta(days=1), nxt
+        return sales_window(d)
+
+    return fn
 
 
 def billing_check_date(start: date, end: date) -> date:
@@ -921,7 +954,9 @@ def cash_runway(df: pd.DataFrame, today: date, cash: float) -> dict:
       }
     """
     checks = upcoming_checks(df, today)
-    cash = max(0.0, float(cash or 0))
+    # Το ταμείο μπορεί να είναι ΑΡΝΗΤΙΚΟ (δάνειο). Τότε δεν καλύπτεται καμία
+    # επιταγή — αλλά κρατάμε την πραγματική τιμή για να τη δείξουμε.
+    cash = float(cash or 0)
 
     total_due = sum(c["amount"] for c in checks)
     remaining = cash
@@ -1226,7 +1261,9 @@ def cash_forecast(df_checks: pd.DataFrame, df_sales: pd.DataFrame,
     checks = upcoming_checks(df_checks, today)
     if until:
         checks = [ch for ch in checks if ch["date"] <= until]
-    cash = max(0.0, float(cash or 0))
+    # ΑΡΝΗΤΙΚΟ επιτρέπεται (π.χ. −50.000 από δάνειο): η πρόβλεψη ξεκινά από
+    # εκεί και δείχνει πότε ξαναβγαίνεις θετικός με τις πωλήσεις.
+    cash = float(cash or 0)
 
     # ── ΦΤΙΑΞΕ ΕΝΙΑΙΑ ΛΙΣΤΑ ΕΚΡΟΩΝ (επιταγές + πάγια) ──
     events = []

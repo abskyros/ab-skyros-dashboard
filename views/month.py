@@ -111,11 +111,12 @@ def _cash_input(key: str) -> float:
     with a:
         cash = st.number_input(
             "💰 Διαθέσιμα μετρητά (€)",
-            min_value=0.0,
+            min_value=-10_000_000.0,
             step=1000.0,
             format="%.0f",
             key=ss_key,
-            help="Το ποσό που έχεις τώρα. Από αυτό υπολογίζεται ως πού φτάνει στις "
+            help="Το ποσό που έχεις τώρα. Μπορεί να είναι και ΑΡΝΗΤΙΚΟ (π.χ. −50000 "
+                 "αν χρωστάς από δάνειο). Από αυτό υπολογίζεται ως πού φτάνει στις "
                  "επόμενες επιταγές. Θυμάται την τελευταία τιμή.",
         )
 
@@ -247,7 +248,14 @@ def _safe_int(v, default: int = 0) -> int:
 def _runway_summary(runway: dict) -> None:
     """Μία γραμμή: ως πού φτάνει το ταμείο. Κάτω από τον πίνακα."""
     checks = runway["checks"]
-    if not checks or runway["cash"] <= 0:
+    if not checks:
+        return
+    if runway["cash"] < 0:
+        c.note(f"<b>Το ταμείο είναι αρνητικό: {c.eur(runway['cash'])}.</b> Δεν καλύπτεται "
+               f"καμία επιταγή από τα μετρητά — δες την Πρόβλεψη για το πότε "
+               f"ξαναβγαίνεις θετικός με τις πωλήσεις.", "bad")
+        return
+    if runway["cash"] == 0:
         return
 
     fully = runway["fully_covered"]
@@ -300,7 +308,7 @@ def _forecast_display(forecast: dict) -> None:
     προβλεπόμενες πωλήσεις (περσινές, ίδιες μέρες).
     """
     checks = forecast["checks"]
-    if not checks or forecast["cash"] <= 0:
+    if not checks:
         return
 
     c.spacer(0.8)

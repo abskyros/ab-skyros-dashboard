@@ -21,7 +21,7 @@ import streamlit as st
 
 from core.config import SHEET_SALES
 from core.metrics import (
-    sales_window, sales_window_kind, neighbor_periods, month_periods,
+    sales_window_from, sales_window_kind, neighbor_periods, month_periods,
     last_year, two_years_ago, day_name, as_dates,
     sales_row, monthly_breakdown,
     find_anomalies, month_name, YOY_OFFSET_DAYS,
@@ -48,7 +48,7 @@ def render(df: pd.DataFrame, today: date, df_t: pd.DataFrame | None = None) -> N
         _period(df, today, df_t)
 
     with yearly:
-        _yearly(df, today)
+        _yearly(df, today, df_t)
 
     # Τα εργαλεία διόρθωσης ΚΑΤΩ — τα χρειάζεσαι σπάνια, τα δεδομένα συνέχεια.
     _tools(df, today)
@@ -106,9 +106,10 @@ def _period(df: pd.DataFrame, today: date, df_t: pd.DataFrame | None = None) -> 
     col, _ = st.columns([1, 2])
     with col:
         picked = st.date_input("Ημέρα", today, key="sales_day", format="DD/MM/YYYY")
-    c.period_calendar(*neighbor_periods(picked, sales_window))
+    window = sales_window_from(df_t)        # οι μέρες από τις επιταγές του Excel
+    c.period_calendar(*neighbor_periods(picked, window))
 
-    start, end, check_day = sales_window(picked)
+    start, end, check_day = window(picked)
     rows = [
         {
             "d": d,
@@ -221,7 +222,7 @@ def _avg(rows: list, year: str, key: str) -> float | None:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-def _yearly(df: pd.DataFrame, today: date) -> None:
+def _yearly(df: pd.DataFrame, today: date, df_t: pd.DataFrame | None = None) -> None:
     years = sorted({d.year for d in as_dates(df["date"])}, reverse=True)
 
     col, _ = st.columns([1, 2])
@@ -249,12 +250,13 @@ def _yearly(df: pd.DataFrame, today: date) -> None:
     )
 
     c.section("Ανά μήνα")
-    c.year_months(*_by_month(df, year, today))
+    c.year_months(*_by_month(df, year, today, df_t))
 
     _download(cur, year)
 
 
-def _by_month(df: pd.DataFrame, year: int, today: date) -> tuple[list, list]:
+def _by_month(df: pd.DataFrame, year: int, today: date,
+              df_t: pd.DataFrame | None = None) -> tuple[list, list]:
     """
     Οι 12 μήνες, με το έτος που διάλεξες και τα δύο προηγούμενα, και κάτω από
     κάθε μήνα τα διαστήματα πωλήσεων ανά επιταγή (εβδομάδες ως 06/12/2026, μετά
@@ -282,6 +284,7 @@ def _by_month(df: pd.DataFrame, year: int, today: date) -> tuple[list, list]:
         vals = [daily[d] for d in days if d in daily]
         return float(sum(vals)) if vals else None
 
+    window = sales_window_from(df_t)        # οι μέρες από τις επιταγές του Excel
     months = []
     for m in range(1, 13):
         weeks = [
@@ -290,7 +293,7 @@ def _by_month(df: pd.DataFrame, year: int, today: date) -> tuple[list, list]:
                 "vals": [period_sum(s, e, year - y) for y in years],
                 "running": s <= today <= e,
             }
-            for s, e in month_periods(year, m, sales_window)
+            for s, e in month_periods(year, m, window)
         ]
 
         # Η καλύτερη περίοδος κάθε χρονιάς (δείκτης γραμμής ανά στήλη).

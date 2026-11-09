@@ -27,7 +27,7 @@ import pandas as pd
 
 from core.metrics import (
     last_year, two_years_ago, day_name,
-    sales_on, period_to_date, period_kind, sales_window, sales_window_kind,
+    sales_on, period_to_date, period_kind, sales_window_from, sales_window_kind,
     invoice_totals, invoices_between, billing_period,
     checks_ahead_with_number, cash_runway,
 )
@@ -53,7 +53,7 @@ def render(df_s: pd.DataFrame, df_i: pd.DataFrame, df_t: pd.DataFrame, today: da
     c.grid(
         _today_card(df_s, today),
         _yesterday_card(df_s, today),
-        *_week_cards(df_s, df_i, today),
+        *_week_cards(df_s, df_i, today, df_t),
         _next_check(df_t, today),
         cols=5,
     )
@@ -202,10 +202,11 @@ def _yesterday_card(df_s: pd.DataFrame, today: date) -> str:
                  then=then, foot=foot, href=c.link("Πωλήσεις"))
 
 
-def _week_cards(df_s: pd.DataFrame, df_i: pd.DataFrame, today: date) -> tuple[str, str]:
+def _week_cards(df_s: pd.DataFrame, df_i: pd.DataFrame, today: date,
+                df_t: pd.DataFrame | None = None) -> tuple[str, str]:
     """→ (κάρτα «Περίοδος ως τώρα», κάρτα «Τιμολόγια — καθαρό»)."""
 
-    wtd = period_to_date(df_s, today)
+    wtd = period_to_date(df_s, today, df_t)
 
     foot = f"{wtd['start']:%d/%m}–{wtd['end']:%d/%m} · πέρσι {c.eur(wtd['previous'])}"
     if wtd.get("two_previous") is not None:
@@ -213,7 +214,7 @@ def _week_cards(df_s: pd.DataFrame, df_i: pd.DataFrame, today: date) -> tuple[st
 
     # Το ΔΙΑΣΤΗΜΑ ΠΩΛΗΣΕΩΝ που πληρώνει την επόμενη επιταγή (εβδομάδα ως 06/12/2026,
     # μετά 25→04 / 05→14 / 15→24) — όχι η περίοδος αγορών.
-    s_start, s_end, s_check = sales_window(today)
+    s_start, s_end, s_check = sales_window_from(df_t)(today)
     wk_card = c.kpi(f"{sales_window_kind(s_start, s_end)} {s_start:%d/%m}–{s_end:%d/%m} "
                     f"· επιταγή {s_check:%d/%m}", wtd["current"], then=wtd["previous"],
                     foot=foot, href=c.link("Πωλήσεις"))

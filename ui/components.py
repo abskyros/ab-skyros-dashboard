@@ -834,11 +834,15 @@ def cash_runway_card(runway: dict) -> None:
         summary = f'<b>Καλύπτεις πλήρως {fully} {word}.</b>'
         tone = "ok"
     else:
-        # Δεν φτάνει ούτε η πρώτη
+        # Δεν φτάνει ούτε η πρώτη. Αν το ταμείο είναι ΑΡΝΗΤΙΚΟ (δάνειο), το
+        # χρέος προστίθεται σε ό,τι λείπει για την πρώτη επιταγή.
         first = checks[0]
+        cash = float(runway.get("cash") or 0)
+        short = first["amount"] - first["covered"] + max(0.0, -cash)
+        debt = (f'Το ταμείο είναι αρνητικό ({eur(cash)}).<br>' if cash < 0 else "")
         summary = (
-            f'<b>Το ταμείο δεν καλύπτει ούτε την πρώτη επιταγή.</b><br>'
-            f'Λείπουν <b>{eur(first["amount"] - first["covered"])}</b>.'
+            f'<b>Το ταμείο δεν καλύπτει ούτε την πρώτη επιταγή.</b><br>{debt}'
+            f'Λείπουν <b>{eur(short)}</b>.'
         )
         tone = "bad"
 
