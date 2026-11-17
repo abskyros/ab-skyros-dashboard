@@ -236,21 +236,48 @@ def _yearly(df: pd.DataFrame, today: date, df_t: pd.DataFrame | None = None) -> 
         c.empty(f"Καμία εγγραφή για το {year}")
         return
 
+    # ── ΙΔΙΕΣ ΗΜΕΡΟΜΗΝΙΕΣ ΠΕΡΣΙ ──
+    # Φέτος ως την τελευταία μέρα με αναφορά, απέναντι στο 01/01 → ίδια
+    # ημερολογιακή μέρα πέρσι. Όχι όλο το περσινό έτος (άδικη σύγκριση ως τον
+    # Δεκέμβριο). Για ολοκληρωμένη χρονιά, η τελευταία μέρα είναι ~31/12 →
+    # συγκρίνει όλη τη χρονιά με όλη την προηγούμενη.
+    upto = max(as_dates(cur["date"]))
+    try:
+        ly_upto = upto.replace(year=year - 1)
+    except ValueError:                       # 29/02 → 28/02
+        ly_upto = upto.replace(year=year - 1, day=28)
+    prev_same = prev[as_dates(prev["date"]).map(lambda d: d <= ly_upto)] if not prev.empty else prev
+    full_year = upto >= date(year, 12, 31) - timedelta(days=1)
+
     total = float(cur["net_sales"].sum())
-    prev_total = float(prev["net_sales"].sum()) if not prev.empty else None
+    prev_total = float(prev_same["net_sales"].sum()) if not prev_same.empty else None
     cust = float(cur["customers"].sum()) if cur["customers"].notna().any() else None
-    prev_cust = float(prev["customers"].sum()) if not prev.empty and prev["customers"].notna().any() else None
+    prev_cust = (float(prev_same["customers"].sum())
+                 if not prev_same.empty and prev_same["customers"].notna().any() else None)
+
+    label = "Σύνολο έτους" if full_year else f"Σύνολο ως {upto:%d/%m}"
+    foot_s = foot_c = ""
+    if not full_year and not prev.empty:
+        foot_s = f"Όλο το {year - 1}: {c.eur(float(prev['net_sales'].sum()))}"
+        if prev["customers"].notna().any():
+            foot_c = f"Όλο το {year - 1}: {c.num(float(prev['customers'].sum()))}"
 
     c.grid(
-        c.scale("Σύνολο έτους", total, prev_total, then_tag=str(year - 1)),
+        c.scale(label, total, prev_total, then_tag=str(year - 1), foot=foot_s),
         c.stat("Ημερήσιος μέσος όρος", float(cur["net_sales"].mean()),
                accent="var(--brand)", foot=f"{len(cur)} ημέρες με δεδομένα"),
-        c.scale("Πελάτες", cust, prev_cust, fmt=c.num, then_tag=str(year - 1)),
+        c.scale("Πελάτες" if full_year else f"Πελάτες ως {upto:%d/%m}", cust, prev_cust,
+                fmt=c.num, then_tag=str(year - 1), foot=foot_c),
         cols=3,
     )
 
     c.section("Ανά μήνα")
-    c.year_months(*_by_month(df, year, today, df_t))
+    years_m, months = _by_month(df, year, today, df_t)
+    # Γραμμή «Σύνολο έτους» στο τέλος: πού έκλεισε κάθε χρονιά — και η
+    # τρέχουσα «ως τώρα».
+    totals = [float(df[df["date"].dt.year == y]["net_sales"].sum()) for y in years_m]
+    running = [y == today.year for y in years_m]
+    c.year_months(years_m, months, totals=totals, running=running)
 
     _download(cur, year)
 

@@ -541,7 +541,8 @@ def kpi(
     return f'<a href="{href}" target="_self" class="plain">{body}</a>' if href else body
 
 
-def year_months(years: list, months: list[dict]) -> None:
+def year_months(years: list, months: list[dict], totals: list | None = None,
+                running: list | None = None) -> None:
     """
     Πίνακας «Ανά μήνα»: μια στήλη ανά χρονιά (από τη νεότερη). Κλικ σε μήνα →
     ανοίγουν από κάτω οι εβδομάδες του, με τις ίδιες χρονιές.
@@ -579,10 +580,23 @@ def year_months(years: list, months: list[dict]) -> None:
             '</details>'
         )
 
+    # ── ΣΥΝΟΛΟ ΕΤΟΥΣ (με έντονα): πού έκλεισε κάθε χρονιά· η τρέχουσα «ως τώρα» ──
+    foot = ""
+    if totals:
+        run = running or [False] * len(totals)
+        tcells = "".join(
+            f'<span class="ym-v {tone[i]}"><b>{eur(v)}</b>'
+            + ('<br><span class="ym-run">ως τώρα</span>' if run[i] else "")
+            + '</span>'
+            for i, v in enumerate(totals)
+        )
+        foot = (f'<div class="ym-row ym-total" style="border-top:2px solid currentColor;'
+                f'font-weight:700"><span class="ym-name"><b>Σύνολο έτους</b></span>{tcells}</div>')
+
     html(
         f'<div class="ym ym-c{len(years)}">'
         f'<div class="ym-row ym-head"><span class="ym-name">Μήνας</span>{head}</div>'
-        f'{"".join(rows)}'
+        f'{"".join(rows)}{foot}'
         '</div>'
     )
 
