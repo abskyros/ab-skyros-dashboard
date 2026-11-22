@@ -20,7 +20,7 @@ import pandas as pd
 import streamlit as st
 
 from core.metrics import cash_forecast
-from core.sheets import load_agores, load_invoices, load_setting, save_setting
+from core.sheets import load_agores, load_invoices, load_pagia, load_setting, save_setting
 from ui import components as c
 
 # Πόσο μπροστά δείχνει η πρόβλεψη. Μετράει ΑΠΟ ΣΗΜΕΡΑ και περνάει κανονικά
@@ -71,9 +71,13 @@ def render(df_t: pd.DataFrame, df_s: pd.DataFrame, today: date) -> None:
     # Ταμείο + πάγια έξοδα (τα ίδια εργαλεία με τη σελίδα Μήνας).
     cash = _cash_input(key="forecast")
     fixed = _fixed_expenses_input()
+    if not load_pagia().empty:
+        st.caption("Μισθοδοσία, ΕΦΚΑ/ΤΕΚΑ και ΑΑΔΕ έρχονται πλέον **αυτόματα** από τα email "
+                   "του λογιστή (σελίδα «Πάγια») — τα αντίστοιχα χειροκίνητα πάγια δεν μετράνε.")
 
     # Η πρόβλεψη, ως το διάστημα που διάλεξες.
     until = _horizon(today)
     forecast = cash_forecast(df_t, df_s, today, cash, fixed=fixed, until=until,
-                             df_agores=load_agores(), df_invoices=load_invoices())
+                             df_agores=load_agores(), df_invoices=load_invoices(),
+                             df_pagia=load_pagia())
     _forecast_display(forecast)

@@ -155,6 +155,7 @@ ICONS = {
     "Τιμολογήσεις": ":material/credit_card:",
     "Μήνας": ":material/calendar_month:",
     "Πρόβλεψη": ":material/insights:",
+    "Πάγια": ":material/payments:",
     "Επιταγές": ":material/account_balance_wallet:",
 }
 
@@ -206,7 +207,7 @@ NAV_GROUPS = [
 ]
 SLUG = {
     "Επισκόπηση": "overview", "Πωλήσεις": "sales", "Παραστατικά": "invoices",
-    "Τιμολογήσεις": "timol", "Μήνας": "month", "Πρόβλεψη": "forecast",
+    "Τιμολογήσεις": "timol", "Μήνας": "month", "Πρόβλεψη": "forecast", "Πάγια": "pagia",
     "Επιταγές": "checks",
 }
 

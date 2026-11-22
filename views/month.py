@@ -61,18 +61,38 @@ def render(df_t: pd.DataFrame, df_s: pd.DataFrame, today: date) -> None:
     year, month, ascending = _filters(df_t, today)
 
     from core.sheets import load_agores
-    rows = month_rows(df_t, df_s, year, month, df_agores=load_agores())
-    if not rows:
+    agores = load_agores()
+    rows = month_rows(df_t, df_s, year, month, df_agores=agores)
+
+    # ── ΤΙ ΕΧΕΙΣ ΜΠΡΟΣΤΑ ΣΟΥ, ΚΑΙ ΣΤΗ ΝΕΑ ΧΡΟΝΙΑ ──
+    # Ως τις 31/12 η σελίδα ανοίγει στην τρέχουσα χρονιά — αλλά οι επιταγές του
+    # επόμενου έτους που ΕΧΟΥΝ ΗΔΗ ΕΡΘΕΙ (π.χ. 05/01) είναι κι αυτές «επόμενες».
+    # Μπαίνουν στον πίνακα (για αριθμό επιταγής/voucher), ΟΧΙ στα σύνολα πάνω.
+    # Από 01/01 η σελίδα ανοίγει μόνη της στη νέα χρονιά (default = σημερινό έτος).
+    extra = []
+    if year == today.year and not month:
+        extra = month_rows(df_t, df_s, year + 1, None, df_agores=agores)
+
+    if not rows and not extra:
         label = f"το {year}" if not month else f"τον {MONTHS_GR[month - 1]} {year}"
-        c.empty(f"Καμία επιταγή για {label}")
+        c.empty(f"Καμία επιταγή που έχει έρθει για {label}")
+        _projected(df_t, df_s, today, year, month, agores)
         return
 
+    summary_rows = list(rows)
+    rows = rows + extra
     rows.sort(key=lambda r: r["check_date"], reverse=not ascending)
 
     # Ό,τι πάτησε ο χρήστης στην προηγούμενη εκτέλεση, γράφεται τώρα.
     fresh_vouchers = _flush(rows)
 
-    _summary(rows)
+    if summary_rows:
+        _summary(summary_rows)
+    if extra:
+        c.note(f"Στον πίνακα είναι και <b>{len(extra)}</b> "
+               f"{'επιταγή' if len(extra) == 1 else 'επιταγές'} του {year + 1} που "
+               f"{'έχει' if len(extra) == 1 else 'έχουν'} ήδη έρθει — δεν μετράνε στα σύνολα του {year}.",
+               "info")
 
     # ── ΤΑΜΕΙΟ ──
     #
@@ -84,6 +104,67 @@ def render(df_t: pd.DataFrame, df_s: pd.DataFrame, today: date) -> None:
     sent_until = last_sent_check(df_t, fresh_vouchers)
     _editor(rows, df_t, today, sent_until)
     _runway_summary(runway)
+    _projected(df_t, df_s, today, year, month, agores)
+
+
+def _projected(df_t: pd.DataFrame, df_s: pd.DataFrame, today: date, year: int,
+               month: int, agores: pd.DataFrame) -> None:
+    """
+    ΠΡΟΒΛΕΠΟΜΕΝΕΣ ΕΠΙΤΑΓΕΣ (δεν έχουν έρθει ακόμη) — ίδια νούμερα με την Πρόβλεψη.
+
+    Ξεχωριστός πίνακας, ΧΩΡΙΣ επεξεργασία: μια προβλεπόμενη επιταγή δεν πρέπει
+    να γραφτεί ποτέ στο Sheet. Μόλις έρθει το Excel της, φεύγει από εδώ και
+    μπαίνει στον πάνω πίνακα μόνη της.
+    """
+    import calendar as _cal
+    from datetime import timedelta
+    from core.metrics import project_checks_to_year_end, sales_between, last_year
+    from core.sheets import load_invoices
+
+    if df_t.empty:
+        return
+    real = sorted(as_dates(df_t["check_date"]))
+    last_real = real[-1]
+    if month:
+        start, end = date(year, month, 1), date(year, month, _cal.monthrange(year, month)[1])
+    else:
+        start, end = date(year, 1, 1), date(year, 12, 31)
+    if year == today.year and not month:
+        end = max(end, today + timedelta(days=90))    # και οι πρώτες του νέου έτους
+    if end <= max(today, last_real):
+        return
+
+    proj = project_checks_to_year_end(df_t, today, last_real, end, agores, load_invoices())
+    proj = [p for p in proj if start <= p["date"] <= end]
+    if not proj:
+        return
+
+    dates = real + [p["date"] for p in proj]
+    lines, total = [], 0.0
+    for p in proj:
+        prev = max(d for d in dates if d < p["date"])
+        ly = sales_between(df_s, last_year(prev), last_year(p["date"] - timedelta(days=1)))
+        total += p["amount"]
+        lines.append(
+            f'<tr><td class="day"><b>~{p["date"]:%d/%m/%Y}</b></td>'
+            f'<td class="v now">{c.eur(p["amount"])}</td>'
+            f'<td class="v then">{p["period"]}</td>'
+            f'<td class="v then">{prev:%d/%m}–{p["date"] - timedelta(days=1):%d/%m}: {c.eur(ly)}</td>'
+            f'<td class="v then" style="text-align:left">{p.get("basis", "")}</td></tr>'
+        )
+    c.section("Προβλεπόμενες επιταγές · δεν έχουν έρθει ακόμη")
+    c.html(
+        '<div class="tbl3-wrap"><table class="tbl3">'
+        '<thead><tr><th class="day">Ημ. επιταγής</th><th class="now">~Ποσό</th>'
+        '<th class="then">Αγορές</th><th class="then">Πωλήσεις ημερών της · πέρσι</th>'
+        '<th class="then">Από πού</th></tr></thead>'
+        f'<tbody>{"".join(lines)}</tbody>'
+        f'<tfoot><tr style="border-top:2px solid currentColor"><td class="day"><b>Σύνολο</b></td>'
+        f'<td class="v now"><b>{c.eur(total)}</b></td><td></td><td></td><td></td></tr></tfoot>'
+        '</table></div>'
+    )
+    st.caption("Ίδιος υπολογισμός με την Πρόβλεψη: φετινά Παραστατικά για όσες μέρες "
+               "πέρασαν, περσινές αγορές του ίδιου δεκαημέρου για τις υπόλοιπες.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -408,7 +489,10 @@ def _forecast_display(forecast: dict) -> None:
 
 # ══════════════════════════════════════════════════════════════════════════════
 def _filters(df: pd.DataFrame, today: date) -> tuple[int, int, bool]:
-    years = sorted({d.year for d in as_dates(df["check_date"])}, reverse=True)
+    # Και η τρέχουσα και η επόμενη χρονιά, ακόμη κι αν δεν έχει έρθει καμία
+    # επιταγή τους — εκεί φαίνονται οι προβλεπόμενες.
+    years = sorted({d.year for d in as_dates(df["check_date"])} | {today.year, today.year + 1},
+                   reverse=True)
     default = years.index(today.year) if today.year in years else 0
 
     a, b, d = st.columns(3)

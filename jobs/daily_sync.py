@@ -74,6 +74,22 @@ def main() -> int:
     else:
         print("  ! Λείπει το SALES_EMAIL_PASS — παράλειψη")
 
+    # ── ΠΑΓΙΑ (μισθοδοσία, ΕΦΚΑ/ΤΕΚΑ, ΑΑΔΕ) ← email λογιστή ──
+    # Εδώ υπάρχει OCR, άρα διαβάζονται και τα έγγραφα που έρχονται ως φωτογραφία.
+    print("\n· Πάγια")
+    if sales_pw:
+        try:
+            from core.mail import fetch_pagia
+            from core.sheets import merge_pagia
+            recs, notes = fetch_pagia(sales_pw)
+            for nt in notes[:5]:
+                print(f"  ! {nt}")
+            n = merge_pagia(recs)
+            print(f"  ✓ {n} νέα (από {len(recs)} που βρέθηκαν)" if n
+                  else f"  · Κανένα νέο ({len(recs)} βρέθηκαν)")
+        except Exception as e:  # noqa: BLE001 — δευτερεύον, δεν ρίχνει το run
+            print(f"  ! Πάγια: {e}")
+
     # ── ΠΩΛΗΣΕΙΣ ──
     print("\n· Πωλήσεις")
     if not sales_pw:

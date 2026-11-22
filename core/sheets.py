@@ -1013,6 +1013,71 @@ def merge_agores(records: list) -> int:
     return added
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# ΠΑΓΙΑ ΕΞΟΔΑ (από τα email του λογιστή — core/pagia.py)
+# ══════════════════════════════════════════════════════════════════════════════
+SHEET_PAGIA = "pagia"
+PAGIA_COLS = ["kind", "ref", "amount", "pay_date", "detail", "email_date"]
+
+
+def _pagia_ws():
+    """Το φύλλο «pagia» (είδος | μήνας αναφοράς | ποσό σε λεπτά | πληρωμή | …)."""
+    ss = _spreadsheet()
+    try:
+        return ss.worksheet(SHEET_PAGIA)
+    except Exception:
+        ws = ss.add_worksheet(title=SHEET_PAGIA, rows=500, cols=len(PAGIA_COLS))
+        ws.update([PAGIA_COLS], "A1")
+        return ws
+
+
+@st.cache_data(ttl=600, max_entries=1, show_spinner=False)
+def load_pagia() -> pd.DataFrame:
+    """→ DataFrame[kind, ref, amount, pay_date, detail, email_date] (κενό αν δεν υπάρχει)."""
+    try:
+        vals = _with_retry(lambda: _pagia_ws().get_all_values())
+    except Exception:
+        return pd.DataFrame(columns=PAGIA_COLS)
+    rows = [(r + [""] * 6)[:6] for r in (vals or [])[1:] if r and r[0]]
+    if not rows:
+        return pd.DataFrame(columns=PAGIA_COLS)
+    df = pd.DataFrame(rows, columns=PAGIA_COLS)
+    df["amount"] = df["amount"].map(from_cents).astype(float)
+    df["pay_date"] = pd.to_datetime(df["pay_date"], errors="coerce")
+    df["email_date"] = pd.to_datetime(df["email_date"], errors="coerce")
+    return df
+
+
+def _pagia_key(kind: str, ref: str, pay_date: str) -> str:
+    # ΑΑΔΕ: μία εγγραφή ανά ημερομηνία λήξης· τα άλλα: ανά μήνα αναφοράς.
+    return f"{kind}|{pay_date}" if kind == "ΑΑΔΕ" else f"{kind}|{ref}"
+
+
+def merge_pagia(records: list) -> int:
+    """Γράφει μόνο ό,τι δεν υπάρχει (κλειδί: είδος + μήνας, ΑΑΔΕ: είδος + λήξη)."""
+    recs = [r for r in records if r and r.get("kind") and r.get("amount")]
+    if not recs:
+        return 0
+    ws = _pagia_ws()
+    have = {_pagia_key(r[0], r[1], r[3] if len(r) > 3 else "")
+            for r in _get_all(ws)[1:] if r and r[0]}
+    rows = []
+    for r in sorted(recs, key=lambda x: (x["ref"], x["kind"])):
+        pay = r["pay_date"].strftime("%Y-%m-%d") if r.get("pay_date") else ""
+        k = _pagia_key(r["kind"], r["ref"], pay)
+        if k in have:
+            continue
+        have.add(k)
+        sent = r.get("email_date")
+        rows.append([r["kind"], r["ref"], to_cents(r["amount"]), pay,
+                     str(r.get("detail", ""))[:200],
+                     sent.strftime("%Y-%m-%d") if sent else ""])
+    if rows:
+        _append(ws, rows)
+        load_pagia.clear()
+    return len(rows)
+
+
 def update_timologisi(row: int, old_check_date: str, check_date, period: str,
                       amount: float) -> tuple[bool, str]:
     """
@@ -1360,3 +1425,4 @@ def clear_all_caches() -> None:
     _load_all_sheets.clear()
     load_setting.clear()
     load_agores.clear()
+    load_pagia.clear()

@@ -1001,6 +1001,58 @@ def cash_runway(df: pd.DataFrame, today: date, cash: float) -> dict:
     }
 
 
+# Ολόκληρες λέξεις (όχι «ΗΛΕΚΤΡΙΚΑ» που περιέχει «ΙΚΑ»)· «ΜΙΣΘΟΔΟΣ…» ως αρχή λέξης.
+_AUTO_PAGIA_RE = re.compile(r"(?<![Α-ΩA-Z])(ΙΚΑ|ΕΦΚΑ|ΤΕΚΑ|ΦΜΥ|ΑΑΔΕ)(?![Α-ΩA-Z])|ΜΙΣΘΟΔΟΣ")
+
+
+def is_auto_pagio(name: str) -> bool:
+    """Χειροκίνητο πάγιο που πλέον έρχεται ΑΥΤΟΜΑΤΑ από τα email του λογιστή;"""
+    from core.parsers import norm_greek
+    return bool(_AUTO_PAGIA_RE.search(norm_greek(name)))
+
+
+def pagia_events(df: pd.DataFrame, today: date, until: date) -> list[dict]:
+    """
+    Οι πληρωμές παγίων από σήμερα ως το `until`, ανά είδος και μήνα πληρωμής:
+      1. ΠΡΑΓΜΑΤΙΚΟ ποσό, αν έχει έρθει το email (ποσό + ημερομηνία πληρωμής/λήξης)
+      2. αλλιώς ο ΙΔΙΟΣ ΜΗΝΑΣ ΠΕΡΣΙ (ποσό· ίδια μέρα του μήνα)   — «~πέρσι»
+      3. αλλιώς το ΤΕΛΕΥΤΑΙΟ γνωστό ποσό του είδους               — «~όπως τελευταία»
+    → [{"date", "amount", "name", "estimated"}]
+    """
+    if df is None or df.empty:
+        return []
+    d = df[df["pay_date"].notna()].copy()
+    d["pd"] = d["pay_date"].dt.date
+    out = []
+    for kind in sorted(d["kind"].unique()):
+        k = d[d["kind"] == kind].sort_values("pd")
+        y, m = today.year, today.month
+        while date(y, m, 1) <= until:
+            in_month = k[k["pd"].map(lambda x: (x.year, x.month) == (y, m))]
+            real = in_month[in_month["pd"] >= today]
+            if not in_month.empty:
+                # Έχει έρθει: μόνο ό,τι δεν έχει πληρωθεί ακόμη.
+                for _, r in real.iterrows():
+                    if r["pd"] <= until:
+                        out.append({"date": r["pd"], "amount": float(r["amount"]),
+                                    "name": f"{kind} {r['ref'][5:7]}/{r['ref'][:4]}",
+                                    "estimated": False})
+            else:
+                ly = k[k["pd"].map(lambda x: (x.year, x.month) == (y - 1, m))]
+                if not ly.empty:
+                    amount, day, tag = float(ly["amount"].sum()), int(ly["pd"].iloc[-1].day), "~πέρσι"
+                else:
+                    last = k.iloc[-1]
+                    amount, day, tag = float(last["amount"]), int(last["pd"].day), "~όπως τελευταία"
+                day = min(day, calendar.monthrange(y, m)[1])
+                when = date(y, m, day)
+                if today <= when <= until:
+                    out.append({"date": when, "amount": amount,
+                                "name": f"{kind} ({tag})", "estimated": True})
+            y, m = _shift_months(y, m, 1)
+    return sorted(out, key=lambda e: e["date"])
+
+
 def _expand_fixed(fixed: list, start: date, end: date) -> list:
     """
     Απλώνει τα μηνιαία πάγια έξοδα σε συγκεκριμένες ημερομηνίες, από start ως end.
@@ -1213,7 +1265,8 @@ def cash_forecast(df_checks: pd.DataFrame, df_sales: pd.DataFrame,
                   today: date, cash: float, fixed: list | None = None,
                   project_to_year_end: bool = True, until: date | None = None,
                   df_agores: pd.DataFrame | None = None,
-                  df_invoices: pd.DataFrame | None = None) -> dict:
+                  df_invoices: pd.DataFrame | None = None,
+                  df_pagia: pd.DataFrame | None = None) -> dict:
     """
     🔮 ΠΡΟΒΛΕΨΗ ΡΕΥΣΤΟΤΗΤΑΣ — θα βγει ο μήνας;
 
@@ -1297,6 +1350,22 @@ def cash_forecast(df_checks: pd.DataFrame, df_sales: pd.DataFrame,
 
     # Ο ορίζοντας των πάγιων: αν προβλέπουμε ως το τέλος του έτους, τα πάγια
     # απλώνονται κι αυτά ως εκεί. Αλλιώς, μόνο ως την τελευταία πραγματική.
+    # ── ΠΑΓΙΑ ΑΠΟ ΤΑ EMAIL ΤΟΥ ΛΟΓΙΣΤΗ (μισθοδοσία, ΕΦΚΑ/ΤΕΚΑ, ΑΑΔΕ) ──
+    #
+    # Όταν υπάρχουν, ΑΝΤΙΚΑΘΙΣΤΟΥΝ τα αντίστοιχα χειροκίνητα πάγια (ίδια
+    # ονόματα) — αλλιώς θα μετρούσαν δύο φορές. Τα υπόλοιπα χειροκίνητα
+    # (ρεύμα, λογιστής, δόσεις…) μένουν όπως είναι.
+    has_pagia = df_pagia is not None and not df_pagia.empty
+    if has_pagia and events:
+        check_dates = [e["date"] for e in events if e["kind"] == "check"]
+        horizon = until or (max(check_dates) if check_dates else today)
+        for pe in pagia_events(df_pagia, today, horizon):
+            events.append({
+                "date": pe["date"], "amount": pe["amount"], "period": "",
+                "kind": "fixed", "name": pe["name"], "estimated": pe["estimated"],
+            })
+        fixed = [f for f in (fixed or []) if not is_auto_pagio(f.get("name", ""))]
+
     if fixed and events:
         check_dates = [e["date"] for e in events if e["kind"] == "check"]
         horizon = until or (max(check_dates) if check_dates else today)

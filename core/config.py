@@ -50,6 +50,13 @@ TIMOL_EMAIL_USER      = "ftoulisgm@gmail.com"
 # αποστολέας κόβεται). Το φίλτρο κοιτάζει το ΘΕΜΑ, όχι τον αποστολέα — αρκεί το
 # email να φτάνει (ή να προωθείται) στο ftoulisgm@gmail.com.
 TIMOL_EMAIL_SENDER    = "pvletsas@ab.gr"
+
+# ── ΠΑΓΙΑ ΕΞΟΔΑ (μισθοδοσία, ΕΦΚΑ/ΤΕΚΑ, ΑΑΔΕ) ← ο λογιστής ──
+# Πάντα ΙΔΙΟΣ αποστολέας· το θέμα και η μορφή (PDF, CSV, φωτογραφία, κείμενο
+# email) αλλάζουν — η αναγνώριση γίνεται από το περιεχόμενο (core/pagia.py).
+PAGIA_EMAIL_USER      = "ftoulisgm@gmail.com"
+PAGIA_EMAIL_SENDER    = "kounenisp@gmail.com"
+PAGIA_FROM            = "2024-01-01"     # ως πού πίσω γεμίζει η ανάκτηση
 TIMOL_SUBJECT_KW      = "ΤΙΜΟΛΟΓΗΣΕΙΣ"
 
 IMAP_HOST = "imap.gmail.com"
@@ -118,6 +125,7 @@ PAGES = {
     "Τιμολογήσεις": "credit-card",
     "Μήνας":        "calendar",
     "Πρόβλεψη":     "trending-up",
+    "Πάγια":        "receipt",
     # «Επιταγές» — η δεξαμενή. ΜΟΝΟ στο κινητό (βλ. MOBILE_ONLY_PAGES).
     # Στο desktop η ίδια μπάρα ζει μέσα στη σελίδα «Μήνας», δεξιά του πίνακα.
     "Επιταγές":     "wallet",

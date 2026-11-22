@@ -69,7 +69,7 @@ from core.github import trigger_workflow, last_run, available as gh_available
 from ui import components as c
 from ui import mobile
 
-from views import overview, sales, invoices, timologiseis, month, checks, forecast, manual
+from views import overview, sales, invoices, timologiseis, month, checks, forecast, manual, pagia
 
 
 VERSION = "9.5"
@@ -166,6 +166,10 @@ def main() -> None:
     elif page == "Πρόβλεψη":
         forecast.render(df_t, df_s, today)
 
+    elif page == "Πάγια":
+        from core.sheets import load_pagia
+        pagia.render(load_pagia(), today)
+
     elif page == "Επιταγές":
         checks.render(df_t, today)
 
@@ -220,6 +224,19 @@ def sync_panel(df_s) -> None:
         )
         if st.button("Ανάκτηση αγορών από παλιά Excel", key="backfill_agores", width="stretch"):
             _backfill_agores()
+
+        # ── ΠΑΓΙΑ (μισθοδοσία, ΕΦΚΑ/ΤΕΚΑ, ΑΑΔΕ) ← email λογιστή ──
+        st.caption(
+            "**Πάγια από τα email του λογιστή** — μισθοδοσία, ΕΦΚΑ/ΤΕΚΑ, ΑΑΔΕ. "
+            "Ενημερώνονται μόνα τους κάθε μέρα. Η ανάκτηση γεμίζει μία φορά όλα από το 2024."
+        )
+        pa, pb = st.columns(2)
+        with pa:
+            if st.button("Πάγια (τελευταίοι 2 μήνες)", key="sync_pagia", width="stretch"):
+                _sync_pagia(backfill=False)
+        with pb:
+            if st.button("Ανάκτηση παγίων (από 2024)", key="backfill_pagia", width="stretch"):
+                _sync_pagia(backfill=True)
 
         # ── ΒΑΘΙΑ ΣΑΡΩΣΗ ΠΩΛΗΣΕΩΝ ──
         #
@@ -786,6 +803,37 @@ def _sync_timologiseis() -> None:
     )
     if saved:
         st.rerun()
+
+
+def _sync_pagia(backfill: bool) -> None:
+    """
+    Πάγια από τα email του λογιστή → φύλλο «pagia».
+
+    Εδώ (Streamlit Cloud) ΔΕΝ υπάρχει OCR: ό,τι έρθει ως φωτογραφία το διαβάζει
+    ο καθημερινός αυτόματος συγχρονισμός στο GitHub. Τα PDF, τα CSV και το
+    κείμενο των email διαβάζονται κανονικά εδώ.
+    """
+    from datetime import date as _date
+    from core.config import PAGIA_FROM
+    from core.mail import fetch_pagia
+    from core.sheets import merge_pagia
+
+    if not SALES_PW:
+        c.note("Λείπει το SALES_EMAIL_PASS από τα secrets.", "bad")
+        return
+    since = _date.fromisoformat(PAGIA_FROM) if backfill else None
+    with st.spinner("Διάβασμα email λογιστή…" + (" (από 2024 — μπορεί να πάρει λίγα λεπτά)" if backfill else "")):
+        records, notes = fetch_pagia(SALES_PW, since=since, limit=600 if backfill else 80)
+    added = merge_pagia(records)
+
+    by_kind = {}
+    for r in records:
+        by_kind[r["kind"]] = by_kind.get(r["kind"], 0) + 1
+    found = " · ".join(f"{k}: {v}" for k, v in by_kind.items()) or "κανένα"
+    msg = f"Βρέθηκαν <b>{len(records)}</b> ποσά ({found}) · <b>{added}</b> νέα γράφτηκαν."
+    if notes:
+        msg += "<br>" + "<br>".join(notes[:6])
+    c.note(msg, "ok" if records else "warn")
 
 
 def _backfill_agores() -> None:

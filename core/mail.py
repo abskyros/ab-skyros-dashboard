@@ -325,6 +325,49 @@ def _naive_date(msg) -> date | None:
     return d.date()
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# ΠΑΓΙΑ ΕΞΟΔΑ (λογιστής)
+# ══════════════════════════════════════════════════════════════════════════════
+def fetch_pagia(password: str, since: date | None = None, limit: int = 400) -> tuple[list, list]:
+    """
+    → (εγγραφές, σημειώσεις/σφάλματα)
+
+    ΟΛΑ τα email του λογιστή από `since` (default: 60 μέρες πίσω) — όποιο κι
+    αν είναι το θέμα. Το core.pagia διαβάζει κείμενο + κάθε συνημμένο και
+    αναγνωρίζει μισθοδοσία / ΕΦΚΑ-ΤΕΚΑ / ΑΑΔΕ από το ΠΕΡΙΕΧΟΜΕΝΟ.
+    """
+    from core.config import PAGIA_EMAIL_USER, PAGIA_EMAIL_SENDER
+    from core.pagia import parse_message, dedupe
+
+    since = since or (date.today() - timedelta(days=60))
+    records, notes = [], []
+    search = f'X-GM-RAW "from:{PAGIA_EMAIL_SENDER} after:{since:%Y/%m/%d}"'
+    try:
+        with MailBox(IMAP_HOST).login(PAGIA_EMAIL_USER, password) as mb:
+            try:
+                mb.uids(search)
+                criteria = search
+            except Exception:
+                criteria = AND(from_=PAGIA_EMAIL_SENDER, date_gte=since)
+            for msg in mb.fetch(criteria, limit=limit, reverse=True,
+                                mark_seen=False, bulk=True):
+                if PAGIA_EMAIL_SENDER.lower() not in (msg.from_ or "").lower():
+                    continue
+                recs, n = parse_message(msg)
+                sent = _naive_date(msg)
+                for r in recs:
+                    r["email_date"] = sent
+                    r["subject"] = (msg.subject or "")[:120]
+                    if r.get("pay_date") is None:      # π.χ. μόνο CSV μισθοδοσίας
+                        r["pay_date"] = sent
+                records += recs
+                when = f"{sent:%d/%m/%Y}" if sent else "—"
+                notes += [f"{when} «{(msg.subject or '')[:60]}»: {x}" for x in n]
+    except Exception as e:
+        return records, [_friendly(e)]
+    return dedupe(records), notes
+
+
 def _friendly(e: Exception) -> str:
     """Το IMAP βγάζει κρυπτικά μηνύματα. Λέμε τι να κάνει ο χρήστης."""
     msg = str(e)
