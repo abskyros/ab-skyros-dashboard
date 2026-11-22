@@ -236,7 +236,7 @@ def sync_panel(df_s) -> None:
                 _sync_pagia(backfill=False)
         with pb:
             if st.button("Ανάκτηση παγίων (από 2024)", key="backfill_pagia", width="stretch"):
-                _sync_pagia(backfill=True)
+                _backfill_pagia_github()
 
         # ── ΒΑΘΙΑ ΣΑΡΩΣΗ ΠΩΛΗΣΕΩΝ ──
         #
@@ -834,6 +834,29 @@ def _sync_pagia(backfill: bool) -> None:
     if notes:
         msg += "<br>" + "<br>".join(notes[:6])
     c.note(msg, "ok" if records else "warn")
+
+
+def _backfill_pagia_github() -> None:
+    """
+    Η ανάκτηση παγίων από το 2024 τρέχει στο GitHub (jobs/pagia_backfill.py):
+    εκατοντάδες μεγάλα συνημμένα — στο Streamlit Cloud έτρεχε >15' χωρίς τέλος.
+    Εκεί: ανά τρίμηνο, ένα email τη φορά, με OCR για τις φωτογραφίες.
+    """
+    from core.config import PAGIA_FROM
+    if not gh_available():
+        repo = _repo_name()
+        link = (f"https://github.com/{repo}/actions/workflows/pagia_backfill.yml"
+                if repo else "https://github.com")
+        c.note(f'Άνοιξε <a href="{link}" target="_blank">το workflow</a> → Run workflow '
+               f"(κενό «since» = από {PAGIA_FROM}).", "warn")
+        return
+    ok, msg = trigger_workflow("pagia_backfill.yml", inputs={"since": PAGIA_FROM})
+    if ok:
+        c.note("<b>Ξεκίνησε η ανάκτηση παγίων</b> στο GitHub (από 2024, ανά τρίμηνο). "
+               "Θα πάρει λίγα λεπτά — γράφει στο Sheet μετά από κάθε τρίμηνο. "
+               "Μετά άνοιξε τη σελίδα «Πάγια».", "ok")
+    else:
+        c.note(f"Δεν ξεκίνησε η ανάκτηση: {msg}", "bad")
 
 
 def _backfill_agores() -> None:

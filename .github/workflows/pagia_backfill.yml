@@ -1,0 +1,38 @@
+name: Ανάκτηση παγίων (λογιστής)
+
+# Μόνο χειροκίνητα: από το κουμπί «Ανάκτηση παγίων» της εφαρμογής ή από εδώ
+# (Run workflow). Ο καθημερινός συγχρονισμός (daily_sync) πιάνει τα νέα μόνος του.
+on:
+  workflow_dispatch:
+    inputs:
+      since:
+        description: "Από ποια μέρα (YYYY-MM-DD). Κενό = 2024-01-01"
+        required: false
+        default: ""
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: OCR (tesseract + poppler + ελληνικά) — για όσα έρχονται ως φωτογραφία
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq tesseract-ocr tesseract-ocr-ell poppler-utils
+
+      - name: Εγκατάσταση
+        run: pip install -r requirements-ocr.txt
+
+      - name: Ανάκτηση
+        env:
+          GOOGLE_KEY_JSON: ${{ secrets.GOOGLE_KEY_JSON }}
+          SALES_EMAIL_PASS: ${{ secrets.SALES_EMAIL_PASS }}
+          SINCE: ${{ github.event.inputs.since }}
+        run: python jobs/pagia_backfill.py

@@ -328,7 +328,8 @@ def _naive_date(msg) -> date | None:
 # ══════════════════════════════════════════════════════════════════════════════
 # ΠΑΓΙΑ ΕΞΟΔΑ (λογιστής)
 # ══════════════════════════════════════════════════════════════════════════════
-def fetch_pagia(password: str, since: date | None = None, limit: int = 400) -> tuple[list, list]:
+def fetch_pagia(password: str, since: date | None = None, limit: int = 400,
+                until: date | None = None, bulk: bool = True) -> tuple[list, list]:
     """
     → (εγγραφές, σημειώσεις/σφάλματα)
 
@@ -341,16 +342,21 @@ def fetch_pagia(password: str, since: date | None = None, limit: int = 400) -> t
 
     since = since or (date.today() - timedelta(days=60))
     records, notes = [], []
-    search = f'X-GM-RAW "from:{PAGIA_EMAIL_SENDER} after:{since:%Y/%m/%d}"'
+    # Gmail: after: = από (μαζί), before: = ως (χωρίς) → +1 μέρα στο until.
+    before = f" before:{until + timedelta(days=1):%Y/%m/%d}" if until else ""
+    search = f'X-GM-RAW "from:{PAGIA_EMAIL_SENDER} after:{since:%Y/%m/%d}{before}"'
     try:
         with MailBox(IMAP_HOST).login(PAGIA_EMAIL_USER, password) as mb:
             try:
                 mb.uids(search)
                 criteria = search
             except Exception:
-                criteria = AND(from_=PAGIA_EMAIL_SENDER, date_gte=since)
+                criteria = (AND(from_=PAGIA_EMAIL_SENDER, date_gte=since,
+                                date_lt=until + timedelta(days=1)) if until
+                            else AND(from_=PAGIA_EMAIL_SENDER, date_gte=since))
+            # bulk=False: ένα email τη φορά (λίγη μνήμη) — για την ανάκτηση.
             for msg in mb.fetch(criteria, limit=limit, reverse=True,
-                                mark_seen=False, bulk=True):
+                                mark_seen=False, bulk=bulk):
                 if PAGIA_EMAIL_SENDER.lower() not in (msg.from_ or "").lower():
                     continue
                 recs, n = parse_message(msg)
@@ -364,7 +370,7 @@ def fetch_pagia(password: str, since: date | None = None, limit: int = 400) -> t
                 when = f"{sent:%d/%m/%Y}" if sent else "—"
                 notes += [f"{when} «{(msg.subject or '')[:60]}»: {x}" for x in n]
     except Exception as e:
-        return records, [_friendly(e)]
+        return records, ["✗ " + _friendly(e)]
     return dedupe(records), notes
 
 
