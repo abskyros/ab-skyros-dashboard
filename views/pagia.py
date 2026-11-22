@@ -1,5 +1,6 @@
 """
-views/pagia.py — Πάγια έξοδα (μισθοδοσία, ΕΦΚΑ/ΤΕΚΑ, ΑΑΔΕ).
+views/pagia.py — Πάγια έξοδα (μισθοδοσία, δώρα, συμπληρωματικές, ΕΦΚΑ/ΤΕΚΑ,
+ΕΦΚΑ εταίρων, ΑΑΔΕ).
 
 Έρχονται ΑΥΤΟΜΑΤΑ από τα email του λογιστή (core/pagia.py → φύλλο «pagia»).
   • Επόμενες πληρωμές: ό,τι έχει έρθει και δεν έχει λήξει ακόμη
@@ -49,12 +50,15 @@ def _upcoming(df: pd.DataFrame, today: date) -> None:
         return
     c.section("Επόμενες πληρωμές")
     cards = []
-    for _, r in up.iterrows():
-        when = r["pay_date"].date()
+    # Ίδιο είδος + ίδια μέρα = μία κάρτα (π.χ. ΕΦΚΑ + ΤΕΚΑ, ή οι δύο εταίροι).
+    for (kind, when_ts), grp in up.groupby(["kind", "pay_date"], sort=False):
+        when = when_ts.date()
         days = (when - today).days
         badge = "σήμερα" if days == 0 else ("αύριο" if days == 1 else f"σε {days} μέρες")
-        cards.append(c.kpi(f"{r['kind']} · {_ref_label(r['ref'])}", float(r["amount"]),
-                           badge=badge, foot=f"Πληρωμή {when:%d/%m/%Y} · {r['detail']}"))
+        refs = " · ".join(sorted({_ref_label(r) for r in grp["ref"]}))
+        detail = " + ".join(str(x) for x in grp["detail"] if str(x))
+        cards.append(c.kpi(f"{kind} · {refs}", float(grp["amount"].sum()),
+                           badge=badge, foot=f"Πληρωμή {when:%d/%m/%Y} · {detail}"))
     total = float(up["amount"].sum())
     c.grid(*cards, cols=min(len(cards), 3))
     c.html(f'<div style="font-size:.85rem;margin:.3rem 0 1rem">Σύνολο επόμενων πληρωμών: '
@@ -111,5 +115,5 @@ def _year_table(df: pd.DataFrame, year: int, today: date) -> None:
         f'<th class="then">Σύνολο {year - 1}</th></tr></thead>'
         f'<tbody>{"".join(body)}</tbody><tfoot>{foot}</tfoot></table></div>'
     )
-    st.caption("Μισθοδοσία και ΕΦΚΑ/ΤΕΚΑ: στον μήνα που αφορούν (πληρώνονται τον επόμενο). "
-               "ΑΑΔΕ: στον μήνα λήξης.")
+    st.caption("Μισθοδοσία, δώρα, συμπληρωματικές και ΕΦΚΑ: στον μήνα που αφορούν "
+               "(συνήθως πληρώνονται τον επόμενο). ΑΑΔΕ: στον μήνα λήξης.")

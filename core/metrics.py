@@ -1015,10 +1015,15 @@ def pagia_events(df: pd.DataFrame, today: date, until: date) -> list[dict]:
     """
     Οι πληρωμές παγίων από σήμερα ως το `until`, ανά είδος και μήνα πληρωμής:
       1. ΠΡΑΓΜΑΤΙΚΟ ποσό, αν έχει έρθει το email (ποσό + ημερομηνία πληρωμής/λήξης)
+         — όσα πληρώνονται την ίδια μέρα (π.χ. ΕΦΚΑ + ΤΕΚΑ) γίνονται ένα γεγονός
       2. αλλιώς ο ΙΔΙΟΣ ΜΗΝΑΣ ΠΕΡΣΙ (ποσό· ίδια μέρα του μήνα)   — «~πέρσι»
       3. αλλιώς το ΤΕΛΕΥΤΑΙΟ γνωστό ποσό του είδους               — «~όπως τελευταία»
+    Εξαιρέσεις (core.pagia): οι συμπληρωματικές (έκτακτες) ΔΕΝ προβλέπονται· τα
+    δώρα/επιδόματα (εποχικά) προβλέπονται ΜΟΝΟ από τον ίδιο μήνα πέρσι.
     → [{"date", "amount", "name", "estimated"}]
     """
+    from core.pagia import NOT_PROJECTED, SEASONAL
+
     if df is None or df.empty:
         return []
     d = df[df["pay_date"].notna()].copy()
@@ -1029,26 +1034,29 @@ def pagia_events(df: pd.DataFrame, today: date, until: date) -> list[dict]:
         y, m = today.year, today.month
         while date(y, m, 1) <= until:
             in_month = k[k["pd"].map(lambda x: (x.year, x.month) == (y, m))]
-            real = in_month[in_month["pd"] >= today]
             if not in_month.empty:
-                # Έχει έρθει: μόνο ό,τι δεν έχει πληρωθεί ακόμη.
-                for _, r in real.iterrows():
-                    if r["pd"] <= until:
-                        out.append({"date": r["pd"], "amount": float(r["amount"]),
-                                    "name": f"{kind} {r['ref'][5:7]}/{r['ref'][:4]}",
-                                    "estimated": False})
-            else:
+                # Έχει έρθει: μόνο ό,τι δεν έχει πληρωθεί ακόμη, ανά ημερομηνία.
+                real = in_month[(in_month["pd"] >= today) & (in_month["pd"] <= until)]
+                for when, grp in real.groupby("pd"):
+                    refs = sorted({f"{r[5:7]}/{r[:4]}" for r in grp["ref"]})
+                    out.append({"date": when, "amount": float(grp["amount"].sum()),
+                                "name": f"{kind} {', '.join(refs)}", "estimated": False})
+            elif kind not in NOT_PROJECTED:
                 ly = k[k["pd"].map(lambda x: (x.year, x.month) == (y - 1, m))]
                 if not ly.empty:
                     amount, day, tag = float(ly["amount"].sum()), int(ly["pd"].iloc[-1].day), "~πέρσι"
+                elif kind in SEASONAL:
+                    amount = None
                 else:
-                    last = k.iloc[-1]
-                    amount, day, tag = float(last["amount"]), int(last["pd"].day), "~όπως τελευταία"
-                day = min(day, calendar.monthrange(y, m)[1])
-                when = date(y, m, day)
-                if today <= when <= until:
-                    out.append({"date": when, "amount": amount,
-                                "name": f"{kind} ({tag})", "estimated": True})
+                    last_day = k["pd"].iloc[-1]
+                    last = k[k["pd"] == last_day]
+                    amount, day, tag = float(last["amount"].sum()), int(last_day.day), "~όπως τελευταία"
+                if amount:
+                    day = min(day, calendar.monthrange(y, m)[1])
+                    when = date(y, m, day)
+                    if today <= when <= until:
+                        out.append({"date": when, "amount": amount,
+                                    "name": f"{kind} ({tag})", "estimated": True})
             y, m = _shift_months(y, m, 1)
     return sorted(out, key=lambda e: e["date"])
 

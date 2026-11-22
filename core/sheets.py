@@ -1017,28 +1017,44 @@ def merge_agores(records: list) -> int:
 # ΠΑΓΙΑ ΕΞΟΔΑ (από τα email του λογιστή — core/pagia.py)
 # ══════════════════════════════════════════════════════════════════════════════
 SHEET_PAGIA = "pagia"
-PAGIA_COLS = ["kind", "ref", "amount", "pay_date", "detail", "email_date"]
+# «sub»: φορέας (ΕΦΚΑ/ΤΕΚΑ), εταίρος, ή είδος δώρου — βλ. core/pagia.py.
+PAGIA_COLS = ["kind", "ref", "sub", "amount", "pay_date", "detail", "email_date"]
 
 
 def _pagia_ws():
-    """Το φύλλο «pagia» (είδος | μήνας αναφοράς | ποσό σε λεπτά | πληρωμή | …)."""
+    """
+    Το φύλλο «pagia». Αν λείπει, το φτιάχνει.
+
+    ΑΛΛΑΓΗ ΜΟΡΦΗΣ: αν η κεφαλίδα δεν είναι η τρέχουσα (π.χ. η πρώτη έκδοση
+    χωρίς «sub», που είχε και τα διπλά ΕΦΚΑ/ΤΕΚΑ), το φύλλο ΚΑΘΑΡΙΖΕΙ και
+    ξαναγεμίζει από τα email. Είναι δεδομένα που φτιάχνει η εφαρμογή — δεν
+    χάνεται τίποτα που έγραψε ο χρήστης.
+    """
     ss = _spreadsheet()
     try:
-        return ss.worksheet(SHEET_PAGIA)
+        ws = ss.worksheet(SHEET_PAGIA)
     except Exception:
-        ws = ss.add_worksheet(title=SHEET_PAGIA, rows=500, cols=len(PAGIA_COLS))
+        ws = ss.add_worksheet(title=SHEET_PAGIA, rows=1000, cols=len(PAGIA_COLS))
         ws.update([PAGIA_COLS], "A1")
         return ws
+    head = (ws.row_values(1) or [])[:len(PAGIA_COLS)]
+    if head != PAGIA_COLS:
+        ws.clear()
+        if ws.col_count < len(PAGIA_COLS):
+            ws.add_cols(len(PAGIA_COLS) - ws.col_count)
+        ws.update([PAGIA_COLS], "A1")
+    return ws
 
 
 @st.cache_data(ttl=600, max_entries=1, show_spinner=False)
 def load_pagia() -> pd.DataFrame:
-    """→ DataFrame[kind, ref, amount, pay_date, detail, email_date] (κενό αν δεν υπάρχει)."""
+    """→ DataFrame[kind, ref, sub, amount, pay_date, detail, email_date] (κενό αν δεν υπάρχει)."""
     try:
         vals = _with_retry(lambda: _pagia_ws().get_all_values())
     except Exception:
         return pd.DataFrame(columns=PAGIA_COLS)
-    rows = [(r + [""] * 6)[:6] for r in (vals or [])[1:] if r and r[0]]
+    n = len(PAGIA_COLS)
+    rows = [(r + [""] * n)[:n] for r in (vals or [])[1:] if r and r[0]]
     if not rows:
         return pd.DataFrame(columns=PAGIA_COLS)
     df = pd.DataFrame(rows, columns=PAGIA_COLS)
@@ -1048,30 +1064,39 @@ def load_pagia() -> pd.DataFrame:
     return df
 
 
-def _pagia_key(kind: str, ref: str, pay_date: str) -> str:
-    # ΑΑΔΕ: μία εγγραφή ανά ημερομηνία λήξης· τα άλλα: ανά μήνα αναφοράς.
-    return f"{kind}|{pay_date}" if kind == "ΑΑΔΕ" else f"{kind}|{ref}"
-
-
 def merge_pagia(records: list) -> int:
-    """Γράφει μόνο ό,τι δεν υπάρχει (κλειδί: είδος + μήνας, ΑΑΔΕ: είδος + λήξη)."""
+    """
+    Γράφει μόνο ό,τι δεν υπάρχει — ίδιο κλειδί με το core.pagia.key():
+    ίδιο ποσό = ίδια πληρωμή (μία φορά)· άλλο ποσό = άλλη πληρωμή (προστίθεται).
+    """
+    from datetime import date as _date
+    from core.pagia import key as pagia_key
+
     recs = [r for r in records if r and r.get("kind") and r.get("amount")]
     if not recs:
         return 0
     ws = _pagia_ws()
-    have = {_pagia_key(r[0], r[1], r[3] if len(r) > 3 else "")
-            for r in _get_all(ws)[1:] if r and r[0]}
+    have = set()
+    for r in _get_all(ws)[1:]:
+        if not r or not r[0]:
+            continue
+        r = (r + [""] * len(PAGIA_COLS))[:len(PAGIA_COLS)]
+        try:
+            pay = _date.fromisoformat(r[4]) if r[4] else None
+        except ValueError:
+            pay = None
+        have.add(pagia_key({"kind": r[0], "ref": r[1], "sub": r[2],
+                            "amount": from_cents(r[3]), "pay_date": pay}))
     rows = []
-    for r in sorted(recs, key=lambda x: (x["ref"], x["kind"])):
-        pay = r["pay_date"].strftime("%Y-%m-%d") if r.get("pay_date") else ""
-        k = _pagia_key(r["kind"], r["ref"], pay)
+    for r in sorted(recs, key=lambda x: (x["ref"], x["kind"], x.get("sub", ""))):
+        k = pagia_key(r)
         if k in have:
             continue
         have.add(k)
+        pay = r["pay_date"].strftime("%Y-%m-%d") if r.get("pay_date") else ""
         sent = r.get("email_date")
-        rows.append([r["kind"], r["ref"], to_cents(r["amount"]), pay,
-                     str(r.get("detail", ""))[:200],
-                     sent.strftime("%Y-%m-%d") if sent else ""])
+        rows.append([r["kind"], r["ref"], str(r.get("sub", "")), to_cents(r["amount"]), pay,
+                     str(r.get("detail", ""))[:200], sent.strftime("%Y-%m-%d") if sent else ""])
     if rows:
         _append(ws, rows)
         load_pagia.clear()
