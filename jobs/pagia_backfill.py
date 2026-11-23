@@ -54,7 +54,9 @@ def main() -> int:
     total_found = total_new = 0
     kinds: dict = {}
     for a, b in quarters(since, today):
-        recs, notes = fetch_pagia(pw, since=a, until=b, limit=200, bulk=False)
+        # bulk=True ανά τρίμηνο: λίγα email τη φορά (όχι όλα τα χρόνια μαζί) αλλά
+        # με μία αίτηση — πολύ πιο γρήγορο από ένα-ένα (το πρώτο πέρασμα έφτασε τα 90').
+        recs, notes = fetch_pagia(pw, since=a, until=b, limit=200, bulk=True)
         if notes and notes[0].startswith("✗") and not recs:
             print(f"  ✗ {a:%m/%Y}–{b:%m/%Y}: {notes[0]}")
             continue

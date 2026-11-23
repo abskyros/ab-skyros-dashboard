@@ -1018,7 +1018,9 @@ def merge_agores(records: list) -> int:
 # ══════════════════════════════════════════════════════════════════════════════
 SHEET_PAGIA = "pagia"
 # «sub»: φορέας (ΕΦΚΑ/ΤΕΚΑ), εταίρος, ή είδος δώρου — βλ. core/pagia.py.
-PAGIA_COLS = ["kind", "ref", "sub", "amount", "pay_date", "detail", "email_date"]
+# «emps»: ΚΩΔΙΚΟΙ εργαζομένων (όχι ονόματα/IBAN) — για να μη μετρηθεί κανείς δύο φορές.
+# «source»: θέμα email · αρχεία — για τις «Λεπτομέρειες μήνα».
+PAGIA_COLS = ["kind", "ref", "sub", "amount", "pay_date", "detail", "email_date", "emps", "source"]
 
 
 def _pagia_ws():
@@ -1066,8 +1068,11 @@ def load_pagia() -> pd.DataFrame:
 
 def merge_pagia(records: list) -> int:
     """
-    Γράφει μόνο ό,τι δεν υπάρχει — ίδιο κλειδί με το core.pagia.key():
-    ίδιο ποσό = ίδια πληρωμή (μία φορά)· άλλο ποσό = άλλη πληρωμή (προστίθεται).
+    Γράφει μόνο ό,τι δεν υπάρχει — ίδιο κλειδί με το core.pagia.key().
+
+    Μισθοδοσίες με εργαζόμενους: για κάθε πληρωμή (είδος + μήνας + δώρο) γράφονται
+    ΜΟΝΟ οι εργαζόμενοι που δεν υπάρχουν ήδη στο φύλλο (π.χ. αυτός της δεύτερης
+    τράπεζας ή αυτός που έλειπε)· όσοι υπάρχουν ήδη δεν ξαναμετράνε.
     """
     from datetime import date as _date
     from core.pagia import key as pagia_key
@@ -1076,11 +1081,16 @@ def merge_pagia(records: list) -> int:
     if not recs:
         return 0
     ws = _pagia_ws()
-    have = set()
+    n = len(PAGIA_COLS)
+    have, emp_seen = set(), {}
     for r in _get_all(ws)[1:]:
         if not r or not r[0]:
             continue
-        r = (r + [""] * len(PAGIA_COLS))[:len(PAGIA_COLS)]
+        r = (r + [""] * n)[:n]
+        codes = [c for c in r[7].split(",") if c]
+        if codes:
+            emp_seen.setdefault((r[0], r[1], r[2]), set()).update(codes)
+            continue
         try:
             pay = _date.fromisoformat(r[4]) if r[4] else None
         except ValueError:
@@ -1089,14 +1099,24 @@ def merge_pagia(records: list) -> int:
                             "amount": from_cents(r[3]), "pay_date": pay}))
     rows = []
     for r in sorted(recs, key=lambda x: (x["ref"], x["kind"], x.get("sub", ""))):
-        k = pagia_key(r)
-        if k in have:
-            continue
-        have.add(k)
+        emps = r.get("emps") or {}
+        if emps:
+            done = emp_seen.setdefault((r["kind"], r["ref"], r.get("sub", "")), set())
+            new = {c: a for c, a in emps.items() if c not in done}
+            if not new:
+                continue
+            done.update(new)
+            r = {**r, "emps": new, "amount": round(sum(new.values()), 2)}
+        else:
+            k = pagia_key(r)
+            if k in have:
+                continue
+            have.add(k)
         pay = r["pay_date"].strftime("%Y-%m-%d") if r.get("pay_date") else ""
         sent = r.get("email_date")
         rows.append([r["kind"], r["ref"], str(r.get("sub", "")), to_cents(r["amount"]), pay,
-                     str(r.get("detail", ""))[:200], sent.strftime("%Y-%m-%d") if sent else ""])
+                     str(r.get("detail", ""))[:200], sent.strftime("%Y-%m-%d") if sent else "",
+                     ",".join(sorted(emps and r["emps"] or [])), str(r.get("source", ""))[:200]])
     if rows:
         _append(ws, rows)
         load_pagia.clear()

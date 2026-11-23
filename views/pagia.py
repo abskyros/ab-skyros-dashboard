@@ -40,6 +40,40 @@ def render(df: pd.DataFrame, today: date) -> None:
         year = st.selectbox("Έτος", years, index=years.index(today.year) if today.year in years else 0,
                             key="pagia_year")
     _year_table(df, year, today)
+    _details(df, year)
+
+
+def _details(df: pd.DataFrame, year: int) -> None:
+    """
+    ΛΕΠΤΟΜΕΡΕΙΕΣ ΜΗΝΑ — από πού βγήκε κάθε ποσό (θέμα email · αρχεία ·
+    πόσοι εργαζόμενοι). Για να εντοπίζονται γρήγορα λάθη ή διπλά.
+    """
+    sub = df[df["ref"].astype(str).str.startswith(str(year))]
+    if sub.empty:
+        return
+    months = sorted(sub["ref"].unique(), reverse=True)
+    with st.expander("Λεπτομέρειες μήνα — από ποιο email βγήκε κάθε ποσό"):
+        m = st.selectbox("Μήνας", months, format_func=_ref_label, key="pagia_detail_month")
+        rows = sub[sub["ref"] == m].sort_values(["kind", "pay_date"])
+        lines = []
+        for _, r in rows.iterrows():
+            n_emp = len([x for x in str(r.get("emps", "") or "").split(",") if x])
+            pay = f"{r['pay_date']:%d/%m/%Y}" if pd.notna(r["pay_date"]) else "—"
+            lines.append(
+                f'<tr><td class="day"><b>{r["kind"]}</b>'
+                f'{" · " + str(r["sub"]) if str(r.get("sub", "") or "") else ""}</td>'
+                f'<td class="v now">{c.eur(float(r["amount"]))}</td>'
+                f'<td class="v then">{pay}</td>'
+                f'<td class="v then">{n_emp or ""}</td>'
+                f'<td class="v then" style="text-align:left">{r.get("detail", "")}<br>'
+                f'<span style="opacity:.7">{r.get("source", "")}</span></td></tr>'
+            )
+        c.html(
+            '<div class="tbl3-wrap"><table class="tbl3"><thead><tr>'
+            '<th class="day">Είδος</th><th class="now">Ποσό</th><th class="then">Πληρωμή</th>'
+            '<th class="then">Εργαζ.</th><th class="then">Από πού</th></tr></thead>'
+            f'<tbody>{"".join(lines)}</tbody></table></div>'
+        )
 
 
 # ══════════════════════════════════════════════════════════════════════════════
