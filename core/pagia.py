@@ -240,8 +240,15 @@ def src_xls(df, name: str = "") -> list[dict]:
         if has_amt and has_id:
             head = (i, cells)
             break
-    if head is None:
-        return []
+    if head is None:                     # χωρίς κεφαλίδα: IBAN · ποσό · EUR · περιγραφή (σαν το CSV)
+        lines = []
+        for _, r in df.iterrows():
+            v = [str(x).strip() for x in r.values]
+            amt = pd.to_numeric(r.iloc[1], errors="coerce") if len(v) >= 2 else float("nan")
+            if v and re.fullmatch(r"GR\d{25}", v[0].upper().replace(" ", "")) and not pd.isna(amt):
+                desc = v[3] if len(v) >= 4 and v[3].lower() not in ("nan", "none") else ""
+                lines.append(f"{v[0]};{float(amt):.2f}".replace(".", ",") + f";EUR;{desc}")
+        return src_csv("\n".join(lines), name) if lines else []
     i, cells = head
 
     def col(test):
@@ -310,8 +317,10 @@ def src_csv(raw: str, name: str = "") -> list[dict]:
 
 def src_mk(raw: str, name: str = "") -> list[dict]:
     """
-    «Μισθοδοτική κατάσταση»: μόνο ΣΥΝΟΛΟ (καθαρές αποδοχές από «Σύνολα Περιόδου»).
+    «Μισθοδοτική κατάσταση»: ΣΥΝΟΛΟ (από «Σύνολα Περιόδου») + κωδικός και
+    «Πληρ. Ποσό» ανά εργαζόμενο (μόνο αν το άθροισμά τους = σύνολο).
     Ελέγχει τις λίστες της τράπεζας· μετράει μόνη της μόνο αν δεν υπάρχει λίστα.
+    Τα ποσά ανά εργαζόμενο δίνουν κωδικό στις λίστες που έχουν ΜΟΝΟ IBAN.
     """
     t = norm_greek(raw)
     if "ΜΙΣΘΟΔΟΤΙΚΗ ΚΑΤΑΣΤΑΣΗ" not in t:
@@ -323,8 +332,34 @@ def src_mk(raw: str, name: str = "") -> list[dict]:
     ctx["ref"] = ctx.get("ref") or (_ref_month(t))
     if not ctx.get("kind"):
         ctx.update(kind=KIND_PAYROLL, sub="")
-    return [{"src": "mk", **ctx, "name": name, "pay_date": None, "total": _num(m.group(4)),
-             "warn": [], "ok": 0}]
+    total = _num(m.group(4))
+    return [{"src": "mk", **ctx, "name": name, "pay_date": None, "total": total,
+             "pays": _mk_pays(t[:m.start()], total), "warn": [], "ok": 0}]
+
+
+_MK_LINE = re.compile(r"\b\d{1,3} " + _AMOUNT + " " + _AMOUNT + " " + _AMOUNT + " " + _AMOUNT
+                      + r"\s*[Α-ΩA-Z]")
+_MK_CODE = re.compile(r"\b(\d{4,6})\s+(?:ΕΜΜΙΣΘΟΣ|ΗΜΕΡΟΜΙΣΘΙΟΣ|ΩΡΟΜΙΣΘΙΟΣ)")
+
+
+def _mk_pays(t: str, total: float) -> dict:
+    """
+    {κωδικός: Πληρ. Ποσό}. Κάθε εργαζόμενος κλείνει με «ΣΥΝΕΡ:»· στην πρώτη του
+    γραμμή «ημέρες · … · … · ΠΛΗΡ. ΠΟΣΟ · κόστος». Αν κάτι δεν βγει καθαρά
+    (άθροισμα ≠ σύνολο, διπλός κωδικός) → {} (δεν μαντεύουμε).
+    """
+    pays = {}
+    for chunk in t.split("ΣΥΝΕΡ:")[:-1]:
+        line, code = _MK_LINE.search(chunk), _MK_CODE.search(chunk)
+        if not (line and code):
+            continue
+        c = code.group(1).zfill(4)
+        if c in pays:
+            return {}
+        pays[c] = _num(line.group(3))
+    if not pays or _cents(sum(pays.values())) != _cents(total):
+        return {}
+    return pays
 
 
 def src_receipts(raw: str, name: str = "") -> list[dict]:
@@ -363,6 +398,33 @@ def _is_code(ident: str) -> bool:
     return bool(re.fullmatch(r"\d{4,6}", ident or ""))
 
 
+def _mk_match(srcs: list[dict], iban2code: dict) -> dict:
+    """
+    Λίστα τράπεζας με ΜΟΝΟ IBAN/λογαριασμό (παλιά Excel) + μισθοδοτική στο ίδιο
+    email → {ταυτότητα: κωδικός} όπου το ποσό είναι ΜΟΝΑΔΙΚΟ και στις δύο.
+    Ίδιο ποσό σε δύο εργαζόμενους → κανένα ταίριασμα (μένει κενό, όχι μάντεμα).
+    """
+    pays: dict[int, list] = {}
+    for m in srcs:
+        if m.get("src") == "mk":
+            for code, amt in (m.get("pays") or {}).items():
+                pays.setdefault(_cents(amt), []).append(code)
+    if not pays:
+        return {}
+    rows: dict[int, set] = {}
+    for s in srcs:
+        for ident, amt, iban, _n in s.get("rows", []):
+            if _is_code(ident) or (ident.startswith("ΙΒΑΝ:") and ident[5:] in iban2code):
+                continue
+            rows.setdefault(_cents(amt), set()).add(ident)
+    out = {}
+    for c, idents in rows.items():
+        codes = pays.get(c, [])
+        if len(idents) == 1 and len(codes) == 1:
+            out[next(iter(idents))] = codes[0]
+    return out
+
+
 def combine_payroll(srcs: list[dict], subject: str, sent: date | None,
                     known: dict | None = None) -> tuple[list[dict], list[str]]:
     """
@@ -385,7 +447,11 @@ def combine_payroll(srcs: list[dict], subject: str, sent: date | None,
             if _is_code(ident) and iban.startswith("GR"):
                 iban2code[iban] = ident
 
+    by_amount = _mk_match(srcs, iban2code)
+
     def ident_of(ident: str) -> str:
+        if ident in by_amount:
+            return by_amount[ident]
         if ident.startswith("ΙΒΑΝ:"):
             return iban2code.get(ident[5:], ident)
         return ident
