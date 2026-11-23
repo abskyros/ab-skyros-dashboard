@@ -342,6 +342,11 @@ def fetch_pagia(password: str, since: date | None = None, limit: int = 400,
 
     since = since or (date.today() - timedelta(days=60))
     records, notes = [], []
+    try:                                  # IBAN → κωδικός από όσα ξέρουμε ήδη (για CSV)
+        from core.sheets import load_emp_map
+        known = load_emp_map()
+    except Exception:
+        known = {}
     # Gmail: after: = από (μαζί), before: = ως (χωρίς) → +1 μέρα στο until.
     before = f" before:{until + timedelta(days=1):%Y/%m/%d}" if until else ""
     search = f'X-GM-RAW "from:{PAGIA_EMAIL_SENDER} after:{since:%Y/%m/%d}{before}"'
@@ -359,7 +364,7 @@ def fetch_pagia(password: str, since: date | None = None, limit: int = 400,
                                 mark_seen=False, bulk=bulk):
                 if PAGIA_EMAIL_SENDER.lower() not in (msg.from_ or "").lower():
                     continue
-                recs, n = parse_message(msg)
+                recs, n = parse_message(msg, known)
                 sent = _naive_date(msg)
                 for r in recs:
                     r["email_date"] = sent

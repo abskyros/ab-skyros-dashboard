@@ -86,6 +86,7 @@ def _health(df_s: pd.DataFrame, df_i: pd.DataFrame, df_t: pd.DataFrame, today: d
 
     issues = check_all(df_s, df_i, df_t, today, raw=raw,
                        df_agores=load_agores(), jobs=jobs)
+    issues += _pagia_issues()
     serious = [x for x in issues if x["level"] in ("bad", "warn")]
     if not serious:
         return
@@ -96,6 +97,24 @@ def _health(df_s: pd.DataFrame, df_i: pd.DataFrame, df_t: pd.DataFrame, today: d
         for x in issues:
             kind = {"bad": "bad", "warn": "warn", "info": "info"}[x["level"]]
             c.note(f"<b>{x['title']}</b><br>{x['text']}", kind)
+
+
+def _pagia_issues() -> list:
+    """Μισθοδοσίες που δεν συμφωνούν με τα σύνολα των αρχείων τους (core/pagia.py)."""
+    try:
+        from core.sheets import load_pagia
+        df = load_pagia()
+    except Exception:
+        return []
+    if df.empty or "check" not in df.columns:
+        return []
+    bad = df[df["check"].astype(str).str.startswith("⚠")]
+    if bad.empty:
+        return []
+    items = "<br>".join(f"• {r['kind']} {r['ref']}{' ' + r['sub'] if r['sub'] else ''}: "
+                        f"{str(r['check'])[2:]}" for _, r in bad.sort_values("ref").iterrows())
+    return [{"level": "warn", "title": f"Πάγια: {len(bad)} μισθοδοσίες δεν συμφωνούν με τα σύνολα",
+             "text": items + "<br>Δες «Πάγια» → «Λεπτομέρειες μήνα»."}]
 
 
 def _check_supply_alert(df_t: pd.DataFrame, today: date) -> None:

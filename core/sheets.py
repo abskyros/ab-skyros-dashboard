@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import os
 import json
+import re
 import time
 from datetime import date, datetime, timedelta
 
@@ -1018,39 +1019,51 @@ def merge_agores(records: list) -> int:
 # ══════════════════════════════════════════════════════════════════════════════
 SHEET_PAGIA = "pagia"
 # «sub»: φορέας (ΕΦΚΑ/ΤΕΚΑ), εταίρος, ή είδος δώρου — βλ. core/pagia.py.
-# «emps»: ΚΩΔΙΚΟΙ εργαζομένων (όχι ονόματα/IBAN) — για να μη μετρηθεί κανείς δύο φορές.
-# «source»: θέμα email · αρχεία — για τις «Λεπτομέρειες μήνα».
-PAGIA_COLS = ["kind", "ref", "sub", "amount", "pay_date", "detail", "email_date", "emps", "source"]
+# «emps»: «κωδικός:λεπτά» ανά εργαζόμενο — για να μη μετρηθεί κανείς δύο φορές.
+# «source»: θέμα email · αρχεία · «check»: αποτέλεσμα ελέγχων — για τις «Λεπτομέρειες μήνα».
+PAGIA_COLS = ["kind", "ref", "sub", "amount", "pay_date", "detail", "email_date", "emps",
+              "source", "check"]
+
+# Μισθοδοσίες ΑΝΑ ΕΡΓΑΖΟΜΕΝΟ (για τον φάκελο του κάθε υπαλλήλου στο HR).
+# «code» = κωδικός λογιστηρίου (κενό αν το αρχείο είχε μόνο IBAN/λογαριασμό —
+# συμπληρώνεται μόνο του μόλις γίνει γνωστό από άλλο αρχείο).
+SHEET_MISTH = "misthodosies"
+MISTH_COLS = ["code", "iban", "name", "kind", "ref", "sub", "amount", "pay_date", "email_date"]
 
 
-def _pagia_ws():
+def _reset_ws(title: str, cols: list):
     """
-    Το φύλλο «pagia». Αν λείπει, το φτιάχνει.
-
-    ΑΛΛΑΓΗ ΜΟΡΦΗΣ: αν η κεφαλίδα δεν είναι η τρέχουσα (π.χ. η πρώτη έκδοση
-    χωρίς «sub», που είχε και τα διπλά ΕΦΚΑ/ΤΕΚΑ), το φύλλο ΚΑΘΑΡΙΖΕΙ και
-    ξαναγεμίζει από τα email. Είναι δεδομένα που φτιάχνει η εφαρμογή — δεν
-    χάνεται τίποτα που έγραψε ο χρήστης.
+    Φύλλο που ΦΤΙΑΧΝΕΙ η εφαρμογή από τα email. Αν λείπει, το δημιουργεί· αν η
+    κεφαλίδα δεν είναι η τρέχουσα (άλλαξε η μορφή), το ΚΑΘΑΡΙΖΕΙ ώστε να
+    ξαναγεμίσει από τα email — δεν χάνεται τίποτα που έγραψε ο χρήστης.
     """
     ss = _spreadsheet()
     try:
-        ws = ss.worksheet(SHEET_PAGIA)
+        ws = ss.worksheet(title)
     except Exception:
-        ws = ss.add_worksheet(title=SHEET_PAGIA, rows=1000, cols=len(PAGIA_COLS))
-        ws.update([PAGIA_COLS], "A1")
+        ws = ss.add_worksheet(title=title, rows=1000, cols=len(cols))
+        ws.update([cols], "A1")
         return ws
-    head = (ws.row_values(1) or [])[:len(PAGIA_COLS)]
-    if head != PAGIA_COLS:
+    head = (ws.row_values(1) or [])[:len(cols)]
+    if head != cols:
         ws.clear()
-        if ws.col_count < len(PAGIA_COLS):
-            ws.add_cols(len(PAGIA_COLS) - ws.col_count)
-        ws.update([PAGIA_COLS], "A1")
+        if ws.col_count < len(cols):
+            ws.add_cols(len(cols) - ws.col_count)
+        ws.update([cols], "A1")
     return ws
+
+
+def _pagia_ws():
+    return _reset_ws(SHEET_PAGIA, PAGIA_COLS)
+
+
+def _misth_ws():
+    return _reset_ws(SHEET_MISTH, MISTH_COLS)
 
 
 @st.cache_data(ttl=600, max_entries=1, show_spinner=False)
 def load_pagia() -> pd.DataFrame:
-    """→ DataFrame[kind, ref, sub, amount, pay_date, detail, email_date] (κενό αν δεν υπάρχει)."""
+    """→ DataFrame[PAGIA_COLS] (κενό αν δεν υπάρχει)."""
     try:
         vals = _with_retry(lambda: _pagia_ws().get_all_values())
     except Exception:
@@ -1066,30 +1079,87 @@ def load_pagia() -> pd.DataFrame:
     return df
 
 
+def _emp_maps(rows: list) -> tuple[dict, dict]:
+    """
+    Από τις γραμμές του «misthodosies»: IBAN/λογαριασμός → κωδικός, και
+    όνομα → κωδικός (μόνο όπου το όνομα δείχνει ΕΝΑΝ κωδικό).
+    """
+    from core.parsers import norm_greek
+    by_acct, by_name = {}, {}
+    for r in rows:
+        code, acct, nm = r[0].strip(), r[1].strip().upper(), r[2]
+        if not code:
+            continue
+        if acct:
+            by_acct[acct] = code
+        key = " ".join(norm_greek(nm).replace("-", " ").split()[:2])
+        if key:
+            by_name.setdefault(key, set()).add(code)
+    return by_acct, {k: next(iter(v)) for k, v in by_name.items() if len(v) == 1}
+
+
+def _resolve(acct: str, name: str, by_acct: dict, by_name: dict) -> str:
+    """Κωδικός για γραμμή χωρίς κωδικό: ίδιο IBAN → ίδιος λογαριασμός (τα τελευταία
+    ψηφία του IBAN) → ίδιο ονοματεπώνυμο. Αλλιώς κενό (μένει για αργότερα)."""
+    from core.parsers import norm_greek
+    acct = (acct or "").strip().upper()
+    if acct in by_acct:
+        return by_acct[acct]
+    digits = re.sub(r"\D", "", acct).lstrip("0")
+    if len(digits) >= 8 and not acct.startswith("GR"):
+        hits = {c for a, c in by_acct.items() if re.sub(r"\D", "", a).endswith(digits)}
+        if len(hits) == 1:
+            return hits.pop()
+    key = " ".join(norm_greek(name or "").replace("-", " ").split()[:2])
+    return by_name.get(key, "")
+
+
+def load_emp_map() -> dict:
+    """IBAN → κωδικός, από όσες μισθοδοσίες έχουν ήδη γραφτεί (για τα CSV χωρίς κωδικό)."""
+    try:
+        rows = [(r + [""] * 3)[:3] for r in _get_all(_misth_ws())[1:] if r]
+    except Exception:
+        return {}
+    return {a: c for a, c in _emp_maps(rows)[0].items() if a.startswith("GR")}
+
+
 def merge_pagia(records: list) -> int:
     """
     Γράφει μόνο ό,τι δεν υπάρχει — ίδιο κλειδί με το core.pagia.key().
 
     Μισθοδοσίες με εργαζόμενους: για κάθε πληρωμή (είδος + μήνας + δώρο) γράφονται
-    ΜΟΝΟ οι εργαζόμενοι που δεν υπάρχουν ήδη στο φύλλο (π.χ. αυτός της δεύτερης
-    τράπεζας ή αυτός που έλειπε)· όσοι υπάρχουν ήδη δεν ξαναμετράνε.
+    ΜΟΝΟ οι εργαζόμενοι με ποσό που δεν υπάρχει ήδη (ίδιος κωδικός + ίδιο ποσό =
+    ήδη μετρημένο). Οι ίδιοι γράφονται ΚΑΙ ανά εργαζόμενο στο «misthodosies».
     """
     from datetime import date as _date
-    from core.pagia import key as pagia_key
+    from core.pagia import key as pagia_key, _cents
 
     recs = [r for r in records if r and r.get("kind") and r.get("amount")]
     if not recs:
         return 0
     ws = _pagia_ws()
+    wm = _misth_ws()
+    mrows = [(r + [""] * len(MISTH_COLS))[:len(MISTH_COLS)] for r in _get_all(wm)[1:] if r]
+    by_acct, by_name = _emp_maps(mrows)
+
+    def canon(ident: str, who=("", "")) -> str:
+        """Ίδιος άνθρωπος = ίδια ταυτότητα, είτε ήρθε με κωδικό είτε με IBAN."""
+        if ident.startswith(("ΙΒΑΝ:", "ΛΟΓ:")):
+            return _resolve(ident.split(":", 1)[1], who[1] if who else "", by_acct, by_name) or ident
+        return ident
+
     n = len(PAGIA_COLS)
     have, emp_seen = set(), {}
     for r in _get_all(ws)[1:]:
         if not r or not r[0]:
             continue
         r = (r + [""] * n)[:n]
-        codes = [c for c in r[7].split(",") if c]
-        if codes:
-            emp_seen.setdefault((r[0], r[1], r[2]), set()).update(codes)
+        toks = [t for t in r[7].split(",") if ":" in t]
+        if toks:
+            seen = emp_seen.setdefault((r[0], r[1], r[2]), set())
+            for t in toks:
+                ident, cents = t.rsplit(":", 1)
+                seen.add(f"{canon(ident)}:{cents}")
             continue
         try:
             pay = _date.fromisoformat(r[4]) if r[4] else None
@@ -1097,30 +1167,85 @@ def merge_pagia(records: list) -> int:
             pay = None
         have.add(pagia_key({"kind": r[0], "ref": r[1], "sub": r[2],
                             "amount": from_cents(r[3]), "pay_date": pay}))
-    rows = []
+    rows, mnew = [], []
     for r in sorted(recs, key=lambda x: (x["ref"], x["kind"], x.get("sub", ""))):
         emps = r.get("emps") or {}
+        pay = r["pay_date"].strftime("%Y-%m-%d") if r.get("pay_date") else ""
+        sent = r.get("email_date")
+        sent_s = sent.strftime("%Y-%m-%d") if sent else ""
         if emps:
+            who = r.get("who") or {}
             done = emp_seen.setdefault((r["kind"], r["ref"], r.get("sub", "")), set())
-            new = {c: a for c, a in emps.items() if c not in done}
+            new = {}
+            for ident, amt in emps.items():
+                tok = f"{canon(ident, who.get(ident))}:{_cents(amt)}"
+                if tok not in done:
+                    done.add(tok)
+                    new[ident] = amt
             if not new:
                 continue
-            done.update(new)
+            for ident, amt in new.items():
+                acct, nm = (who.get(ident) or ("", ""))
+                code = ident if re.fullmatch(r"\d{4,6}", ident) else canon(ident, (acct, nm))
+                code = code if re.fullmatch(r"\d{4,6}", code) else ""
+                acct = acct or (ident.split(":", 1)[1] if ":" in ident else "")
+                mnew.append([code, acct, nm, r["kind"], r["ref"], str(r.get("sub", "")),
+                             to_cents(amt), pay, sent_s])
             r = {**r, "emps": new, "amount": round(sum(new.values()), 2)}
         else:
             k = pagia_key(r)
             if k in have:
                 continue
             have.add(k)
-        pay = r["pay_date"].strftime("%Y-%m-%d") if r.get("pay_date") else ""
-        sent = r.get("email_date")
+        toks = ",".join(sorted(f"{i}:{_cents(a)}" for i, a in (r.get("emps") or {}).items()))
         rows.append([r["kind"], r["ref"], str(r.get("sub", "")), to_cents(r["amount"]), pay,
-                     str(r.get("detail", ""))[:200], sent.strftime("%Y-%m-%d") if sent else "",
-                     ",".join(sorted(emps and r["emps"] or [])), str(r.get("source", ""))[:200]])
+                     str(r.get("detail", ""))[:200], sent_s, toks,
+                     str(r.get("source", ""))[:200], str(r.get("check", ""))[:400]])
     if rows:
         _append(ws, rows)
         load_pagia.clear()
+    if mnew:
+        _append(wm, mnew)
+        resolve_misthodosies(wm)
+        load_misthodosies.clear()
     return len(rows)
+
+
+def resolve_misthodosies(wm=None) -> int:
+    """
+    Γραμμές χωρίς κωδικό (παλιά Excel με μόνο λογαριασμό, CSV) → κωδικός από
+    ό,τι έγινε γνωστό ΜΕΤΑ (IBAN / λογαριασμός / ονοματεπώνυμο). → πόσες βρέθηκαν.
+    """
+    wm = wm or _misth_ws()
+    vals = _get_all(wm)
+    rows = [(r + [""] * len(MISTH_COLS))[:len(MISTH_COLS)] for r in vals[1:]]
+    by_acct, by_name = _emp_maps(rows)
+    upd = []
+    for i, r in enumerate(rows, start=2):
+        if r[0] or not (r[1] or r[2]):
+            continue
+        code = _resolve(r[1], r[2], by_acct, by_name)
+        if code:
+            upd.append({"range": f"A{i}", "values": [[code]]})
+    if upd:
+        _with_retry(lambda: wm.batch_update(upd, value_input_option="RAW"))
+    return len(upd)
+
+
+@st.cache_data(ttl=600, max_entries=1, show_spinner=False)
+def load_misthodosies() -> pd.DataFrame:
+    """→ DataFrame[MISTH_COLS]: μία γραμμή ανά εργαζόμενο ανά πληρωμή."""
+    try:
+        vals = _with_retry(lambda: _misth_ws().get_all_values())
+    except Exception:
+        return pd.DataFrame(columns=MISTH_COLS)
+    n = len(MISTH_COLS)
+    rows = [(r + [""] * n)[:n] for r in (vals or [])[1:] if r and any(r)]
+    df = pd.DataFrame(rows, columns=MISTH_COLS)
+    if not df.empty:
+        df["amount"] = df["amount"].map(from_cents).astype(float)
+        df["pay_date"] = pd.to_datetime(df["pay_date"], errors="coerce")
+    return df
 
 
 def update_timologisi(row: int, old_check_date: str, check_date, period: str,

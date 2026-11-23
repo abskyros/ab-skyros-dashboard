@@ -21,13 +21,16 @@ core/pagia.py — ΠΑΓΙΑ ΕΞΟΔΑ από τα email του λογιστή.
      → μετράει ΜΙΑ φορά.
   2. ΔΙΑΦΟΡΕΤΙΚΕΣ πληρωμές στον ίδιο μήνα (κανονική + συμπληρωματική + δώρο)
      → αθροίζονται (η καθεμία είναι δική της εγγραφή).
-  3. ΜΙΣΘΟΔΟΣΙΕΣ ΑΝΑ ΕΡΓΑΖΟΜΕΝΟ (κωδικός): ίδιος εργαζόμενος σε πολλά αρχεία ή
-     email = μία φορά· άλλοι εργαζόμενοι (δεύτερη τράπεζα, αυτός που έλειπε) =
-     προστίθενται. Αποδείξεις μετράνε μόνο όταν δεν υπάρχει συνολική λίστα.
+  3. ΜΙΣΘΟΔΟΣΙΕΣ ΑΝΑ ΕΡΓΑΖΟΜΕΝΟ (κωδικός + ποσό): ίδιος εργαζόμενος με ίδιο ποσό
+     σε πολλά αρχεία ή email = μία φορά· άλλοι εργαζόμενοι (δεύτερη τράπεζα,
+     αυτός που έλειπε) ή άλλο ποσό (δεύτερη πληρωμή δώρου) = προστίθενται.
+     Αποδείξεις μετράνε μόνο όταν δεν υπάρχει συνολική λίστα.
+  5. ΕΛΕΓΧΟΙ: κάθε μισθοδοσία συγκρίνεται με τα σύνολα των αρχείων («check»).
   4. ΕΦΚΑ vs ΤΕΚΑ: από την Τ.Π.Τ.Ε. (ΤΕΚΑ = RF379177…) ή το όνομα αρχείου.
 
 Κάθε εγγραφή: {"kind", "ref" (YYYY-MM), "sub", "amount", "pay_date", "detail",
-              "emps" ({κωδικός εργαζομένου: ποσό} — μόνο μισθοδοσίες), "source"}
+              "emps" ({κωδικός εργαζομένου: ποσό} — μόνο μισθοδοσίες),
+              "who" ({κωδικός: (IBAN, όνομα)}), "check" (αποτέλεσμα ελέγχων), "source"}
 """
 
 from __future__ import annotations
@@ -106,11 +109,29 @@ def _bonus(t: str) -> str | None:
 # ══════════════════════════════════════════════════════════════════════════════
 # ── ΜΙΣΘΟΔΟΣΙΕΣ: «πηγές» ανά ΕΡΓΑΖΟΜΕΝΟ ─────────────────────────────────────
 #
-# Κάθε αρχείο μισθοδοσίας γίνεται μια ΠΗΓΗ: {είδος, μήνας, πληρωμή, εργαζόμενοι}.
-# Εργαζόμενος = ο ΚΩΔΙΚΟΣ του (π.χ. «0018» — ίδιος με το HR portal). Τα CSV έχουν
-# μόνο IBAN· τον κωδικό τον βρίσκουμε από το XLS/την Κατάσταση του ίδιου email.
-# Έτσι: ίδιος εργαζόμενος σε πολλά αρχεία = ΜΙΑ φορά· άλλοι εργαζόμενοι (δεύτερη
-# τράπεζα, αυτός που έλειπε) = ΠΡΟΣΤΙΘΕΝΤΑΙ. Δεν αποθηκεύονται ονόματα/IBAN.
+# Κάθε αρχείο μισθοδοσίας δίνει μία ή περισσότερες ΠΗΓΕΣ (μία ανά ΕΝΟΤΗΤΑ: η
+# «Κατάσταση πληρωμής» έχει μία σελίδα ανά είδος — μισθοδοσία, δώρο, επίδομα
+# άδειας…). Πηγή = {είδος, μήνας, πληρωμή, rows: [(ταυτότητα, ποσό, IBAN, όνομα)]}.
+#
+# Ταυτότητα εργαζομένου = ο ΚΩΔΙΚΟΣ λογιστηρίου (π.χ. «0018», ίδιος με το HR).
+# Όπου το αρχείο δεν τον έχει (CSV, παλιά Excel), βρίσκεται από το IBAN — από τα
+# άλλα αρχεία του ίδιου email ή από όσα ξέρουμε ήδη (`known`). Αλλιώς μένει
+# «ΙΒΑΝ:…» / «ΛΟΓ:…» και αντιστοιχίζεται αργότερα (core.sheets.merge_misthodosies).
+#
+# ΕΛΕΓΧΟΙ (κάθε πηγή κρατά "warn" και "ok"):
+#   • άθροισμα εργαζομένων = «ΣΥΝΟΛΑ» της ενότητας · πλήθος = «ΣΥΝΟΛΟ ΕΡΓΑΖΟΜΕΝΩΝ»
+#   • άθροισμα ενοτήτων = «ΣΥΝΟΛΙΚΟ ΠΟΣΟ» του αρχείου · Excel: γραμμή συνόλου
+#   • ίδιος εργαζόμενος σε δύο αρχεία του ίδιου email → ίδιο ποσό
+#   • μισθοδοτική (ΜΚ) = άθροισμα της μισθοδοσίας από τις λίστες τράπεζας
+
+_ROW = re.compile(r"(GR\d{25})\s+(.*?)\s+" + _AMOUNT + r"(\d{1,3})\s+(\d{4,6})\s+(\d{9})")
+_PERIOD = re.compile(r"\d{1,2}/\d{1,2}/20\d\d\s*-\s*(\d{1,2})/(\d{1,2})/(20\d\d)\s*-\s*([^\n]*)")
+_SUPPL_RE = re.compile(r"ΑΠΟΧΩΡ|ΑΠΟΖΗΜΙΩΣ|ΣΥΜΠΛΗΡΩΜ|ΑΠΟΛΥΣ|ΛΥΣΗ ΣΥΜΒ")
+
+
+def _cents(v: float) -> int:
+    return int(round(float(v) * 100))
+
 
 def _context(t: str) -> dict:
     """Είδος / μήνας από ένα κείμενο (περίοδος, περιγραφή CSV, θέμα email)."""
@@ -118,90 +139,195 @@ def _context(t: str) -> dict:
     out = {"ref": _ref_month(t)}
     if bonus:
         out.update(kind=KIND_BONUS, sub=bonus)
+    elif _SUPPL_RE.search(t):
+        out.update(kind=KIND_SUPPL, sub="")
     elif "ΜΙΣΘΟΔΟΣ" in t or out["ref"]:
         out.update(kind=KIND_PAYROLL, sub="")
     return out
 
 
-def src_statement(raw: str, name: str = "") -> dict | None:
-    """«Κατάσταση πληρωμής» για την τράπεζα: IBAN · ποσό · κωδικός ανά εργαζόμενο."""
+def _label_context(label: str, m: int, y: int) -> dict:
+    """
+    Η γραμμή «01/12/2025 - 31/12/2025 - ΕΠΙΔΟΜΑ ΑΔΕΙΑΣ 2» μιας ενότητας:
+    μήνας ονομαστικά → μισθοδοσία· δώρο/επίδομα → δώρα (με τον αριθμό, αν έχει,
+    ώστε «Επίδομα Αδείας» και «Επίδομα Αδείας 2» να είναι ΔΥΟ πληρωμές).
+    """
+    lab = norm_greek(label).strip()
+    ctx = _context(lab)
+    ctx["ref"] = ctx.get("ref") or f"{y:04d}-{m:02d}"
+    if not ctx.get("kind"):
+        ctx.update(kind=KIND_PAYROLL, sub="")
+    if ctx["kind"] == KIND_BONUS:
+        num = re.search(r"\s(\d{1,2})\s*$", lab)
+        if num:
+            ctx["sub"] = f"{ctx['sub']} {num.group(1)}"
+    return ctx
+
+
+def src_statement(raw: str, name: str = "") -> list[dict]:
+    """
+    «Κατάσταση πληρωμής» για την τράπεζα — μία πηγή ΑΝΑ ΕΝΟΤΗΤΑ (σελίδες που
+    κλείνουν με «ΣΥΝΟΛΑ : …»). Γραμμή: IBAN · όνομα · ποσό+Α/Α · κωδικός · ΑΦΜ.
+    """
     t = norm_greek(raw)
     if "ΣΥΝΟΛΙΚΟ ΠΟΣΟ" not in t or "ΙΒΑΝ" not in t:   # IBAN → ΙΒΑΝ μετά το norm_greek
-        return None
-    rows = re.findall(r"(GR\d{25})\s.*?\s" + _AMOUNT + r"\d{1,3}\s+(\d{4})\s+\d{9}", t)
-    if not rows:
-        return None
-    ctx = _context(t)
-    return {"src": "statement", **ctx, "name": name,
-            "pay_date": _date(re.search(r"ΗΜ/?ΝΙΑ ΠΛΗΡΩΜΗΣ\s*:?\s*" + _DATE, t)),
-            "emps": {code: _num(a) for _iban, a, code in rows},
-            "iban": {iban: code for iban, _a, code in rows}}
+        return []
+    pay = _date(re.search(r"ΗΜ/?ΝΙΑ ΠΛΗΡΩΜΗΣ\s*:?\s*" + _DATE, t))
+    head = t[:t.find("ΙΒΑΝ ΟΝΟΜΑΤΕΠΩΝΥΜΟ")] if "ΙΒΑΝ ΟΝΟΜΑΤΕΠΩΝΥΜΟ" in t else ""
+    g = re.search(_AMOUNT, head)
+    grand = _num(g.group(1)) if g else None
+
+    chunks, start = [], 0
+    for m in re.finditer(r"ΣΥΝΟΛΑ\s*:\s*" + _AMOUNT, t):
+        chunks.append((t[start:m.start()], _num(m.group(1))))
+        start = m.end()
+    if not chunks:                                   # χωρίς «ΣΥΝΟΛΑ» → όλο μαζί
+        chunks = [(t, None)]
+
+    out = []
+    for chunk, declared in chunks:
+        rows = _ROW.findall(chunk)
+        if not rows:
+            continue
+        per = _PERIOD.search(chunk)
+        if per:
+            ctx = _label_context(per.group(4), int(per.group(2)), int(per.group(3)))
+            label = " ".join(norm_greek(per.group(4)).split())
+        else:
+            ctx, label = _context(chunk), ""
+        tag = label or name
+        warn, ok = [], 0
+        total = round(sum(_num(r[2]) for r in rows), 2)
+        if declared is None:
+            warn.append(f"«{tag}»: δεν βρέθηκε «ΣΥΝΟΛΑ» για έλεγχο")
+        elif _cents(total) != _cents(declared):
+            warn.append(f"«{tag}»: εργαζόμενοι {_eur(total)} ≠ ΣΥΝΟΛΑ {_eur(declared)} "
+                        f"(κάποια γραμμή δεν διαβάστηκε)")
+        else:
+            ok += 1
+        cnt = re.search(r"ΣΥΝΟΛΟ ΕΡΓΑΖΟΜΕΝΩΝ\s*:[^\n]*?(\d{1,4})\s*$", chunk, re.M)
+        if cnt:
+            if int(cnt.group(1)) != len(rows):
+                warn.append(f"«{tag}»: διαβάστηκαν {len(rows)} εργαζόμενοι, "
+                            f"το αρχείο γράφει {cnt.group(1)}")
+            else:
+                ok += 1
+        out.append({"src": "statement", **ctx, "name": name, "label": label, "pay_date": pay,
+                    "warn": warn, "ok": ok,
+                    "rows": [(code.zfill(4), _num(a), iban, " ".join(nm.split()))
+                             for iban, nm, a, _aa, code, _afm in rows]})
+    if out and grand is not None and all(c[1] is not None for c in chunks):
+        decl = round(sum(c[1] for c in chunks), 2)
+        if _cents(decl) != _cents(grand):
+            out[0]["warn"].append(f"«{name}»: ενότητες {_eur(decl)} ≠ ΣΥΝΟΛΙΚΟ ΠΟΣΟ {_eur(grand)}")
+        else:
+            out[0]["ok"] += 1
+    return out
 
 
-def src_xls(df, name: str = "") -> dict | None:
-    """XLS πληρωμών: Α/Α · Κωδικός · IBAN · Ονοματεπώνυμο · Ποσό (κεφαλίδα στην 1η γραμμή)."""
+def src_xls(df, name: str = "") -> list[dict]:
+    """
+    Excel πληρωμών (ένα φύλλο): κεφαλίδα με ΠΟΣΟ και ΚΩΔΙΚΟ ή IBAN ή ΛΟΓΑΡΙΑΣΜΟ
+    (τα παλιά είχαν μόνο αριθμό λογαριασμού) · προαιρετικά ονοματεπώνυμο.
+    Γραμμή χωρίς εργαζόμενο αλλά με ποσό = σύνολο → έλεγχος αθροίσματος.
+    """
     import pandas as pd
     head = None
-    for i in range(min(len(df), 6)):
-        cells = [norm_greek(str(v)) for v in df.iloc[i].values]
-        if any(c.startswith("ΚΩΔΙΚΟΣ") for c in cells) and any("ΙΒΑΝ" in c for c in cells) \
-                and any(c.startswith("ΠΟΣΟ") for c in cells):
+    for i in range(min(len(df), 12)):
+        cells = [norm_greek(str(v)).strip() for v in df.iloc[i].values]
+        has_amt = any(c.startswith("ΠΟΣΟ") for c in cells)
+        has_id = any(c.startswith("ΚΩΔΙΚΟΣ") or "ΙΒΑΝ" in c or "ΛΟΓΑΡΙΑΣΜ" in c for c in cells)
+        if has_amt and has_id:
             head = (i, cells)
             break
     if head is None:
-        return None
+        return []
     i, cells = head
-    c_code = next(k for k, c in enumerate(cells) if c.startswith("ΚΩΔΙΚΟΣ"))
-    c_iban = next(k for k, c in enumerate(cells) if "ΙΒΑΝ" in c)
-    c_amt = next(k for k, c in enumerate(cells) if c.startswith("ΠΟΣΟ"))
-    emps, iban = {}, {}
+
+    def col(test):
+        return next((k for k, c in enumerate(cells) if test(c)), None)
+
+    c_code = col(lambda c: c.startswith("ΚΩΔΙΚΟΣ") and "ΤΡΑΠΕΖ" not in c)
+    c_iban = col(lambda c: "ΙΒΑΝ" in c)
+    if c_iban is None:
+        c_iban = col(lambda c: "ΛΟΓΑΡΙΑΣΜ" in c)
+    c_amt = col(lambda c: c.startswith("ΠΟΣΟ"))
+    c_name = col(lambda c: "ΟΝΟΜΑΤΕΠ" in c or c.startswith("ΕΠΩΝΥΜ") or c.startswith("ΟΝΟΜΑ"))
+    rows, footer = [], None
     for _, r in df.iloc[i + 1:].iterrows():
-        code = str(r.iloc[c_code]).strip()
         amt = pd.to_numeric(r.iloc[c_amt], errors="coerce")
-        if not re.fullmatch(r"\d{1,6}", code) or pd.isna(amt):
+        if pd.isna(amt):
             continue
-        code = code.zfill(4)
-        emps[code] = round(float(amt), 2)
-        iban[str(r.iloc[c_iban]).strip().upper()] = code
-    if not emps:
-        return None
-    return {"src": "xls", "name": name, "pay_date": None, "emps": emps, "iban": iban}
+        code = str(r.iloc[c_code]).strip() if c_code is not None else ""
+        code = code[:-2] if code.endswith(".0") else code
+        acct = str(r.iloc[c_iban]).strip().upper().replace(" ", "") if c_iban is not None else ""
+        acct = "" if acct in ("NAN", "NONE") else acct
+        nm = str(r.iloc[c_name]).strip() if c_name is not None else ""
+        nm = "" if nm.lower() in ("nan", "none") else " ".join(nm.split())
+        digits = re.sub(r"\D", "", acct)
+        if re.fullmatch(r"\d{1,6}", code):
+            ident = code.zfill(4)
+        elif re.fullmatch(r"GR\d{25}", acct):
+            ident = "ΙΒΑΝ:" + acct
+        elif len(digits) >= 8:
+            ident, acct = "ΛΟΓ:" + digits, digits
+        else:
+            footer = round(float(amt), 2)            # γραμμή χωρίς εργαζόμενο = σύνολο
+            continue
+        rows.append((ident, round(float(amt), 2), acct, nm))
+    if not rows:
+        return []
+    warn, ok = [], 0
+    total = round(sum(r[1] for r in rows), 2)
+    if footer is not None:
+        if _cents(footer) != _cents(total):
+            warn.append(f"«{name}»: εργαζόμενοι {_eur(total)} ≠ σύνολο αρχείου {_eur(footer)}")
+        else:
+            ok += 1
+    return [{"src": "xls", "name": name, "pay_date": None, "rows": rows, "warn": warn, "ok": ok}]
 
 
-def src_csv(raw: str, name: str = "") -> dict | None:
-    """CSV πληρωμών: IBAN;ποσό;EUR;περιγραφή (π.χ. «ΜΙΣΘΟΔΟΣΙΑ ΟΚΤΩΒΡΙΟΥ 2026»)."""
-    by_iban, desc = {}, ""
+def src_csv(raw: str, name: str = "") -> list[dict]:
+    """
+    CSV πληρωμών: IBAN;ποσό;EUR;περιγραφή (π.χ. «ΜΙΣΘΟΔΟΣΙΑ ΟΚΤΩΒΡΙΟΥ 2026»).
+    Μία πηγή ΑΝΑ ΠΕΡΙΓΡΑΦΗ — αν το ίδιο αρχείο έχει μισθοδοσία ΚΑΙ δώρο, ο ίδιος
+    IBAN εμφανίζεται δύο φορές και το ένα ΔΕΝ πρέπει να σβήσει το άλλο.
+    """
+    groups: dict[str, list] = {}
     for line in raw.splitlines():
         p = [x.strip() for x in line.split(";")]
         if len(p) >= 2 and p[0][:2].upper() == "GR" and re.fullmatch(_AMOUNT, p[1] or ""):
-            by_iban[p[0].upper()] = _num(p[1])
-            if len(p) >= 4 and not desc:
-                desc = norm_greek(p[3])
-    if not by_iban:
-        return None
-    ctx = _context(desc) if ("?" not in desc) else {}      # χαλασμένη κωδικοποίηση → αγνοούμε
-    return {"src": "csv", **ctx, "name": name, "pay_date": None, "by_iban": by_iban}
+            desc = " ".join(norm_greek(p[3]).split()) if len(p) >= 4 else ""
+            iban = p[0].upper().replace(" ", "")
+            groups.setdefault(desc, []).append(("ΙΒΑΝ:" + iban, _num(p[1]), iban, ""))
+    out = []
+    for desc, rows in groups.items():
+        ctx = _context(desc) if (desc and "?" not in desc) else {}   # χαλασμένη κωδικοποίηση → αγνοούμε
+        out.append({"src": "csv", **ctx, "name": name, "label": desc, "pay_date": None,
+                    "rows": rows, "warn": [], "ok": 0})
+    return out
 
 
-def src_mk(raw: str, name: str = "") -> dict | None:
+def src_mk(raw: str, name: str = "") -> list[dict]:
     """
     «Μισθοδοτική κατάσταση»: μόνο ΣΥΝΟΛΟ (καθαρές αποδοχές από «Σύνολα Περιόδου»).
-    Χρησιμοποιείται μόνο όταν δεν υπάρχει λίστα ανά εργαζόμενο στο ίδιο email.
+    Ελέγχει τις λίστες της τράπεζας· μετράει μόνη της μόνο αν δεν υπάρχει λίστα.
     """
     t = norm_greek(raw)
     if "ΜΙΣΘΟΔΟΤΙΚΗ ΚΑΤΑΣΤΑΣΗ" not in t:
-        return None
+        return []
     m = re.search(r"ΣΥΝΟΛΑ ΠΕΡΙΟΔΟΥ([^:]*):\s*\d+\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)", t)
     if not m:
-        return None
+        return []
     ctx = _context(m.group(1))
     ctx["ref"] = ctx.get("ref") or (_ref_month(t))
     if not ctx.get("kind"):
         ctx.update(kind=KIND_PAYROLL, sub="")
-    return {"src": "mk", **ctx, "name": name, "pay_date": None, "total": _num(m.group(4))}
+    return [{"src": "mk", **ctx, "name": name, "pay_date": None, "total": _num(m.group(4)),
+             "warn": [], "ok": 0}]
 
 
-def src_receipts(raw: str, name: str = "") -> dict | None:
+def src_receipts(raw: str, name: str = "") -> list[dict]:
     """
     «Απόδειξη πληρωμής αποδοχών» — μία σελίδα ανά πληρωμή (κωδικός · περίοδος ·
     «Υπόλοιπο πληρωτέων αποδοχών» · ημερομηνία). ΟΛΕΣ «Δώρο …/Επίδομα …» → δώρο·
@@ -209,7 +335,7 @@ def src_receipts(raw: str, name: str = "") -> dict | None:
     """
     t = norm_greek(raw)
     if "ΑΠΟΔΕΙΞΗ ΠΛΗΡΩΜΗΣ ΑΠΟΔΟΧΩΝ" not in t:
-        return None
+        return []
     emps, periods, dates = {}, [], []
     for page in t.split("ΑΠΟΔΕΙΞΗ ΠΛΗΡΩΜΗΣ ΑΠΟΔΟΧΩΝ")[1:]:
         code = re.search(r"ΚΩΔΙΚΟΣ\s*:\s*(\d{1,6})", page)
@@ -222,91 +348,159 @@ def src_receipts(raw: str, name: str = "") -> dict | None:
         periods.append(per.group(1) if per else "")
         dates += [d for d in (_date(m) for m in re.finditer(_DATE, page)) if d]
     if not emps:
-        return None
+        return []
     bonuses = [_bonus(p) for p in periods]
     if all(bonuses):
         ctx = {"kind": KIND_BONUS, "sub": bonuses[0]}
     else:
         ctx = {"kind": KIND_SUPPL, "sub": ""}
     ctx["ref"] = next((r for r in (_ref_month(p) for p in periods) if r), None)
-    return {"src": "receipts", **ctx, "name": name, "pay_date": max(dates) if dates else None,
-            "emps": emps}
+    return [{"src": "receipts", **ctx, "name": name, "pay_date": max(dates) if dates else None,
+             "rows": [(c, a, "", "") for c, a in emps.items()], "warn": [], "ok": 0}]
 
 
-def combine_payroll(srcs: list[dict], subject: str, sent: date | None) -> tuple[list[dict], list[str]]:
+def _is_code(ident: str) -> bool:
+    return bool(re.fullmatch(r"\d{4,6}", ident or ""))
+
+
+def combine_payroll(srcs: list[dict], subject: str, sent: date | None,
+                    known: dict | None = None) -> tuple[list[dict], list[str]]:
     """
-    Οι πηγές ΕΝΟΣ email → μία εγγραφή πληρωμής με τους εργαζόμενούς της.
+    Οι πηγές ΕΝΟΣ email → εγγραφές πληρωμής (μία ανά είδος + μήνα + δώρο), η
+    καθεμία με τους εργαζόμενούς της.
 
-      • Συνολικές λίστες (Κατάσταση, XLS, CSV) → ΕΝΩΣΗ εργαζομένων: ίδιος = μία
-        φορά, άλλοι (δεύτερη τράπεζα) = προστίθενται.
-      • Μισθοδοτική (μόνο σύνολο) → μόνο αν δεν υπάρχει λίστα ανά εργαζόμενο.
-      • Αποδείξεις → μόνο αν δεν υπάρχει τίποτα από τα παραπάνω (αλλιώς είναι η
-        ανάλυση της ίδιας πληρωμής).
-    Είδος/μήνας: Κατάσταση → Μισθοδοτική → CSV → αποδείξεις → θέμα email → ημ/νία email.
+      • Πηγές ΜΕ είδος (ενότητες Κατάστασης, CSV με περιγραφή) ορίζουν τις πληρωμές.
+      • Πηγές ΧΩΡΙΣ είδος (Excel, CSV χωρίς περιγραφή): γραμμή που υπάρχει ήδη ίδια
+        (εργαζόμενος + ποσό) = επιβεβαίωση· οι υπόλοιπες (π.χ. δεύτερη τράπεζα)
+        πάνε στη μισθοδοσία του email.
+      • Μισθοδοτική → έλεγχος της μισθοδοσίας· μόνη της μόνο αν δεν υπάρχει λίστα.
+      • Αποδείξεις → μόνο αν δεν υπάρχει τίποτα από τα παραπάνω.
     """
     notes: list[str] = []
     if not srcs:
         return [], notes
-    lists = [s for s in srcs if s["src"] in ("statement", "xls", "csv")]
-    mk = [s for s in srcs if s["src"] == "mk"]
-    rec = [s for s in srcs if s["src"] == "receipts"]
+    iban2code = dict(known or {})
+    for s in srcs:
+        for ident, _a, iban, _n in s.get("rows", []):
+            if _is_code(ident) and iban.startswith("GR"):
+                iban2code[iban] = ident
 
-    def pick(key):
-        for group in ([s for s in srcs if s["src"] == "statement"], mk,
-                      [s for s in srcs if s["src"] == "csv"], rec):
-            for s in group:
-                if s.get(key):
-                    return s[key]
-        return None
+    def ident_of(ident: str) -> str:
+        if ident.startswith("ΙΒΑΝ:"):
+            return iban2code.get(ident[5:], ident)
+        return ident
 
     subj = _context(norm_greek(subject or ""))
-    kind = pick("kind") or subj.get("kind")
-    sub = pick("sub") if pick("kind") else subj.get("sub", "")
-    ref = pick("ref") or subj.get("ref")
-    pay = pick("pay_date")
+    pay_all = next((s["pay_date"] for s in srcs if s.get("pay_date") and s["src"] == "statement"), None)
+    when = pay_all or sent
+    default_ref = subj.get("ref") or (f"{when:%Y-%m}" if when else None)
+    files = ", ".join(sorted({s["name"] for s in srcs if s.get("name")}))[:140]
 
-    if lists:
-        iban2code = {}
-        for s in lists:
-            iban2code.update(s.get("iban", {}))
-        emps: dict[str, float] = {}
-        for s in sorted(lists, key=lambda x: {"statement": 0, "xls": 1, "csv": 2}[x["src"]]):
-            for code, amt in s.get("emps", {}).items():
-                emps.setdefault(code, amt)
-            for iban, amt in s.get("by_iban", {}).items():
-                emps.setdefault(iban2code.get(iban) or f"IBAN…{iban[-4:]}", amt)
-        kind = kind or KIND_PAYROLL
-        detail = f"{len(emps)} εργαζόμενοι"
-    elif mk:
-        m = mk[0]
-        kind, sub, ref = m.get("kind") or kind, m.get("sub", sub), m.get("ref") or ref
-        emps = {}
-        total = m["total"]
-        detail = "σύνολο μισθοδοτικής (χωρίς λίστα ανά εργαζόμενο)"
-    elif rec:
-        r = rec[0]
-        kind, sub, ref = r["kind"], r.get("sub", ""), r.get("ref") or ref
-        emps = {}
-        for s in rec:
-            for code, amt in s["emps"].items():
-                emps[code] = round(emps.get(code, 0.0) + amt, 2)
-        pay = pay or r.get("pay_date")
-        detail = f"αποδείξεις πληρωμής · {len(emps)} εργαζόμενοι"
-    else:
-        return [], notes
+    groups: dict[tuple, dict] = {}
 
-    if not kind:
-        notes.append("μισθοδοσία χωρίς είδος/μήνα — δεν καταχωρήθηκε")
-        return [], notes
-    pay = pay or sent                       # δεν γράφεται στο αρχείο → ημερομηνία email
-    ref = ref or (f"{pay:%Y-%m}" if pay else None)
-    if not ref:
-        return [], notes
-    amount = round(sum(emps.values()), 2) if emps else total
-    files = ", ".join(sorted({s["name"] for s in srcs if s.get("name")}))[:120]
-    return [{"kind": kind, "ref": ref, "sub": sub or "", "amount": amount, "pay_date": pay,
-             "emps": emps, "detail": f"{sub + ' · ' if sub else ''}{detail}",
-             "source": f"{(subject or '')[:60]} · {files}", "_doc": "payroll"}], notes
+    def group(kind, ref, sub):
+        k = (kind, ref or default_ref, sub or "")
+        return groups.setdefault(k, {"emps": {}, "who": {}, "warn": [], "ok": 0, "total": None,
+                                     "pay": None, "labels": []})
+
+    def add_rows(g, s, rows=None):
+        for ident, amt, iban, nm in (s["rows"] if rows is None else rows):
+            ident = ident_of(ident)
+            have = g["emps"].get(ident)
+            if have is None:
+                g["emps"][ident] = amt
+                g["who"][ident] = (iban, nm)
+            elif _cents(have) != _cents(amt):
+                g["warn"].append(f"εργαζόμενος {ident}: {_eur(have)} σε ένα αρχείο, "
+                                 f"{_eur(amt)} στο «{s.get('name', '')}»")
+            else:
+                old_iban, old_nm = g["who"][ident]
+                g["who"][ident] = (old_iban or iban, old_nm or nm)
+        g["warn"] += s.get("warn", [])
+        g["ok"] += s.get("ok", 0)
+        g["pay"] = g["pay"] or s.get("pay_date")
+        if s.get("label"):
+            g["labels"].append(s["label"])
+
+    lists = [s for s in srcs if s["src"] in ("statement", "csv", "xls")]
+    with_ctx = [s for s in lists if s.get("kind")]
+    no_ctx = [s for s in lists if not s.get("kind")]
+    # Ενότητες Κατάστασης πρώτα (κωδικός + ημερομηνία πληρωμής), μετά CSV.
+    for s in sorted(with_ctx, key=lambda x: x["src"] != "statement"):
+        add_rows(group(s["kind"], s.get("ref"), s.get("sub")), s)
+
+    for s in sorted(no_ctx, key=lambda x: x["src"] != "xls"):
+        if not groups:
+            add_rows(group(subj.get("kind") or KIND_PAYROLL, None, subj.get("sub")), s)
+            continue
+        main_k = next((k for k in groups if k[0] == KIND_PAYROLL), None) \
+            or max(groups, key=lambda k: len(groups[k]["emps"]))
+        rest = [row for row in s["rows"]
+                if not any(_cents(g["emps"].get(ident_of(row[0]), -1)) == _cents(row[1])
+                           for g in groups.values())]   # ίδιο σε άλλη λίστα = επιβεβαίωση
+        # Τα IBAN/ονόματα του Excel συμπληρώνουν όσους ήδη ξέρουμε από άλλη λίστα.
+        for ident, _amt, iban, nm in s["rows"]:
+            for g in groups.values():
+                w = g["who"].get(ident_of(ident))
+                if w is not None:
+                    g["who"][ident_of(ident)] = (w[0] or iban, w[1] or nm)
+        add_rows(groups[main_k], s, rest)
+
+    for m in [s for s in srcs if s["src"] == "mk"]:
+        k = (m["kind"], m.get("ref") or default_ref, m.get("sub") or "")
+        if lists:
+            g = groups.get(k) or next((groups[x] for x in groups if x[:2] == k[:2]), None)
+            if g is None:
+                g = group(*k)
+            if g["emps"]:
+                tot = round(sum(g["emps"].values()), 2)
+                if _cents(tot) != _cents(m["total"]):
+                    g["warn"].append(f"μισθοδοτική {_eur(m['total'])} ≠ λίστες τράπεζας {_eur(tot)} "
+                                     f"(λείπει αρχείο τράπεζας ή εργαζόμενος;)")
+                else:
+                    g["ok"] += 1
+            elif g["total"] is None:
+                g["total"] = m["total"]
+        else:
+            g = group(*k)
+            g["total"] = m["total"]
+            g["labels"].append("σύνολο μισθοδοτικής (χωρίς λίστα ανά εργαζόμενο)")
+
+    if not groups:
+        for r in [s for s in srcs if s["src"] == "receipts"]:
+            g = group(r["kind"], r.get("ref"), r.get("sub"))
+            for ident, amt, *_ in r["rows"]:
+                g["emps"][ident] = round(g["emps"].get(ident, 0.0) + amt, 2)
+                g["who"].setdefault(ident, ("", ""))
+            g["pay"] = g["pay"] or r.get("pay_date")
+            g["labels"].append("αποδείξεις πληρωμής")
+
+    out = []
+    for (kind, ref, sub), g in groups.items():
+        if not kind:
+            notes.append("μισθοδοσία χωρίς είδος/μήνα — δεν καταχωρήθηκε")
+            continue
+        pay = g["pay"] or pay_all or sent           # δεν γράφεται στο αρχείο → ημερομηνία email
+        ref = ref or (f"{pay:%Y-%m}" if pay else None)
+        if not ref:
+            continue
+        amount = round(sum(g["emps"].values()), 2) if g["emps"] else g["total"]
+        if not amount:
+            continue
+        unresolved = [i for i in g["emps"] if not _is_code(i)]
+        warns = list(dict.fromkeys(g["warn"]))
+        check = ("⚠ " + " · ".join(warns)) if warns else \
+            (f"✓ {g['ok']} έλεγχοι σωστοί" if g["ok"] else "— χωρίς σύνολα για έλεγχο")
+        what = f"{len(g['emps'])} εργαζόμενοι" if g["emps"] else (g["labels"][0] if g["labels"] else "")
+        if unresolved:                              # όχι λάθος: αντιστοιχίζονται από IBAN/όνομα
+            what += f" ({len(unresolved)} χωρίς κωδικό στο αρχείο)"
+        out.append({"kind": kind, "ref": ref, "sub": sub, "amount": amount, "pay_date": pay,
+                    "emps": dict(g["emps"]), "who": dict(g["who"]), "check": check[:400],
+                    "detail": f"{sub + ' · ' if sub else ''}{what}",
+                    "source": f"{(subject or '')[:60]} · {files}", "_doc": "payroll"})
+        if warns:
+            notes.append(f"{kind} {ref} {sub}: " + " · ".join(warns))
+    return out, notes
 
 
 def parse_efka_body(raw: str, name: str = "") -> list[dict]:
@@ -469,11 +663,11 @@ def _sources(text: str, name: str) -> list[dict]:
         except Exception:
             s = None
         if s:
-            out.append(s)
+            out.extend(s)
     return out
 
 
-def parse_message(msg) -> tuple[list[dict], list[str]]:
+def parse_message(msg, known: dict | None = None) -> tuple[list[dict], list[str]]:
     """
     → (εγγραφές, σημειώσεις) για ΕΝΑ email: κείμενο + κάθε συνημμένο.
 
@@ -497,16 +691,15 @@ def parse_message(msg) -> tuple[list[dict], list[str]]:
             text = pdf_text(payload)
         elif low.endswith((".csv", ".txt")):
             text = _decode(payload)
-            s = src_csv(text, name)
-            if s:
-                srcs.append(s)
+            srcs += src_csv(text, name)
         elif low.endswith((".xls", ".xlsx")):
-            try:
-                s = src_xls(pd.read_excel(io.BytesIO(payload), header=None), name)
-            except Exception:
-                s = None
-            if s:
-                srcs.append(s)
+            try:                                    # ΟΛΑ τα φύλλα του Excel
+                sheets = pd.read_excel(io.BytesIO(payload), header=None, sheet_name=None)
+            except Exception as e:
+                sheets = {}
+                notes.append(f"Excel «{name}» δεν διαβάστηκε: {e}")
+            for df in sheets.values():
+                srcs += src_xls(df, name)
         elif low.endswith((".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".webp")):
             text = image_text(payload)
             if text is None:
@@ -521,7 +714,7 @@ def parse_message(msg) -> tuple[list[dict], list[str]]:
         sent = msg.date.date() if msg.date else None
     except Exception:
         sent = None
-    pay_recs, pay_notes = combine_payroll(srcs, msg.subject or "", sent)
+    pay_recs, pay_notes = combine_payroll(srcs, msg.subject or "", sent, known)
     recs += pay_recs
     notes += pay_notes
 
@@ -555,9 +748,14 @@ def key(r: dict) -> tuple:
     if kind in (KIND_EFKA, KIND_PARTNERS):
         return (kind, r["ref"], r.get("sub", ""))
     emps = r.get("emps")
-    if emps:                                   # ίδιοι εργαζόμενοι = ίδια πληρωμή
-        return (kind, r["ref"], r.get("sub", ""), ",".join(sorted(emps)))
+    if emps:                                   # ίδιοι εργαζόμενοι με ίδια ποσά = ίδια πληρωμή
+        return (kind, r["ref"], r.get("sub", ""), ",".join(sorted(emp_tokens(emps))))
     return (kind, r["ref"], f"{float(r['amount']):.2f}")
+
+
+def emp_tokens(emps: dict) -> set:
+    """{κωδικός: ποσό} → {"0018:42132", …} — ο εργαζόμενος ΜΑΖΙ με το ποσό του σε λεπτά."""
+    return {f"{c}:{_cents(a)}" for c, a in emps.items()}
 
 
 def dedupe(recs: list[dict]) -> list[dict]:
@@ -565,8 +763,9 @@ def dedupe(recs: list[dict]) -> list[dict]:
     Ένα ανά key(). Προτιμάμε την εγγραφή με ημερομηνία πληρωμής (π.χ. PDF πάνω από CSV).
 
     Μισθοδοσίες με εργαζόμενους: με τη σειρά των email, για κάθε πληρωμή (είδος +
-    μήνας + δώρο) κρατάμε ΜΟΝΟ τους εργαζόμενους που δεν έχουν ήδη μετρηθεί —
-    ο ίδιος εργαζόμενος σε επόμενο email δεν ξαναμετράει, ένας καινούργιος προστίθεται.
+    μήνας + δώρο) κρατάμε ΜΟΝΟ ό,τι δεν έχει ήδη μετρηθεί — ΙΔΙΟΣ εργαζόμενος με
+    ΙΔΙΟ ποσό = το ίδιο email ξανά (δεν μετράει)· καινούργιος εργαζόμενος ή άλλο
+    ποσό (π.χ. δεύτερη πληρωμή δώρου) = προστίθεται.
     """
     with_emps = [r for r in recs if r.get("emps")]
     others = [r for r in recs if not r.get("emps")]
@@ -583,9 +782,9 @@ def dedupe(recs: list[dict]) -> list[dict]:
     for r in sorted(with_emps, key=lambda x: (str(x.get("email_date") or ""), str(x.get("pay_date") or ""))):
         k = (r["kind"], r["ref"], r.get("sub", ""))
         done = seen.setdefault(k, set())
-        new = {c: a for c, a in r["emps"].items() if c not in done}
+        new = {c: a for c, a in r["emps"].items() if f"{c}:{_cents(a)}" not in done}
         if not new:
             continue
-        done.update(new)
+        done.update(emp_tokens(new))
         out.append({**r, "emps": new, "amount": round(sum(new.values()), 2)})
     return out

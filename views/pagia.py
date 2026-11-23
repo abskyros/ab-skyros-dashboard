@@ -39,8 +39,20 @@ def render(df: pd.DataFrame, today: date) -> None:
     with col:
         year = st.selectbox("Έτος", years, index=years.index(today.year) if today.year in years else 0,
                             key="pagia_year")
+    _warnings(df, year)
     _year_table(df, year, today)
     _details(df, year)
+
+
+def _warnings(df: pd.DataFrame, year: int) -> None:
+    """Μισθοδοσίες που ΔΕΝ συμφωνούν με τα σύνολα των αρχείων τους — πάνω-πάνω."""
+    if "check" not in df.columns:
+        return
+    bad = df[df["check"].astype(str).str.startswith("⚠")
+             & df["ref"].astype(str).str.startswith(str(year))]
+    for _, r in bad.sort_values("ref").iterrows():
+        c.note(f"⚠ <b>{r['kind']} {_ref_label(r['ref'])}{' · ' + r['sub'] if r['sub'] else ''}</b>: "
+               f"{str(r['check'])[2:]}", "warn")
 
 
 def _details(df: pd.DataFrame, year: int) -> None:
@@ -58,6 +70,9 @@ def _details(df: pd.DataFrame, year: int) -> None:
         lines = []
         for _, r in rows.iterrows():
             n_emp = len([x for x in str(r.get("emps", "") or "").split(",") if x])
+            chk = str(r.get("check", "") or "")
+            chk_html = (f'<br><span style="color:#b45309"><b>{chk}</b></span>' if chk.startswith("⚠")
+                        else (f'<br><span style="opacity:.7">{chk}</span>' if chk else ""))
             pay = f"{r['pay_date']:%d/%m/%Y}" if pd.notna(r["pay_date"]) else "—"
             lines.append(
                 f'<tr><td class="day"><b>{r["kind"]}</b>'
@@ -66,7 +81,7 @@ def _details(df: pd.DataFrame, year: int) -> None:
                 f'<td class="v then">{pay}</td>'
                 f'<td class="v then">{n_emp or ""}</td>'
                 f'<td class="v then" style="text-align:left">{r.get("detail", "")}<br>'
-                f'<span style="opacity:.7">{r.get("source", "")}</span></td></tr>'
+                f'<span style="opacity:.7">{r.get("source", "")}</span>{chk_html}</td></tr>'
             )
         c.html(
             '<div class="tbl3-wrap"><table class="tbl3"><thead><tr>'
@@ -126,8 +141,10 @@ def _year_table(df: pd.DataFrame, year: int, today: date) -> None:
         row_sum = sum(v or 0 for v in vals)
         ly_sum = sum(v or 0 for v in ly)
         cells = "".join(f'<td class="v now">{c.eur(v)}</td>' for v in vals)
+        warn = "check" in df.columns and df[(df["ref"] == f"{year:04d}-{m:02d}")
+                                             & df["check"].astype(str).str.startswith("⚠")].shape[0] > 0
         body.append(
-            f'<tr><td class="day"><b>{month_name(m)}</b></td>{cells}'
+            f'<tr><td class="day"><b>{month_name(m)}</b>{" ⚠" if warn else ""}</td>{cells}'
             f'<td class="v now"><b>{c.eur(row_sum or None)}</b></td>'
             f'<td class="v then">{c.eur(ly_sum or None)}</td></tr>'
         )
