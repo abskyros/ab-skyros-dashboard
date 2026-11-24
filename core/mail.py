@@ -329,16 +329,19 @@ def _naive_date(msg) -> date | None:
 # ΠΑΓΙΑ ΕΞΟΔΑ (λογιστής)
 # ══════════════════════════════════════════════════════════════════════════════
 def fetch_pagia(password: str, since: date | None = None, limit: int = 400,
-                until: date | None = None, bulk: bool = True) -> tuple[list, list]:
+                until: date | None = None, bulk: bool = True,
+                report: list | None = None) -> tuple[list, list]:
     """
     → (εγγραφές, σημειώσεις/σφάλματα)
+    `report` (προαιρετικό): μία γραμμή ανά email (ημ/νία, θέμα, αρχεία, τι βρέθηκε)
+    — για την «Αναφορά ανάκτησης».
 
     ΟΛΑ τα email του λογιστή από `since` (default: 60 μέρες πίσω) — όποιο κι
     αν είναι το θέμα. Το core.pagia διαβάζει κείμενο + κάθε συνημμένο και
     αναγνωρίζει μισθοδοσία / ΕΦΚΑ-ΤΕΚΑ / ΑΑΔΕ από το ΠΕΡΙΕΧΟΜΕΝΟ.
     """
     from core.config import PAGIA_EMAIL_USER, PAGIA_EMAIL_SENDER
-    from core.pagia import parse_message, dedupe
+    from core.pagia import parse_message, dedupe, _eur
 
     since = since or (date.today() - timedelta(days=60))
     records, notes = [], []
@@ -364,7 +367,8 @@ def fetch_pagia(password: str, since: date | None = None, limit: int = 400,
                                 mark_seen=False, bulk=bulk):
                 if PAGIA_EMAIL_SENDER.lower() not in (msg.from_ or "").lower():
                     continue
-                recs, n = parse_message(msg, known)
+                rep: dict = {}
+                recs, n = parse_message(msg, known, rep)
                 sent = _naive_date(msg)
                 for r in recs:
                     r["email_date"] = sent
@@ -374,6 +378,17 @@ def fetch_pagia(password: str, since: date | None = None, limit: int = 400,
                 records += recs
                 when = f"{sent:%d/%m/%Y}" if sent else "—"
                 notes += [f"{when} «{(msg.subject or '')[:60]}»: {x}" for x in n]
+                if report is not None:
+                    report.append({
+                        "email_date": f"{sent:%Y-%m-%d}" if sent else "",
+                        "subject": (msg.subject or "")[:150],
+                        "files": "\n".join(rep.get("files") or [])[:3000],
+                        "found": "\n".join(
+                            f"{r['kind']} {r['ref']}{' · ' + r['sub'] if r.get('sub') else ''}: "
+                            + _eur(r['amount']) + (f" · {len(r['emps'])} εργαζ." if r.get("emps") else "")
+                            + (f" · {r['check']}" if r.get("check") else "")
+                            for r in recs)[:3000],
+                        "notes": "\n".join(n)[:2000]})
     except Exception as e:
         return records, ["✗ " + _friendly(e)]
     return dedupe(records), notes

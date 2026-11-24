@@ -1057,6 +1057,58 @@ def _pagia_ws():
     return _reset_ws(SHEET_PAGIA, PAGIA_COLS)
 
 
+# Μισθοδοσίες που γράφονται ΑΝΑ ΕΡΓΑΖΟΜΕΝΟ (τα υπόλοιπα είναι ένα ποσό).
+_PER_EMP_KINDS = ("Μισθοδοσία", "Δώρα/Επιδόματα", "Συμπληρωματική")
+
+# Αναφορά ανάκτησης: μία γραμμή ανά email του λογιστή (τι αρχεία είχε, τι βρέθηκε).
+SHEET_PAGIA_LOG = "pagia_log"
+PAGIA_LOG_COLS = ["email_date", "subject", "files", "found", "notes", "run_at"]
+
+
+def _pagia_log_ws():
+    return _reset_ws(SHEET_PAGIA_LOG, PAGIA_LOG_COLS)
+
+
+def append_pagia_log(entries: list) -> int:
+    """Γράφει γραμμές αναφοράς (dict με τα PAGIA_LOG_COLS)."""
+    if not entries:
+        return 0
+    rows = [[str(e.get(c, "") or "")[:5000] for c in PAGIA_LOG_COLS] for e in entries]
+    _append(_pagia_log_ws(), rows)
+    load_pagia_log.clear()
+    return len(rows)
+
+
+@st.cache_data(ttl=600, max_entries=1, show_spinner=False)
+def load_pagia_log() -> pd.DataFrame:
+    try:
+        vals = _with_retry(lambda: _pagia_log_ws().get_all_values())
+    except Exception:
+        return pd.DataFrame(columns=PAGIA_LOG_COLS)
+    n = len(PAGIA_LOG_COLS)
+    rows = [(r + [""] * n)[:n] for r in (vals or [])[1:] if r and any(r)]
+    return pd.DataFrame(rows, columns=PAGIA_LOG_COLS)
+
+
+def reset_pagia_sheets() -> list:
+    """
+    ΑΔΕΙΑΖΕΙ τα φύλλα «pagia», «misthodosies», «pagia_log» (κρατά την κεφαλίδα)
+    για ανάκτηση από την αρχή. Είναι φύλλα που φτιάχνει ΜΟΝΟ η εφαρμογή από τα
+    email — τίποτα δεν έχει γράψει ο χρήστης. Δεν αγγίζει κανένα άλλο φύλλο.
+    """
+    done = []
+    for title, cols in ((SHEET_PAGIA, PAGIA_COLS), (SHEET_MISTH, MISTH_COLS),
+                        (SHEET_PAGIA_LOG, PAGIA_LOG_COLS)):
+        ws = _reset_ws(title, cols)
+        _with_retry(lambda w=ws: w.clear())
+        _with_retry(lambda w=ws, c=cols: w.update([c], "A1"))
+        done.append(title)
+    load_pagia.clear()
+    load_misthodosies.clear()
+    load_pagia_log.clear()
+    return done
+
+
 def _misth_ws():
     return _reset_ws(SHEET_MISTH, MISTH_COLS)
 
@@ -1150,10 +1202,16 @@ def merge_pagia(records: list) -> int:
 
     n = len(PAGIA_COLS)
     have, emp_seen = set(), {}
-    for r in _get_all(ws)[1:]:
+    # Σκέτα σύνολα (μισθοδοτική χωρίς λίστα τράπεζας) ανά πληρωμή → γραμμές στο φύλλο.
+    # Μόλις έρθουν οι εργαζόμενοι της ίδιας πληρωμής, το σκέτο σύνολο ΦΕΥΓΕΙ
+    # (αλλιώς μετριέται δύο φορές).
+    totals_at: dict[tuple, list] = {}
+    for idx, r in enumerate(_get_all(ws)[1:], start=2):
         if not r or not r[0]:
             continue
         r = (r + [""] * n)[:n]
+        if r[0] in _PER_EMP_KINDS and not r[7]:
+            totals_at.setdefault((r[0], r[1], r[2]), []).append(idx)
         toks = [t for t in r[7].split(",") if ":" in t]
         if toks:
             seen = emp_seen.setdefault((r[0], r[1], r[2]), set())
@@ -1167,9 +1225,12 @@ def merge_pagia(records: list) -> int:
             pay = None
         have.add(pagia_key({"kind": r[0], "ref": r[1], "sub": r[2],
                             "amount": from_cents(r[3]), "pay_date": pay}))
-    rows, mnew = [], []
-    for r in sorted(recs, key=lambda x: (x["ref"], x["kind"], x.get("sub", ""))):
+    rows, mnew, drop = [], [], []
+    # Πρώτα όσα έχουν εργαζόμενους: έτσι ένα σκέτο σύνολο της ίδιας πληρωμής βρίσκει
+    # ότι υπάρχουν ήδη και δεν γράφεται.
+    for r in sorted(recs, key=lambda x: (x["ref"], x["kind"], x.get("sub", ""), not x.get("emps"))):
         emps = r.get("emps") or {}
+        k3 = (r["kind"], r["ref"], str(r.get("sub", "")))
         pay = r["pay_date"].strftime("%Y-%m-%d") if r.get("pay_date") else ""
         sent = r.get("email_date")
         sent_s = sent.strftime("%Y-%m-%d") if sent else ""
@@ -1192,6 +1253,9 @@ def merge_pagia(records: list) -> int:
                 mnew.append([code, acct, nm, r["kind"], r["ref"], str(r.get("sub", "")),
                              to_cents(amt), pay, sent_s])
             r = {**r, "emps": new, "amount": round(sum(new.values()), 2)}
+            drop += totals_at.pop(k3, [])          # το σκέτο σύνολο αντικαθίσταται
+        elif r["kind"] in _PER_EMP_KINDS and emp_seen.get(k3):
+            continue                               # υπάρχουν ήδη εργαζόμενοι → όχι και σύνολο
         else:
             k = pagia_key(r)
             if k in have:
@@ -1203,6 +1267,9 @@ def merge_pagia(records: list) -> int:
                      str(r.get("source", ""))[:200], str(r.get("check", ""))[:400]])
     if rows:
         _append(ws, rows)
+        load_pagia.clear()
+    for idx in sorted(set(drop), reverse=True):    # από κάτω προς τα πάνω: σωστοί αριθμοί γραμμών
+        _with_retry(lambda i=idx: ws.delete_rows(i))
         load_pagia.clear()
     if mnew:
         _append(wm, mnew)

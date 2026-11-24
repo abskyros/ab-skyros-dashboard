@@ -30,6 +30,7 @@ def render(df: pd.DataFrame, today: date) -> None:
             "Έρχονται αυτόματα από τα email του λογιστή. Για πρώτη φορά πάτα "
             "«Ενημέρωση» → «Ανάκτηση παγίων (από 2024)».",
         )
+        _run_report()
         return
 
     _upcoming(df, today)
@@ -42,6 +43,63 @@ def render(df: pd.DataFrame, today: date) -> None:
     _warnings(df, year)
     _year_table(df, year, today)
     _details(df, year)
+    _run_report()
+
+
+def _run_report() -> None:
+    """
+    ΑΝΑΦΟΡΑ ΑΝΑΚΤΗΣΗΣ — τι διάβασε σε ΚΑΘΕ email του λογιστή: αρχεία, τι βγήκε
+    από το καθένα (ή «δεν αναγνωρίστηκε»), ποσά και έλεγχοι (φύλλο «pagia_log»).
+    """
+    import html
+    try:
+        from core.sheets import load_pagia_log
+        log = load_pagia_log()
+    except Exception:
+        return
+    if log.empty:
+        return
+    log = log.sort_values("email_date")
+    months = sorted({str(d)[:7] for d in log["email_date"] if str(d)[:7]}, reverse=True)
+    unknown = log["files"].astype(str).str.count("δεν αναγνωρίστηκε").sum()
+    warn = log["found"].astype(str).str.count("⚠").sum()
+    with st.expander(f"Αναφορά ανάκτησης — {len(log)} email"
+                     + (f" · ⚠ {warn}" if warn else "") + (f" · {unknown} αρχεία δεν αναγνωρίστηκαν" if unknown else "")):
+        st.caption(f"Τελευταία ανάκτηση: {log['run_at'].max() or '—'} · μήνας = μήνας ΑΠΟΣΤΟΛΗΣ του email")
+        only = st.toggle("Μόνο όσα θέλουν προσοχή (⚠ ή αρχείο που δεν αναγνωρίστηκε)", key="pagia_log_only")
+        m = st.selectbox("Μήνας email", ["Όλοι"] + months,
+                         format_func=lambda x: x if x == "Όλοι" else _ref_label(x), key="pagia_log_month")
+        sub = log if m == "Όλοι" else log[log["email_date"].astype(str).str.startswith(m)]
+        if only:
+            sub = sub[sub["files"].astype(str).str.contains("δεν αναγνωρίστηκε")
+                      | sub["found"].astype(str).str.contains("⚠")]
+        if sub.empty:
+            st.caption("Τίποτα εδώ.")
+            return
+
+        def lines(txt, color=None):
+            out = []
+            for ln in str(txt or "").splitlines():
+                e = html.escape(ln)
+                if "⚠" in ln or "δεν αναγνωρίστηκε" in ln:
+                    e = f'<span style="color:#b45309"><b>{e}</b></span>'
+                elif color:
+                    e = f'<span style="color:{color}">{e}</span>'
+                out.append(e)
+            return "<br>".join(out)
+
+        cards = []
+        for _, r in sub.iloc[::-1].iterrows():
+            body = (f'<b>{html.escape(str(r["email_date"]))}</b> · {html.escape(str(r["subject"]) or "(χωρίς θέμα)")}'
+                    + (f'<div style="margin-top:4px">📎 {lines(r["files"])}</div>' if r["files"] else "")
+                    + (f'<div style="margin-top:4px">→ {lines(r["found"])}</div>' if r["found"]
+                       else '<div style="margin-top:4px;opacity:.6">→ κανένα ποσό</div>')
+                    + (f'<div style="margin-top:4px">! {lines(r["notes"], "#b45309")}</div>' if r["notes"] else ""))
+            cards.append(f'<div style="border-bottom:1px solid rgba(128,128,128,.25);padding:8px 0;'
+                         f'font-size:.86rem;line-height:1.45">{body}</div>')
+        st.markdown("".join(cards[:300]), unsafe_allow_html=True)
+        if len(cards) > 300:
+            st.caption(f"Εμφανίζονται τα 300 πιο πρόσφατα από {len(cards)} — διάλεξε μήνα.")
 
 
 def _warnings(df: pd.DataFrame, year: int) -> None:

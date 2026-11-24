@@ -9,11 +9,16 @@ on:
         description: "Από ποια μέρα (YYYY-MM-DD). Κενό = 2024-01-01"
         required: false
         default: ""
+      reset:
+        description: "Άδειασμα πρώτα (pagia / misthodosies / pagia_log) — ανάκτηση από την αρχή"
+        type: boolean
+        required: false
+        default: false
 
 jobs:
   backfill:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
 
@@ -35,4 +40,5 @@ jobs:
           GOOGLE_KEY_JSON: ${{ secrets.GOOGLE_KEY_JSON }}
           SALES_EMAIL_PASS: ${{ secrets.SALES_EMAIL_PASS }}
           SINCE: ${{ github.event.inputs.since }}
+          RESET: ${{ github.event.inputs.reset }}
         run: python jobs/pagia_backfill.py

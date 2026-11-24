@@ -733,9 +733,30 @@ def _sources(text: str, name: str) -> list[dict]:
     return out
 
 
-def parse_message(msg, known: dict | None = None) -> tuple[list[dict], list[str]]:
+def _describe(new_recs: list, new_srcs: list) -> str:
+    """Τι βγήκε από ένα συνημμένο — για την αναφορά ανάκτησης."""
+    out = []
+    for s in new_srcs:
+        what = {"statement": "κατάσταση", "csv": "λίστα τράπεζας", "xls": "λίστα τράπεζας",
+                "mk": "μισθοδοτική", "receipts": "αποδείξεις"}.get(s["src"], s["src"])
+        ctx = " ".join(x for x in (s.get("kind") or "", s.get("ref") or "", s.get("sub") or "") if x)
+        if s["src"] == "mk":
+            out.append(f"{what} {ctx} σύνολο {_eur(s['total'])}"
+                       + (f" ({len(s.get('pays') or {})} εργαζ.)" if s.get("pays") else ""))
+        else:
+            rows = s.get("rows") or []
+            out.append(f"{what}{' ' + ctx if ctx else ''}: {len(rows)} εργαζ. "
+                       f"{_eur(round(sum(r[1] for r in rows), 2))}")
+    for r in new_recs:
+        out.append(f"{r['kind']} {r['ref']}{' ' + r['sub'] if r.get('sub') else ''} {_eur(r['amount'])}")
+    return " · ".join(out)
+
+
+def parse_message(msg, known: dict | None = None,
+                  report: dict | None = None) -> tuple[list[dict], list[str]]:
     """
     → (εγγραφές, σημειώσεις) για ΕΝΑ email: κείμενο + κάθε συνημμένο.
+    `report` (προαιρετικό): γεμίζει report["files"] = [«αρχείο: τι βγήκε»].
 
     Το κείμενο του email υπάρχει συνήθως ΔΥΟ φορές (απλό + HTML): τα διαβάζουμε
     χωριστά και τα ίδια ποσά τα ενώνει το dedupe() — ΠΟΤΕ άθροισμα.
@@ -748,11 +769,13 @@ def parse_message(msg, known: dict | None = None) -> tuple[list[dict], list[str]
     for body in (body_plain, body_html):
         recs += parse_text(body)
 
+    files = []
     for att in getattr(msg, "attachments", []) or []:
         name = att.filename or ""
         low = name.lower()
         payload = att.payload or b""
         text = None
+        n_recs, n_srcs = len(recs), len(srcs)
         if low.endswith(".pdf"):
             text = pdf_text(payload)
         elif low.endswith((".csv", ".txt")):
@@ -774,6 +797,9 @@ def parse_message(msg, known: dict | None = None) -> tuple[list[dict], list[str]
         if text:
             recs += parse_text(text, name)
             srcs += _sources(text, name)
+        files.append(f"{name}: {_describe(recs[n_recs:], srcs[n_srcs:]) or 'δεν αναγνωρίστηκε'}")
+    if report is not None:
+        report["files"] = files
 
     sent = None
     try:

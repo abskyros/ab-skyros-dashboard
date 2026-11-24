@@ -236,7 +236,9 @@ def sync_panel(df_s) -> None:
                 _sync_pagia(backfill=False)
         with pb:
             if st.button("Ανάκτηση παγίων (από 2024)", key="backfill_pagia", width="stretch"):
-                _backfill_pagia_github()
+                _backfill_pagia_github(reset=st.session_state.get("pagia_reset", False))
+        st.checkbox("Άδειασμα πρώτα (ξαναδιαβάζει ΟΛΑ από την αρχή — "
+                    "σβήνει μόνο τα φύλλα pagia / misthodosies / pagia_log)", key="pagia_reset")
 
         # ── ΒΑΘΙΑ ΣΑΡΩΣΗ ΠΩΛΗΣΕΩΝ ──
         #
@@ -836,11 +838,12 @@ def _sync_pagia(backfill: bool) -> None:
     c.note(msg, "ok" if records else "warn")
 
 
-def _backfill_pagia_github() -> None:
+def _backfill_pagia_github(reset: bool = False) -> None:
     """
     Η ανάκτηση παγίων από το 2024 τρέχει στο GitHub (jobs/pagia_backfill.py):
     εκατοντάδες μεγάλα συνημμένα — στο Streamlit Cloud έτρεχε >15' χωρίς τέλος.
-    Εκεί: ανά τρίμηνο, ένα email τη φορά, με OCR για τις φωτογραφίες.
+    Εκεί: ανά μήνα, ένα email τη φορά, με OCR για τις φωτογραφίες και αναφορά
+    ανά email. reset=True → αδειάζει πρώτα pagia/misthodosies/pagia_log.
     """
     from core.config import PAGIA_FROM
     if not gh_available():
@@ -848,13 +851,16 @@ def _backfill_pagia_github() -> None:
         link = (f"https://github.com/{repo}/actions/workflows/pagia_backfill.yml"
                 if repo else "https://github.com")
         c.note(f'Άνοιξε <a href="{link}" target="_blank">το workflow</a> → Run workflow '
-               f"(κενό «since» = από {PAGIA_FROM}).", "warn")
+               f"(κενό «since» = από {PAGIA_FROM}"
+               + ("· τσέκαρε «reset»" if reset else "") + ").", "warn")
         return
-    ok, msg = trigger_workflow("pagia_backfill.yml", inputs={"since": PAGIA_FROM})
+    ok, msg = trigger_workflow("pagia_backfill.yml",
+                               inputs={"since": PAGIA_FROM, "reset": "true" if reset else "false"})
     if ok:
-        c.note("<b>Ξεκίνησε η ανάκτηση παγίων</b> στο GitHub (από 2024, ανά τρίμηνο). "
-               "Θα πάρει λίγα λεπτά — γράφει στο Sheet μετά από κάθε τρίμηνο. "
-               "Μετά άνοιξε τη σελίδα «Πάγια».", "ok")
+        c.note("<b>Ξεκίνησε η ανάκτηση παγίων</b> στο GitHub (από 2024, ανά μήνα, ένα email τη φορά"
+               + (", ΜΕ ΑΔΕΙΑΣΜΑ πρώτα" if reset else "") + "). "
+               "Θα πάρει αρκετή ώρα — γράφει στο Sheet μετά από κάθε μήνα. "
+               "Μετά άνοιξε «Πάγια» → «Αναφορά ανάκτησης».", "ok")
     else:
         c.note(f"Δεν ξεκίνησε η ανάκτηση: {msg}", "bad")
 
