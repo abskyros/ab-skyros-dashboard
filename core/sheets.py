@@ -1807,3 +1807,54 @@ def load_pagia_all(today) -> pd.DataFrame:
     if df.empty:
         return man
     return pd.concat([df, man], ignore_index=True)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ΑΝΤΙΚΑΤΑΣΤΑΣΗ ΣΥΓΚΕΚΡΙΜΕΝΩΝ — σβήνει ΜΟΝΟ κάποιες κατηγορίες σε κάποιους μήνες
+# (αντί για «Άδειασμα» όλων). Τα υπόλοιπα μένουν ακριβώς όπως είναι.
+# ══════════════════════════════════════════════════════════════════════════════
+def _rewrite_keep(ws, keep_fn, n: int) -> int:
+    """
+    Ξαναγράφει το φύλλο κρατώντας ΜΟΝΟ τις γραμμές όπου keep_fn(γραμμή) = True.
+    ΜΙΑ εγγραφή, ΧΩΡΙΣ clear: οι κρατημένες γραμμές από πάνω και κενές από κάτω
+    όσες έφυγαν — αν κάτι αποτύχει στη μέση, δεν μένει άδειο φύλλο.
+    → πόσες γραμμές έφυγαν.
+    """
+    vals = _get_all(ws)
+    if len(vals) <= 1:
+        return 0
+    body = [(r + [""] * n)[:n] for r in vals[1:]]
+    body = [r for r in body if any(str(x).strip() for x in r)]
+    kept = [r for r in body if keep_fn(r)]
+    gone = len(body) - len(kept)
+    if not gone:
+        return 0
+    blank = [[""] * n for _ in range(len(vals) - 1 - len(kept))]
+    _with_retry(lambda: ws.update(kept + blank, "A2", value_input_option="RAW"),
+                tries=4, base_wait=5.0)
+    return gone
+
+
+def purge_pagia_kinds(kinds: list, ref_from: str, ref_to: str) -> dict:
+    """
+    Σβήνει από «pagia» και «misthodosies» ΜΟΝΟ τις γραμμές των κατηγοριών `kinds`
+    με μήνα (ref, «YYYY-MM») από `ref_from` ως `ref_to`. → {φύλλο: πόσες έφυγαν}.
+    """
+    kinds = set(kinds)
+
+    def keep(kind_col, ref_col):
+        return lambda r: not (r[kind_col] in kinds and ref_from <= r[ref_col][:7] <= ref_to)
+
+    out = {SHEET_PAGIA: _rewrite_keep(_pagia_ws(), keep(0, 1), len(PAGIA_COLS)),
+           SHEET_MISTH: _rewrite_keep(_misth_ws(), keep(3, 4), len(MISTH_COLS))}
+    load_pagia.clear()
+    load_misthodosies.clear()
+    return out
+
+
+def purge_pagia_log(date_from: str, date_to: str) -> int:
+    """Σβήνει από την «Αναφορά ανάκτησης» τα email με ημ/νία από–έως («YYYY-MM-DD»)."""
+    n = _rewrite_keep(_pagia_log_ws(), lambda r: not (date_from <= r[0] <= date_to),
+                      len(PAGIA_LOG_COLS))
+    load_pagia_log.clear()
+    return n

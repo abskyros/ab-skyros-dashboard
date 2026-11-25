@@ -237,8 +237,12 @@ def sync_panel(df_s) -> None:
         with pb:
             if st.button("Ανάκτηση παγίων (από 2024)", key="backfill_pagia", width="stretch"):
                 _backfill_pagia_github(reset=st.session_state.get("pagia_reset", False))
-        st.checkbox("Άδειασμα πρώτα (ξαναδιαβάζει ΟΛΑ από την αρχή — "
-                    "σβήνει μόνο τα φύλλα pagia / misthodosies / pagia_log)", key="pagia_reset")
+        st.checkbox("Άδειασμα ΟΛΩΝ πρώτα (σπάνια — ξαναδιαβάζει τα πάντα από την αρχή, "
+                    "πολλές ώρες)", key="pagia_reset")
+        # (διακόπτης, όχι expander: είμαστε ήδη μέσα στο expander «Ενημέρωση δεδομένων»)
+        if st.toggle("Ανάκτηση συγκεκριμένων — μόνο κάποιες κατηγορίες/μήνες, χωρίς άδειασμα",
+                     key="pagia_sel_open"):
+            _pagia_selected_form()
 
         # ── ΒΑΘΙΑ ΣΑΡΩΣΗ ΠΩΛΗΣΕΩΝ ──
         #
@@ -836,6 +840,52 @@ def _sync_pagia(backfill: bool) -> None:
     if notes:
         msg += "<br>" + "<br>".join(notes[:6])
     c.note(msg, "ok" if records else "warn")
+
+
+def _pagia_selected_form() -> None:
+    """
+    ΑΝΤΙΚΑΤΑΣΤΑΣΗ ΣΥΓΚΕΚΡΙΜΕΝΩΝ: διαλέγεις κατηγορίες + μήνες → το GitHub σβήνει
+    ΜΟΝΟ αυτά και τα ξαναδιαβάζει από τα email του διαστήματος. Τα υπόλοιπα μένουν.
+    Για νέα κατηγορία (π.χ. Λογιστής) ή διόρθωση μίας λίστας — όχι άδειασμα όλων.
+    """
+    from datetime import date as _d
+    from core.config import PAGIA_FROM
+    from core.metrics import month_name
+    from core.pagia import KINDS
+
+    today = _d.today()
+    kinds = st.multiselect("Κατηγορίες", list(KINDS), key="pagia_sel_kinds")
+    first = _d.fromisoformat(PAGIA_FROM)
+    years = list(range(first.year, today.year + 1))
+    a, b, c2, d = st.columns(4)
+    fy = a.selectbox("Από — έτος", years, index=0, key="pagia_sel_fy")
+    fm = b.selectbox("Από μήνα", list(range(1, 13)), index=first.month - 1,
+                     format_func=month_name, key="pagia_sel_fm")
+    ty = c2.selectbox("Έως — έτος", years, index=len(years) - 1, key="pagia_sel_ty")
+    tm = d.selectbox("Έως μήνα", list(range(1, 13)), index=today.month - 1,
+                     format_func=month_name, key="pagia_sel_tm")
+    st.caption("Σβήνει μόνο αυτές τις κατηγορίες σε αυτούς τους μήνες και τις ξαναδιαβάζει "
+               "από τα email (με περιθώριο 3 μηνών πριν και 2 μετά). Τίποτα άλλο δεν αλλάζει.")
+    if st.button("Αντικατάσταση", key="pagia_sel_go", type="primary", width="stretch"):
+        if not kinds:
+            c.note("Διάλεξε τουλάχιστον μία κατηγορία.", "warn")
+            return
+        if (ty, tm) < (fy, fm):
+            c.note("Ο μήνας «έως» είναι πριν από τον «από».", "warn")
+            return
+        inputs = {"since": f"{fy:04d}-{fm:02d}", "until": f"{ty:04d}-{tm:02d}",
+                  "kinds": ",".join(kinds), "reset": "false"}
+        if not gh_available():
+            c.note("Άνοιξε το workflow «Ανάκτηση παγίων» στο GitHub → Run workflow με: "
+                   + " · ".join(f"{k} = {v}" for k, v in inputs.items() if k != "reset"), "warn")
+            return
+        ok, msg = trigger_workflow("pagia_backfill.yml", inputs=inputs)
+        if ok:
+            c.note(f"<b>Ξεκίνησε η αντικατάσταση</b>: {', '.join(kinds)} · "
+                   f"{month_name(fm)} {fy} – {month_name(tm)} {ty}. Τα υπόλοιπα πάγια μένουν ως έχουν. "
+                   "Μετά άνοιξε «Πάγια» → «Αναφορά ανάκτησης».", "ok")
+        else:
+            c.note(f"Δεν ξεκίνησε: {msg}", "bad")
 
 
 def _backfill_pagia_github(reset: bool = False) -> None:

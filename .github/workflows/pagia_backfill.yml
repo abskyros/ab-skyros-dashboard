@@ -6,11 +6,19 @@ on:
   workflow_dispatch:
     inputs:
       since:
-        description: "Από ποια μέρα (YYYY-MM-DD). Κενό = 2024-01-01"
+        description: "Από μήνα (YYYY-MM). Κενό = 2024-01"
+        required: false
+        default: ""
+      until:
+        description: "Έως μήνα (YYYY-MM). Κενό = τρέχων"
+        required: false
+        default: ""
+      kinds:
+        description: "Μόνο αυτές οι κατηγορίες, με κόμμα (π.χ. ΑΑΔΕ,Λογιστής) — αντικαθιστά ΜΟΝΟ αυτές. Κενό = όλες"
         required: false
         default: ""
       reset:
-        description: "Άδειασμα πρώτα (pagia / misthodosies / pagia_log) — ανάκτηση από την αρχή"
+        description: "Άδειασμα ΟΛΩΝ πρώτα (μόνο χωρίς κατηγορίες) — σπάνια, ανακατασκευή από την αρχή"
         type: boolean
         required: false
         default: false
@@ -40,5 +48,7 @@ jobs:
           GOOGLE_KEY_JSON: ${{ secrets.GOOGLE_KEY_JSON }}
           SALES_EMAIL_PASS: ${{ secrets.SALES_EMAIL_PASS }}
           SINCE: ${{ github.event.inputs.since }}
+          UNTIL: ${{ github.event.inputs.until }}
+          KINDS: ${{ github.event.inputs.kinds }}
           RESET: ${{ github.event.inputs.reset }}
         run: python jobs/pagia_backfill.py
