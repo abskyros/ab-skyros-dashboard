@@ -53,6 +53,8 @@ KINDS = (KIND_PAYROLL, KIND_BONUS, KIND_SUPPL, KIND_EFKA, KIND_PARTNERS, KIND_AA
 
 # Είδη που ΔΕΝ προβλέπονται για το μέλλον (έκτακτα) — βλ. metrics.pagia_events.
 NOT_PROJECTED = (KIND_SUPPL,)
+# Είδη που έρχονται ως ΑΠΟΔΕΙΞΗ (ήδη πληρωμένα) — ποτέ στις «Επόμενες πληρωμές».
+ALREADY_PAID = (KIND_SUPPL,)
 # Είδη που προβλέπονται ΜΟΝΟ από τον ίδιο μήνα πέρσι (εποχικά — όχι «όπως τελευταία»).
 SEASONAL = (KIND_BONUS,)
 
@@ -582,7 +584,12 @@ def combine_payroll(srcs: list[dict], subject: str, sent: date | None,
             for ident, amt, *_ in r["rows"]:
                 g["emps"][ident] = round(g["emps"].get(ident, 0.0) + amt, 2)
                 g["who"].setdefault(ident, ("", ""))
-            g["pay"] = g["pay"] or r.get("pay_date")
+            # Απόδειξη = ΗΔΗ πληρωμένο. Η μεγαλύτερη ημερομηνία του PDF είναι συχνά το
+            # τέλος της περιόδου (π.χ. 30/11) → ποτέ μετά την αποστολή του email.
+            p = r.get("pay_date")
+            if p and sent and p > sent:
+                p = sent
+            g["pay"] = g["pay"] or p
             g["labels"].append("αποδείξεις πληρωμής")
 
     out = []

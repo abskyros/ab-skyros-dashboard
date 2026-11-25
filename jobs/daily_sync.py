@@ -47,7 +47,7 @@ def main() -> int:
     inv_pw = os.environ.get("EMAIL_PASS", "")
     sales_pw = os.environ.get("SALES_EMAIL_PASS", "") or inv_pw
 
-    print(f"▶ Πρωινός συγχρονισμός — {datetime.now():%Y-%m-%d %H:%M}")
+    print(f"▶ Πλήρης συγχρονισμός — {datetime.now():%Y-%m-%d %H:%M} (UTC)")
 
     # ── ΠΑΡΑΣΤΑΤΙΚΑ ──
     print("\n· Παραστατικά")

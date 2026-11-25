@@ -1787,26 +1787,123 @@ def delete_pagia_manual(iid: str) -> bool:
     return False
 
 
+def update_pagia_manual(iid: str, fields: dict) -> bool:
+    """Αλλάζει πεδία ενός χειροκίνητου παγίου (π.χ. {"end": "2026-11"} ή {"amount": 52.0})."""
+    ws = _manual_ws()
+    for idx, r in enumerate(_get_all(ws)[1:], start=2):
+        if r and r[0] == iid:
+            row = (r + [""] * len(MANUAL_COLS))[:len(MANUAL_COLS)]
+            for k, v in fields.items():
+                if k in MANUAL_COLS and k != "id":
+                    row[MANUAL_COLS.index(k)] = to_cents(v or 0) if k == "amount" else str(v or "")
+            _with_retry(lambda: ws.update([row], f"A{idx}", value_input_option="RAW"))
+            load_pagia_manual.clear()
+            return True
+    return False
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ΔΙΟΡΘΩΣΕΙΣ ΜΕ ΤΟ ΧΕΡΙ — φύλλο «pagia_fix». Μία γραμμή = (μήνας, είδος) → σωστό
+# ποσό. ΥΠΕΡΙΣΧΥΕΙ του αυτόματου (και του χειροκίνητου παγίου) για αυτόν τον μήνα.
+# Δεν το αγγίζει ΠΟΤΕ καμία ανάκτηση. Σβήνεις τη διόρθωση → γυρνάει το αυτόματο.
+# ══════════════════════════════════════════════════════════════════════════════
+SHEET_PAGIA_FIX = "pagia_fix"
+FIX_COLS = ["id", "ref", "kind", "amount", "pay_date", "note", "created"]
+FIX_SOURCE = "✎ Διόρθωση με το χέρι"
+
+
+def _fix_ws():
+    ss = _spreadsheet()
+    try:
+        return ss.worksheet(SHEET_PAGIA_FIX)
+    except Exception:
+        ws = ss.add_worksheet(title=SHEET_PAGIA_FIX, rows=200, cols=len(FIX_COLS))
+        ws.update([FIX_COLS], "A1")
+        return ws
+
+
+@st.cache_data(ttl=600, max_entries=1, show_spinner=False)
+def load_pagia_fix() -> list:
+    """→ [{id, ref, kind, amount(€), pay_date («YYYY-MM-DD» ή ""), note, created}]"""
+    try:
+        vals = _with_retry(lambda: _fix_ws().get_all_values())
+    except Exception:
+        return []
+    n = len(FIX_COLS)
+    out = []
+    for r in (vals or [])[1:]:
+        r = (r + [""] * n)[:n]
+        if not r[0] or not r[1] or not r[2]:
+            continue
+        d = dict(zip(FIX_COLS, r))
+        d["amount"] = from_cents(d["amount"])
+        out.append(d)
+    return out
+
+
+def save_pagia_fix(ref: str, kind: str, amount: float, pay_date: str = "", note: str = "") -> None:
+    """Νέα διόρθωση (μήνας + είδος). Αν υπάρχει ήδη για τα ίδια → αντικαθίσταται."""
+    import uuid
+    from datetime import datetime as _dt
+    delete_pagia_fix(ref=ref, kind=kind)
+    row = [uuid.uuid4().hex[:8], ref, kind, to_cents(amount or 0), pay_date or "",
+           str(note or "")[:200], _dt.now().strftime("%Y-%m-%d %H:%M")]
+    _append(_fix_ws(), [row])
+    load_pagia_fix.clear()
+
+
+def delete_pagia_fix(iid: str = "", ref: str = "", kind: str = "") -> bool:
+    """Σβήνει διόρθωση με id, ή με (μήνας, είδος)."""
+    ws = _fix_ws()
+    for idx, r in enumerate(_get_all(ws)[1:], start=2):
+        r = (r + [""] * 3)[:3]
+        if (iid and r[0] == iid) or (not iid and r[1] == ref and r[2] == kind):
+            _with_retry(lambda: ws.delete_rows(idx))
+            load_pagia_fix.clear()
+            return True
+    return False
+
+
+def apply_pagia_fix(df: pd.DataFrame, fixes: list) -> pd.DataFrame:
+    """Για κάθε διόρθωση: βγάζει ό,τι υπάρχει για (μήνας, είδος) και βάζει το σωστό ποσό."""
+    if not fixes:
+        return df
+    drop = {(f["ref"], f["kind"]) for f in fixes}
+    if not df.empty:
+        df = df[[(str(r), str(k)) not in drop for r, k in zip(df["ref"], df["kind"])]]
+    rows = []
+    for f in fixes:
+        rows.append({"kind": f["kind"], "ref": f["ref"], "sub": "", "amount": float(f["amount"]),
+                     "pay_date": f.get("pay_date") or None,
+                     "detail": "✎ " + (f.get("note") or "διόρθωση"),
+                     "source": FIX_SOURCE, "check": "", "emps": ""})
+    fx = pd.DataFrame(rows)
+    fx["pay_date"] = pd.to_datetime(fx["pay_date"], errors="coerce")
+    fx["email_date"] = pd.NaT
+    for col in PAGIA_COLS:
+        if col not in fx.columns:
+            fx[col] = ""
+    return fx if df.empty else pd.concat([df, fx], ignore_index=True)
+
+
 def load_pagia_all(today) -> pd.DataFrame:
     """
     Αυτόματα πάγια (από τα email) + χειροκίνητα (ανά μήνα, ως το τέλος του
-    επόμενου έτους). Για τις σελίδες «Πάγια» και «Μήνας».
+    επόμενου έτους) + διορθώσεις με το χέρι (υπερισχύουν). Για «Πάγια» και «Μήνας».
     """
     from datetime import date as _date
     from core.pagia import expand_manual
     df = load_pagia()
     rows = expand_manual(load_pagia_manual(), _date(today.year + 1, 12, 31))
-    if not rows:
-        return df
-    man = pd.DataFrame(rows)
-    man["pay_date"] = pd.to_datetime(man["pay_date"])
-    man["email_date"] = pd.NaT
-    for col in PAGIA_COLS:
-        if col not in man.columns:
-            man[col] = ""
-    if df.empty:
-        return man
-    return pd.concat([df, man], ignore_index=True)
+    if rows:
+        man = pd.DataFrame(rows)
+        man["pay_date"] = pd.to_datetime(man["pay_date"])
+        man["email_date"] = pd.NaT
+        for col in PAGIA_COLS:
+            if col not in man.columns:
+                man[col] = ""
+        df = man if df.empty else pd.concat([df, man], ignore_index=True)
+    return apply_pagia_fix(df, load_pagia_fix())
 
 
 # ══════════════════════════════════════════════════════════════════════════════
