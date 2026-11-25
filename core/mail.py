@@ -394,6 +394,88 @@ def fetch_pagia(password: str, since: date | None = None, limit: int = 400,
     return dedupe(records), notes
 
 
+def fetch_bills(passwords: dict, providers: list, since: date | None = None,
+                until: date | None = None, report: list | None = None) -> tuple[list, list]:
+    """
+    ΛΟΓΑΡΙΑΣΜΟΙ ΠΑΡΟΧΩΝ (core/bills.py) → (εγγραφές «pagia», σημειώσεις).
+
+    `passwords`: {γραμματοκιβώτιο: app password} — ψάχνουμε σε ΟΛΑ (ftoulisgm, abf.skyros).
+    Για κάθε πάροχο: όλα τα email του αποστολέα από `since`. Από κάθε email ΕΝΑΣ
+    λογαριασμός: πρώτα τα PDF, μετά το κείμενο (ό,τι βγάλει ποσό). Ο ίδιος
+    λογαριασμός σε δύο γραμματοκιβώτια = μία εγγραφή (ίδια ταυτότητα RF/αρχείο).
+    """
+    from core.bills import bill_record, matches, parse_bill
+    from core.pagia import _eur, html_to_text, image_text, pdf_text
+
+    since = since or (date.today() - timedelta(days=60))
+    before = f" before:{until + timedelta(days=1):%Y/%m/%d}" if until else ""
+    records, notes, seen = [], [], set()
+    for user, pw in passwords.items():
+        if not pw:
+            continue
+        try:
+            with MailBox(IMAP_HOST).login(user, pw) as mb:
+                for prov in providers:
+                    sender = prov["email"].strip().lower()
+                    search = f'X-GM-RAW "from:{sender} after:{since:%Y/%m/%d}{before}"'
+                    try:
+                        mb.uids(search)
+                        criteria = search
+                    except Exception:
+                        criteria = AND(from_=sender, date_gte=since)
+                    for msg in mb.fetch(criteria, limit=300, reverse=True, mark_seen=False, bulk=False):
+                        if sender not in (msg.from_ or "").lower():
+                            continue
+                        sent = _naive_date(msg)
+                        mid = (msg.headers.get("message-id") or ("",))[0].strip() or \
+                            f"{msg.subject}|{sent}"
+                        if (prov["id"], mid) in seen:          # ίδιο email σε 2 γραμματοκιβώτια
+                            continue
+                        seen.add((prov["id"], mid))
+                        body = (msg.text or "") + "\n" + html_to_text(msg.html or "")
+                        texts, files = [], []
+                        for att in getattr(msg, "attachments", []) or []:
+                            low = (att.filename or "").lower()
+                            tx = None
+                            if low.endswith(".pdf"):
+                                tx = pdf_text(att.payload or b"")
+                            elif low.endswith((".jpg", ".jpeg", ".png", ".tif", ".tiff")):
+                                tx = image_text(att.payload or b"")
+                            if tx:
+                                texts.append((att.filename, tx))
+                            files.append(att.filename or "")
+                        texts.append(("", body))
+                        all_text = (msg.subject or "") + "\n" + "\n".join(t for _f, t in texts)
+                        found, note = None, ""
+                        if not matches(prov, all_text):
+                            note = f"δεν περιέχει «{prov.get('must')}» — άλλη εταιρεία, παράλειψη"
+                        else:
+                            for fname, tx in texts:
+                                bill = parse_bill(tx)
+                                if bill:
+                                    found = bill_record(prov["name"], bill, sent, prov.get("days", 15),
+                                                        ident=fname or "", subject=msg.subject or "")
+                                    break
+                            if not found:
+                                note = "δεν βρέθηκε ποσό πληρωμής (δεν είναι λογαριασμός;)"
+                        if found:
+                            records.append(found)
+                        if report is not None:
+                            report.append({
+                                "email_date": f"{sent:%Y-%m-%d}" if sent else "",
+                                "subject": f"[{prov['name']}] {(msg.subject or '')}"[:150],
+                                "files": "\n".join(files)[:3000],
+                                "found": (f"{found['kind']} {found['ref']}: {_eur(found['amount'])} · "
+                                          f"πληρωμή {found['pay_date']:%d/%m/%Y}" if found else ""),
+                                "notes": note})
+        except Exception as e:
+            notes.append(f"✗ {user}: " + _friendly(e))
+    best = {}
+    for r in records:                       # ίδια ταυτότητα (RF/αρχείο) = ένας λογαριασμός
+        best.setdefault((r["kind"], r["sub"]), r)
+    return list(best.values()), notes
+
+
 def _friendly(e: Exception) -> str:
     """Το IMAP βγάζει κρυπτικά μηνύματα. Λέμε τι να κάνει ο χρήστης."""
     msg = str(e)

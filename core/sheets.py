@@ -1803,6 +1803,88 @@ def update_pagia_manual(iid: str, fields: dict) -> bool:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# ΠΑΡΟΧΟΙ ΜΕ EMAIL — φύλλο «pagia_providers» (ρεύμα, τηλέφωνο…). Το γράφει ΜΟΝΟ ο
+# χρήστης. Οι λογαριασμοί τους (core/bills.py) μπαίνουν στο «pagia» με είδος = όνομα.
+# ══════════════════════════════════════════════════════════════════════════════
+SHEET_PROVIDERS = "pagia_providers"
+PROVIDER_COLS = ["id", "name", "email", "must", "days", "active", "note", "created"]
+
+
+def _providers_ws():
+    ss = _spreadsheet()
+    try:
+        return ss.worksheet(SHEET_PROVIDERS)
+    except Exception:
+        ws = ss.add_worksheet(title=SHEET_PROVIDERS, rows=100, cols=len(PROVIDER_COLS))
+        ws.update([PROVIDER_COLS], "A1")
+        return ws
+
+
+@st.cache_data(ttl=600, max_entries=1, show_spinner=False)
+def load_providers() -> list:
+    """→ [{id, name, email, must, days(int), active(bool), note, created}]"""
+    try:
+        vals = _with_retry(lambda: _providers_ws().get_all_values())
+    except Exception:
+        return []
+    n = len(PROVIDER_COLS)
+    out = []
+    for r in (vals or [])[1:]:
+        r = (r + [""] * n)[:n]
+        if not r[0] or not r[1] or "@" not in r[2]:
+            continue
+        d = dict(zip(PROVIDER_COLS, r))
+        try:
+            d["days"] = int(d["days"] or 15)
+        except ValueError:
+            d["days"] = 15
+        d["active"] = d["active"] != "0"
+        out.append(d)
+    return out
+
+
+def add_provider(item: dict) -> str:
+    """Νέος πάροχος → το id του."""
+    import uuid
+    from datetime import datetime as _dt
+    iid = uuid.uuid4().hex[:8]
+    row = [iid, str(item.get("name", "")).strip()[:40], str(item.get("email", "")).strip().lower()[:120],
+           str(item.get("must", "") or "").strip()[:60], str(int(item.get("days") or 15)), "1",
+           str(item.get("note", "") or "")[:200], _dt.now().strftime("%Y-%m-%d %H:%M")]
+    _append(_providers_ws(), [row])
+    load_providers.clear()
+    return iid
+
+
+def set_provider_active(iid: str, active: bool) -> bool:
+    ws = _providers_ws()
+    for idx, r in enumerate(_get_all(ws)[1:], start=2):
+        if r and r[0] == iid:
+            col = chr(ord("A") + PROVIDER_COLS.index("active"))
+            _with_retry(lambda: ws.update([["1" if active else "0"]], f"{col}{idx}", value_input_option="RAW"))
+            load_providers.clear()
+            return True
+    return False
+
+
+def delete_provider(iid: str, with_bills: bool = False) -> bool:
+    """Σβήνει τον πάροχο· με with_bills=True και ΟΛΟΥΣ τους λογαριασμούς του από το «pagia»."""
+    prov = next((p for p in load_providers() if p["id"] == iid), None)
+    ws = _providers_ws()
+    for idx, r in enumerate(_get_all(ws)[1:], start=2):
+        if r and r[0] == iid:
+            _with_retry(lambda: ws.delete_rows(idx))
+            load_providers.clear()
+            if with_bills and prov:
+                _rewrite_keep(_pagia_ws(), lambda row: not (row[0] == prov["name"]
+                                                           and str(row[2]).startswith("№ ")),
+                              len(PAGIA_COLS))
+                load_pagia.clear()
+            return True
+    return False
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # ΔΙΟΡΘΩΣΕΙΣ ΜΕ ΤΟ ΧΕΡΙ — φύλλο «pagia_fix». Μία γραμμή = (μήνας, είδος) → σωστό
 # ποσό. ΥΠΕΡΙΣΧΥΕΙ του αυτόματου (και του χειροκίνητου παγίου) για αυτόν τον μήνα.
 # Δεν το αγγίζει ΠΟΤΕ καμία ανάκτηση. Σβήνεις τη διόρθωση → γυρνάει το αυτόματο.

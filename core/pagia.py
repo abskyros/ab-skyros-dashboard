@@ -990,6 +990,8 @@ def key(r: dict) -> tuple:
                                  άλλο ποσό = άλλη πληρωμή που προστίθεται)
     """
     kind = r["kind"]
+    if str(r.get("sub") or "").startswith("№ "):   # λογαριασμός παρόχου (core.bills): RF/αριθμός
+        return (kind, str(r["sub"]))
     if kind == KIND_AADE:
         pay = r.get("pay_date")
         snap = r.get("snap")

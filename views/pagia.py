@@ -31,6 +31,7 @@ def render(df: pd.DataFrame, today: date) -> None:
             "«Ενημέρωση» → «Ανάκτηση παγίων (από 2024)».",
         )
         _manual_editor(today)
+        _providers(df)
         _run_report()
         return
 
@@ -46,6 +47,7 @@ def render(df: pd.DataFrame, today: date) -> None:
     _year_table(df, year, today)
     _details(df, year)
     _manual_editor(today)
+    _providers(df)
     _run_report()
 
 
@@ -107,6 +109,92 @@ def _manual_editor(today: date) -> None:
                           + (f" · _{it['note']}_" if it.get("note") else ""))
             with col2.popover("Αλλαγή", width="stretch"):
                 _manual_change(it, today)
+
+
+def _providers(df: pd.DataFrame) -> None:
+    """
+    ΠΑΡΟΧΟΙ ΜΕ EMAIL (ρεύμα, τηλέφωνο, νερό…): δηλώνεις αποστολέα → το GitHub
+    διαβάζει ΟΛΟΥΣ τους λογαριασμούς του (2 χρόνια πίσω) και μετά κάθε βράδυ τους
+    καινούργιους (core/bills.py). Κάθε πάροχος = δική του στήλη στον πίνακα.
+    """
+    from core.github import available as gh_available, trigger_workflow
+    from core.sheets import add_provider, load_providers
+
+    provs = load_providers()
+    with st.expander(f"Πάροχοι με email ({len(provs)}) — ρεύμα, τηλέφωνο… διαβάζονται αυτόματα"):
+        msg = st.session_state.pop("pagia_prov_msg", None)
+        if msg:
+            c.note(*msg)
+        with st.form("pagia_prov_add", clear_on_submit=True):
+            a, b = st.columns([1, 1.6])
+            name = a.text_input("Όνομα (στήλη)", placeholder="π.χ. Ρεύμα, Τηλέφωνο")
+            email = b.text_input("Email αποστολέα", placeholder="π.χ. mynrg@my-nrg.gr")
+            m1, m2 = st.columns([1.6, 1])
+            must = m1.text_input("Μόνο αν περιέχει (προαιρετικό)",
+                                 placeholder="π.χ. NOVA — αν ο αποστολέας στέλνει για πολλές εταιρείες")
+            days = m2.number_input("Μέρες προθεσμίας αν δεν γράφει λήξη", min_value=0, max_value=90, value=15)
+            if st.form_submit_button("➕ Προσθήκη & ανάγνωση παλιών λογαριασμών", type="primary"):
+                email = email.strip().lower()
+                if not name.strip() or "@" not in email or " " in email:
+                    st.error("Γράψε όνομα και σωστό email αποστολέα.")
+                else:
+                    iid = add_provider({"name": name, "email": email, "must": must, "days": days})
+                    st.session_state["pagia_prov_msg"] = _start_bills(
+                        iid, name.strip(), gh_available, trigger_workflow)
+                    st.rerun()
+        if not provs:
+            st.caption("Π.χ. «Ρεύμα» → mynrg@my-nrg.gr · «Τηλέφωνο» → epsilondigital-info@epsilonnet.gr "
+                       "με «Μόνο αν περιέχει: NOVA». Το ποσό μπαίνει στον μήνα λήξης.")
+            return
+        st.caption("Ποσό: «Πληρωτέο», «Συνολικό ποσό», «Ποσό πληρωμής»… · Λήξη: «λήξης», «Εξόφληση έως»… "
+                   "(αλλιώς έκδοση + μέρες). Ό,τι δεν διαβάστηκε → «Αναφορά ανάκτησης»· λάθος ποσό → ✎ διόρθωση.")
+        for p in provs:
+            sub = df[(df["kind"] == p["name"]) & df["sub"].astype(str).str.startswith("№ ")] \
+                if not df.empty else df
+            last = sub.sort_values("pay_date").iloc[-1] if not sub.empty else None
+            info = (f"{len(sub)} λογαριασμοί · τελευταίος {c.eur(float(last['amount']))} "
+                    f"λήξη {last['pay_date']:%d/%m/%Y}" if last is not None and pd.notna(last["pay_date"])
+                    else "κανένας λογαριασμός ακόμη")
+            col1, col2 = st.columns([5, 1.3])
+            col1.markdown(("" if p["active"] else "⏸ ") + f"**{p['name']}** · {p['email']}"
+                          + (f" · μόνο με «{p['must']}»" if p.get("must") else "")
+                          + f" · {p['days']} μέρες · _{info}_")
+            with col2.popover("Αλλαγή", width="stretch"):
+                _provider_change(p, gh_available, trigger_workflow)
+
+
+def _start_bills(iid: str, name: str, gh_available, trigger_workflow) -> tuple:
+    """Ξεκινάει στο GitHub την ανάγνωση 2 ετών για τον πάροχο → (μήνυμα, είδος)."""
+    if not gh_available():
+        return (f"Προστέθηκε <b>{name}</b>. Οι λογαριασμοί θα έρθουν με τον βραδινό συγχρονισμό "
+                "(τελευταίοι 2 μήνες)· για τους παλιούς: GitHub → «Λογαριασμοί παρόχων» → Run workflow.", "warn")
+    ok, msg = trigger_workflow("bills_sync.yml", inputs={"provider": iid, "days": "730"})
+    if ok:
+        return (f"<b>{name}</b>: ξεκίνησε στο GitHub η ανάγνωση των λογαριασμών 2 ετών "
+                "(λίγα λεπτά). Μετά ανανέωσε τη σελίδα.", "ok")
+    return (f"Προστέθηκε <b>{name}</b>, αλλά η ανάγνωση δεν ξεκίνησε: {msg}", "bad")
+
+
+def _provider_change(p: dict, gh_available, trigger_workflow) -> None:
+    from core.sheets import delete_provider, set_provider_active
+
+    st.markdown(f"**{p['name']}**")
+    if st.button("Ξαναδιάβασε (2 χρόνια)", key=f"prov_re_{p['id']}", width="stretch"):
+        st.session_state["pagia_prov_msg"] = _start_bills(p["id"], p["name"], gh_available, trigger_workflow)
+        st.rerun()
+    if st.button("Παύση" if p["active"] else "Ενεργοποίηση", key=f"prov_act_{p['id']}", width="stretch"):
+        set_provider_active(p["id"], not p["active"])
+        st.session_state["pagia_prov_msg"] = (f"<b>{p['name']}</b>: "
+                                              + ("σε παύση" if p["active"] else "ενεργός"), "ok")
+        st.rerun()
+    if st.button("Διαγραφή (κρατά τους παλιούς λογαριασμούς)", key=f"prov_del_{p['id']}", width="stretch"):
+        delete_provider(p["id"])
+        st.session_state["pagia_prov_msg"] = (f"Διαγράφηκε ο πάροχος <b>{p['name']}</b>.", "ok")
+        st.rerun()
+    if st.button("Διαγραφή ΜΑΖΙ με τους λογαριασμούς", key=f"prov_delall_{p['id']}", width="stretch"):
+        delete_provider(p["id"], with_bills=True)
+        st.session_state["pagia_prov_msg"] = (f"Διαγράφηκε ο <b>{p['name']}</b> και οι λογαριασμοί του.", "ok")
+        st.rerun()
 
 
 def _manual_change(it: dict, today: date) -> None:
@@ -419,5 +507,5 @@ def _year_table(df: pd.DataFrame, year: int, today: date) -> None:
     )
     st.caption("Μισθοδοσία, δώρα, συμπληρωματικές, ΕΦΚΑ και λογιστής: στον μήνα που αφορούν "
                "(συνήθως πληρώνονται τον επόμενο). ΑΑΔΕ: στον μήνα λήξης. "
-               "Χειροκίνητα (π.χ. ΦΠΑ): στον μήνα πληρωμής τους. "
+               "Χειροκίνητα (π.χ. ΦΠΑ) και πάροχοι (ρεύμα, τηλέφωνο): στον μήνα πληρωμής/λήξης τους. "
                "✎ = διόρθωση με το χέρι («Λεπτομέρειες μήνα»).")

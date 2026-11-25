@@ -90,6 +90,14 @@ def main() -> int:
         except Exception as e:  # noqa: BLE001 — δευτερεύον, δεν ρίχνει το run
             print(f"  ! Πάγια: {e}")
 
+    # ── ΛΟΓΑΡΙΑΣΜΟΙ ΠΑΡΟΧΩΝ (ρεύμα, τηλέφωνο…) ← email των παρόχων ──
+    print("\n· Λογαριασμοί παρόχων")
+    try:
+        from jobs.bills_sync import sync_bills
+        sync_bills(days=60)
+    except Exception as e:  # noqa: BLE001 — δευτερεύον, δεν ρίχνει το run
+        print(f"  ! Λογαριασμοί: {e}")
+
     # ── ΠΩΛΗΣΕΙΣ ──
     print("\n· Πωλήσεις")
     if not sales_pw:
