@@ -99,6 +99,21 @@ def _month_end_after(ref: str) -> date:
     return date(y, m, calendar.monthrange(y, m)[1])
 
 
+def _ref_numeric(text: str) -> str | None:
+    """«Μισθοδοσία 09/2026» / «9-2026» → «2026-09» (μήνας γραμμένος με αριθμούς)."""
+    m = re.search(r"(?<![\d/.])(0?[1-9]|1[0-2])\s*[/.-]\s*(20\d\d)(?!\d)", text or "")
+    return f"{int(m.group(2)):04d}-{int(m.group(1)):02d}" if m else None
+
+
+def _name_bonus(name: str) -> str | None:
+    """Δώρο/επίδομα από το ΟΝΟΜΑ αρχείου («ΚΑΤ_ΕΠΙΔΟΜΑ_ΑΔΕΙΑΣ_072025.pdf» → Επίδομα Αδείας).
+    Όχι αν το όνομα λέει και «μισθοδοσία» (τότε μπορεί να έχει και τα δύο)."""
+    t = norm_greek(re.sub(r"[_\-.]+", " ", name or ""))
+    if "ΜΙΣΘΟΔ" in t:
+        return None
+    return _bonus(t)
+
+
 def _bonus(t: str) -> str | None:
     m = _BONUS_RE.search(t)
     return _BONUS_NAME.get(re.sub(r"\s+", " ", m.group(0))) if m else None
@@ -456,10 +471,22 @@ def combine_payroll(srcs: list[dict], subject: str, sent: date | None,
             return iban2code.get(ident[5:], ident)
         return ident
 
+    # Αρχείο που ΔΕΝ λέει μόνο του ότι είναι δώρο/επίδομα (π.χ. κατάσταση με περίοδο
+    # «Ιούλιος 2025», CSV με χαλασμένη περιγραφή) αλλά το ΟΝΟΜΑ του το λέει → δώρο.
+    for s in srcs:
+        nb = _name_bonus(s.get("name", ""))
+        if nb and s.get("kind") in (None, KIND_PAYROLL):
+            s.update(kind=KIND_BONUS, sub=nb)
+
     subj = _context(norm_greek(subject or ""))
     pay_all = next((s["pay_date"] for s in srcs if s.get("pay_date") and s["src"] == "statement"), None)
     when = pay_all or sent
-    default_ref = subj.get("ref") or (f"{when:%Y-%m}" if when else None)
+    mk_refs = {m.get("ref") for m in srcs if m["src"] == "mk" and m.get("ref")}
+    # Μήνας για όσα δεν τον γράφουν: θέμα (λέξεις) → θέμα (αριθμοί, «09/2026») →
+    # η μισθοδοτική του ίδιου email → ο μήνας πληρωμής (τελευταία λύση).
+    default_ref = (subj.get("ref") or _ref_numeric(subject or "")
+                   or (next(iter(mk_refs)) if len(mk_refs) == 1 else None)
+                   or (f"{when:%Y-%m}" if when else None))
     files = ", ".join(sorted({s["name"] for s in srcs if s.get("name")}))[:140]
 
     groups: dict[tuple, dict] = {}
@@ -511,6 +538,22 @@ def combine_payroll(srcs: list[dict], subject: str, sent: date | None,
                 if w is not None:
                     g["who"][ident_of(ident)] = (w[0] or iban, w[1] or nm)
         add_rows(groups[main_k], s, rest)
+
+    # Μισθοδοτική ΔΩΡΟΥ με σύνολο ΙΔΙΟ με μια «μισθοδοσία» του email (που δεν
+    # αναγνωρίστηκε ως δώρο) → αυτή η μισθοδοσία ΕΙΝΑΙ το δώρο (όχι δύο πληρωμές).
+    for m in [s for s in srcs if s["src"] == "mk" and s.get("kind") == KIND_BONUS]:
+        k = (m["kind"], m.get("ref") or default_ref, m.get("sub") or "")
+        if groups.get(k, {}).get("emps"):
+            continue
+        cand = [x for x in groups if x[0] == KIND_PAYROLL and groups[x]["emps"]
+                and _cents(sum(groups[x]["emps"].values())) == _cents(m["total"])]
+        if len(cand) == 1:
+            g = groups.pop(cand[0])
+            old = groups.pop(k, None)
+            if old:
+                g["warn"] += old["warn"]
+                g["ok"] += old["ok"]
+            groups[k] = g
 
     for m in [s for s in srcs if s["src"] == "mk"]:
         k = (m["kind"], m.get("ref") or default_ref, m.get("sub") or "")
