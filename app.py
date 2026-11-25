@@ -167,8 +167,8 @@ def main() -> None:
         forecast.render(df_t, df_s, today)
 
     elif page == "Πάγια":
-        from core.sheets import load_pagia
-        pagia.render(load_pagia(), today)
+        from core.sheets import load_pagia_all
+        pagia.render(load_pagia_all(today), today)
 
     elif page == "Επιταγές":
         checks.render(df_t, today)

@@ -88,6 +88,7 @@ def render(df_t: pd.DataFrame, df_s: pd.DataFrame, today: date) -> None:
 
     if summary_rows:
         _summary(summary_rows)
+        _pagia_net(summary_rows, year, month, today)
     if extra:
         c.note(f"Στον πίνακα είναι και <b>{len(extra)}</b> "
                f"{'επιταγή' if len(extra) == 1 else 'επιταγές'} του {year + 1} που "
@@ -538,6 +539,48 @@ def _summary(rows: list[dict]) -> None:
                foot=f"Πωλήσεις − επιταγές − έξοδα ({c.eur(total_exp)})" if total_exp
                     else "Πωλήσεις − επιταγές"),
         cols=3,
+    )
+
+
+def _pagia_net(rows: list[dict], year: int, month: int, today: date) -> None:
+    """
+    ΠΑΓΙΑ ΚΑΙ ΚΑΘΑΡΟ — κάτω από το «Μένει»: τα πάγια λειτουργικά έξοδα του
+    διαστήματος (μισθοδοσία, δώρα, ΕΦΚΑ, ΑΑΔΕ, λογιστής, χειροκίνητα όπως ΦΠΑ),
+    στον μήνα που ΑΦΟΡΟΥΝ — όπως στη σελίδα «Πάγια». Καθαρό = Μένει − Πάγια.
+    Για τρέχον έτος / «Όλο το έτος»: μόνο ως τον τρέχοντα μήνα (όχι μελλοντικά).
+    """
+    try:
+        from core.sheets import load_pagia_all
+        dfp = load_pagia_all(today)
+    except Exception:
+        return
+    if dfp.empty:
+        return
+    refs = dfp["ref"].astype(str)
+    if month:
+        sub = dfp[refs == f"{year:04d}-{month:02d}"]
+    else:
+        upto = f"{year:04d}-12" if year < today.year else f"{year:04d}-{today.month:02d}"
+        sub = dfp[refs.str.startswith(f"{year:04d}-") & (refs <= upto)]
+    balance = (sum(r["sales"] or 0 for r in rows) - sum(r["amount"] for r in rows)
+               - sum(r["expenses"] for r in rows))
+    total = float(sub["amount"].sum()) if not sub.empty else 0.0
+    by_kind = sub.groupby("kind")["amount"].sum().sort_values(ascending=False) if not sub.empty else []
+    parts = " · ".join(f"{k} {c.eur(float(v))}" for k, v in list(by_kind.items())[:6]) if total else ""
+    pending = ""
+    if month and (year, month) >= ((today.year, today.month - 1) if today.month > 1 else (today.year - 1, 12)):
+        miss = [k for k in ("Μισθοδοσία", "ΕΦΚΑ/ΤΕΚΑ") if sub.empty or k not in set(sub["kind"])]
+        if miss:
+            pending = f"Δεν έχουν έρθει ακόμη: {', '.join(miss)}"
+    net = balance - total
+    c.grid(
+        c.stat("Πάγια", total,
+               foot=(parts or "Κανένα πάγιο για το διάστημα") + (f" · {pending}" if pending else "")),
+        c.stat("Καθαρό", net,
+               tone="pos" if net >= 0 else "neg",
+               accent="var(--pos)" if net >= 0 else "var(--neg)",
+               foot="Μένει − πάγια" + (" (λείπουν ακόμη πάγια του μήνα)" if pending else "")),
+        cols=2,
     )
 
 

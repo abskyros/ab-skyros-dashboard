@@ -48,7 +48,8 @@ KIND_SUPPL = "Συμπληρωματική"
 KIND_EFKA = "ΕΦΚΑ/ΤΕΚΑ"
 KIND_PARTNERS = "ΕΦΚΑ εταίρων"
 KIND_AADE = "ΑΑΔΕ"
-KINDS = (KIND_PAYROLL, KIND_BONUS, KIND_SUPPL, KIND_EFKA, KIND_PARTNERS, KIND_AADE)
+KIND_ACCOUNTANT = "Λογιστής"
+KINDS = (KIND_PAYROLL, KIND_BONUS, KIND_SUPPL, KIND_EFKA, KIND_PARTNERS, KIND_AADE, KIND_ACCOUNTANT)
 
 # Είδη που ΔΕΝ προβλέπονται για το μέλλον (έκτακτα) — βλ. metrics.pagia_events.
 NOT_PROJECTED = (KIND_SUPPL,)
@@ -691,7 +692,50 @@ def parse_aade(raw: str, name: str = "") -> list[dict]:
             for due, amt in sorted(by_due.items()) if amt > 0]
 
 
-PARSERS = (parse_efka_body, parse_apd, parse_partners, parse_aade)
+def parse_accountant(raw: str, name: str = "") -> list[dict]:
+    """
+    ΑΜΟΙΒΗ ΛΟΓΙΣΤΗ — δύο μορφές:
+      • ΝΕΑ: «Τιμολόγιο Παροχής Υπηρεσιών» (PDF) → ΠΛΗΡΩΤΕΟ ΠΟΣΟ (μετά την
+        παρακράτηση, που πάει στην ΑΑΔΕ) στον μήνα του «Αφορά Περίοδο: ΙΟΥΛΙΟΥ 2025».
+        Σύνολα στη σειρά: αξία · ΦΠΑ · σύνολο · παρακράτηση · πληρωτέο
+        (αξία + ΦΠΑ = σύνολο, σύνολο − παρακράτηση = πληρωτέο).
+      • ΠΑΛΙΑ: κείμενο email «… από 01.04.2024 έως 31.07.2024 … το Σύνολο είναι
+        355,00 ευρώ» → στον μήνα του «έως».
+    """
+    t = norm_greek(raw)
+    if "ΤΙΜΟΛΟΓΙΟ ΠΑΡΟΧΗΣ ΥΠΗΡΕΣΙΩΝ" in t and "ΛΟΓΙΣΤΙΚ" in t and "ΠΛΗΡΩΤΕΟ ΠΟΣΟ" in t:
+        nums = [_num(x) for x in re.findall(_AMOUNT, t[t.index("ΠΛΗΡΩΤΕΟ ΠΟΣΟ"):])]
+        pay = None
+        for i in range(len(nums) - 4):
+            a, v, tot, wh, net = nums[i:i + 5]
+            if _cents(a + v) == _cents(tot) and _cents(tot - wh) == _cents(net) and net > 0:
+                pay, parts = net, (a, v, wh)
+                break
+        if pay is None:
+            return []
+        per = re.search(r"ΑΦΟΡΑ ΠΕΡΙΟΔΟ\s*:?\s*([^\n]+)", t)
+        ref = _ref_month(per.group(1)) if per else None
+        inv = re.search(r"ΤΙΜΟΛΟΓΙΟ ΠΑΡΟΧΗΣ ΥΠΗΡΕΣΙΩΝ\s+(\d+)\s+" + _DATE, t)
+        when = _date(inv, 2) if inv else None
+        ref = ref or (f"{when:%Y-%m}" if when else None)
+        if not ref:
+            return []
+        no = f"Τιμολόγιο {inv.group(1)} · " if inv else ""
+        return [{"kind": KIND_ACCOUNTANT, "ref": ref, "sub": "", "amount": round(pay, 2),
+                 "pay_date": None, "_doc": "accountant",
+                 "detail": f"{no}{_eur(parts[0])} + ΦΠΑ {_eur(parts[1])} − παρακράτηση {_eur(parts[2])}"}]
+    m = re.search(r"ΤΟ ΣΥΝΟΛΟ ΕΙΝΑΙ\s*" + _AMOUNT + r"\s*(?:ΕΥΡΩ|€)", t)
+    if m and ("ΥΠΗΡΕΣΙΕΣ" in t or "ΑΜΟΙΒ" in t or "ΛΟΓΙΣΤΙΚ" in t):
+        upto = list(re.finditer(r"ΕΩΣ\s*" + _DATE, t))
+        end = _date(upto[0]) if upto else None
+        if not end:
+            return []
+        return [{"kind": KIND_ACCOUNTANT, "ref": f"{end:%Y-%m}", "sub": "", "amount": _num(m.group(1)),
+                 "pay_date": None, "_doc": "accountant", "detail": "Αμοιβή λογιστή (χρεώσεις)"}]
+    return []
+
+
+PARSERS = (parse_efka_body, parse_apd, parse_partners, parse_aade, parse_accountant)
 SOURCES = (src_statement, src_mk, src_receipts)        # PDF/κείμενο → πηγές μισθοδοσίας
 
 
@@ -922,4 +966,55 @@ def dedupe(recs: list[dict]) -> list[dict]:
             continue
         done.update(emp_tokens(new))
         out.append({**r, "emps": new, "amount": round(sum(new.values()), 2)})
+    return out
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ΧΕΙΡΟΚΙΝΗΤΑ ΠΑΓΙΑ — ΦΠΑ, ενοίκιο, ρεύμα, ασφάλειες… (φύλλο «pagia_manual»)
+# ══════════════════════════════════════════════════════════════════════════════
+# Επανάληψη → κάθε πόσους μήνες (0 = μία φορά).
+FREQS = {"Μία φορά": 0, "Κάθε μήνα": 1, "Κάθε 2 μήνες": 2, "Κάθε 3 μήνες": 3,
+         "2 φορές τον χρόνο": 6, "1 φορά τον χρόνο": 12}
+
+
+def expand_manual(items: list[dict], until: date) -> list[dict]:
+    """
+    Χειροκίνητα πάγια → μία εγγραφή ανά μήνα πληρωμής, ίδια μορφή με τα αυτόματα
+    (kind = το όνομα, π.χ. «ΦΠΑ» → δική του στήλη). Από τον «πρώτο μήνα» ως τον
+    «τελευταίο» (ή ως `until`). Μέρα πληρωμής: η «μέρα» (ή η τελευταία του μήνα).
+    """
+    import calendar
+    out = []
+    for it in items:
+        name = str(it.get("name") or "").strip()
+        try:
+            amount = float(it.get("amount") or 0)
+            y, m = (int(x) for x in str(it.get("start") or "").split("-")[:2])
+        except (ValueError, TypeError):
+            continue
+        if not name or amount <= 0 or not 1 <= m <= 12:
+            continue
+        step = FREQS.get(str(it.get("freq") or ""), 0)
+        end = str(it.get("end") or "").strip()
+        try:
+            ey, em = (int(x) for x in end.split("-")[:2]) if end else (until.year, until.month)
+        except ValueError:
+            ey, em = until.year, until.month
+        last = min((ey, em), (until.year, until.month))
+        try:
+            day = int(it.get("day") or 0)
+        except (ValueError, TypeError):
+            day = 0
+        note = str(it.get("note") or "").strip()
+        while (y, m) <= last:
+            dim = calendar.monthrange(y, m)[1]
+            out.append({"kind": name, "ref": f"{y:04d}-{m:02d}", "sub": "", "amount": round(amount, 2),
+                        "pay_date": date(y, m, min(day, dim) if day > 0 else dim),
+                        "detail": "χειροκίνητο" + (f" · {note}" if note else ""),
+                        "email_date": None, "emps": "", "source": "χειροκίνητο", "check": "",
+                        "manual_id": str(it.get("id") or "")})
+            if not step:
+                break
+            m += step
+            y, m = y + (m - 1) // 12, (m - 1) % 12 + 1
     return out

@@ -30,6 +30,7 @@ def render(df: pd.DataFrame, today: date) -> None:
             "Έρχονται αυτόματα από τα email του λογιστή. Για πρώτη φορά πάτα "
             "«Ενημέρωση» → «Ανάκτηση παγίων (από 2024)».",
         )
+        _manual_editor(today)
         _run_report()
         return
 
@@ -43,7 +44,67 @@ def render(df: pd.DataFrame, today: date) -> None:
     _warnings(df, year)
     _year_table(df, year, today)
     _details(df, year)
+    _manual_editor(today)
     _run_report()
+
+
+def _manual_editor(today: date) -> None:
+    """
+    ΧΕΙΡΟΚΙΝΗΤΑ ΠΑΓΙΑ (ΦΠΑ, ενοίκιο, ρεύμα, ασφάλειες…): τα γράφεις εσύ, μία φορά,
+    με επανάληψη. Φύλλο «pagia_manual» — δεν το αγγίζει ποτέ η ανάκτηση.
+    Κάθε όνομα γίνεται δική του στήλη στον πίνακα ανά μήνα.
+    """
+    from core.pagia import FREQS
+    from core.sheets import add_pagia_manual, delete_pagia_manual, load_pagia_manual
+
+    items = load_pagia_manual()
+    with st.expander(f"Χειροκίνητα πάγια ({len(items)}) — ΦΠΑ, ενοίκιο, ρεύμα, ασφάλειες…"):
+        msg = st.session_state.pop("pagia_manual_msg", None)
+        if msg:
+            c.note(msg, "ok")
+        with st.form("pagia_manual_add", clear_on_submit=True):
+            a, b, f = st.columns([2, 1, 1.4])
+            name = a.text_input("Όνομα", placeholder="π.χ. ΦΠΑ, Ενοίκιο, ΔΕΗ")
+            amount = b.number_input("Ποσό (€)", min_value=0.0, step=10.0, format="%.2f")
+            freq = f.selectbox("Επανάληψη", list(FREQS))
+            y1, m1, d1 = st.columns(3)
+            years = list(range(today.year - 2, today.year + 2))
+            sy = y1.selectbox("Πρώτος μήνας — έτος", years, index=years.index(today.year))
+            sm = m1.selectbox("Πρώτος μήνας", list(range(1, 13)), index=today.month - 1,
+                              format_func=month_name)
+            day = d1.number_input("Μέρα πληρωμής (0 = τέλος μήνα)", min_value=0, max_value=31, value=0)
+            e1, e2, e3 = st.columns(3)
+            has_end = e1.checkbox("Μέχρι κάποιον μήνα")
+            ey = e2.selectbox("Τελευταίος — έτος", years + [today.year + 2], index=years.index(today.year))
+            em = e3.selectbox("Τελευταίος μήνας", list(range(1, 13)), index=11, format_func=month_name)
+            note = st.text_input("Σημείωση (προαιρετικά)")
+            if st.form_submit_button("➕ Προσθήκη", type="primary"):
+                if not name.strip() or amount <= 0:
+                    st.error("Γράψε όνομα και ποσό.")
+                elif has_end and (ey, em) < (sy, sm):
+                    st.error("Ο τελευταίος μήνας είναι πριν από τον πρώτο.")
+                else:
+                    add_pagia_manual({"name": name.strip(), "amount": amount, "freq": freq,
+                                      "start": f"{sy:04d}-{sm:02d}",
+                                      "end": f"{ey:04d}-{em:02d}" if has_end else "",
+                                      "day": int(day) or "", "note": note})
+                    st.session_state["pagia_manual_msg"] = f"Προστέθηκε: <b>{name.strip()}</b> {c.eur(amount)} · {freq}"
+                    st.rerun()
+        if not items:
+            st.caption("Δεν έχεις βάλει ακόμη χειροκίνητα πάγια.")
+            return
+        st.caption("Τα αποθηκευμένα — για αλλαγή: διαγραφή και ξανά προσθήκη.")
+        for it in sorted(items, key=lambda x: (x["name"], x["start"])):
+            ym = lambda v: _ref_label(v) if v else "χωρίς τέλος"  # noqa: E731
+            day_s = f"μέρα {it['day']}" if str(it.get("day") or "").strip() else "τέλος μήνα"
+            col1, col2 = st.columns([5, 1])
+            col1.markdown(f"**{it['name']}** · {c.eur(it['amount'])} · {it['freq']} · "
+                          f"από {ym(it['start'])} έως {ym(it['end'])} · {day_s}"
+                          + (f" · _{it['note']}_" if it.get("note") else ""))
+            if col2.button("Διαγραφή", key=f"pm_del_{it['id']}"):
+                delete_pagia_manual(it["id"])
+                st.session_state["pagia_manual_msg"] = f"Διαγράφηκε: <b>{it['name']}</b>"
+                st.rerun()
 
 
 def _run_report() -> None:
@@ -151,9 +212,17 @@ def _details(df: pd.DataFrame, year: int) -> None:
 
 # ══════════════════════════════════════════════════════════════════════════════
 def _upcoming(df: pd.DataFrame, today: date) -> None:
-    """Ό,τι έχει έρθει και πληρώνεται από σήμερα και μετά."""
-    up = df[df["pay_date"].notna() & (df["pay_date"] >= pd.Timestamp(today))].sort_values("pay_date")
+    """Ό,τι έχει έρθει και πληρώνεται από σήμερα ΕΩΣ ΤΟ ΤΕΛΟΣ ΤΟΥ ΜΗΝΑ (τα πιο μακρινά:
+    μόνο μια γραμμή με πλήθος και σύνολο)."""
+    month_end = pd.Timestamp(today) + pd.offsets.MonthEnd(0)
+    ahead = df[df["pay_date"].notna() & (df["pay_date"] >= pd.Timestamp(today))]
+    up = ahead[ahead["pay_date"] <= month_end].sort_values("pay_date")
+    later = ahead[ahead["pay_date"] > month_end]
     if up.empty:
+        if not later.empty:
+            c.section("Επόμενες πληρωμές")
+            c.html(f'<div style="font-size:.85rem;margin:.3rem 0 1rem">Τίποτα ως το τέλος του μήνα · '
+                   f'+ {len(later)} αργότερα: <b>{c.eur(float(later["amount"].sum()))}</b></div>')
         return
     c.section("Επόμενες πληρωμές")
     cards = []
@@ -168,8 +237,10 @@ def _upcoming(df: pd.DataFrame, today: date) -> None:
                            badge=badge, foot=f"Πληρωμή {when:%d/%m/%Y} · {detail}"))
     total = float(up["amount"].sum())
     c.grid(*cards, cols=min(len(cards), 3))
-    c.html(f'<div style="font-size:.85rem;margin:.3rem 0 1rem">Σύνολο επόμενων πληρωμών: '
-           f'<b>{c.eur(total)}</b></div>')
+    extra = (f' · + {len(later)} αργότερα: {c.eur(float(later["amount"].sum()))}'
+             if not later.empty else "")
+    c.html(f'<div style="font-size:.85rem;margin:.3rem 0 1rem">Σύνολο ως {month_end:%d/%m}: '
+           f'<b>{c.eur(total)}</b>{extra}</div>')
 
 
 def _ref_label(ref: str) -> str:
@@ -186,14 +257,15 @@ def _year_table(df: pd.DataFrame, year: int, today: date) -> None:
         sub = df[(df["ref"] == f"{y:04d}-{m:02d}") & (df["kind"] == kind)]
         return float(sub["amount"].sum()) if not sub.empty else None
 
-    head = "".join(f'<th class="now">{k}</th>' for k in KINDS)
-    body, totals, ly_totals = [], {k: 0.0 for k in KINDS}, {k: 0.0 for k in KINDS}
+    kinds = list(KINDS) + sorted(set(df["kind"].astype(str)) - set(KINDS))   # + χειροκίνητα
+    head = "".join(f'<th class="now">{k}</th>' for k in kinds)
+    body, totals, ly_totals = [], {k: 0.0 for k in kinds}, {k: 0.0 for k in kinds}
     for m in range(1, 13):
-        vals = [month_sum(year, m, k) for k in KINDS]
-        ly = [month_sum(year - 1, m, k) for k in KINDS]
+        vals = [month_sum(year, m, k) for k in kinds]
+        ly = [month_sum(year - 1, m, k) for k in kinds]
         if all(v is None for v in vals) and (year, m) > (today.year, today.month):
             continue
-        for k, v, lv in zip(KINDS, vals, ly):
+        for k, v, lv in zip(kinds, vals, ly):
             totals[k] += v or 0
             ly_totals[k] += lv or 0
         row_sum = sum(v or 0 for v in vals)
@@ -207,8 +279,8 @@ def _year_table(df: pd.DataFrame, year: int, today: date) -> None:
             f'<td class="v then">{c.eur(ly_sum or None)}</td></tr>'
         )
 
-    tot_cells = "".join(f'<td class="v now"><b>{c.eur(totals[k] or None)}</b></td>' for k in KINDS)
-    ly_cells = "".join(f'<td class="v then">{c.eur(ly_totals[k] or None)}</td>' for k in KINDS)
+    tot_cells = "".join(f'<td class="v now"><b>{c.eur(totals[k] or None)}</b></td>' for k in kinds)
+    ly_cells = "".join(f'<td class="v then">{c.eur(ly_totals[k] or None)}</td>' for k in kinds)
     grand, ly_grand = sum(totals.values()), sum(ly_totals.values())
     foot = (
         f'<tr style="border-top:2px solid currentColor"><td class="day"><b>Σύνολο {year}</b></td>'
@@ -224,5 +296,6 @@ def _year_table(df: pd.DataFrame, year: int, today: date) -> None:
         f'<th class="then">Σύνολο {year - 1}</th></tr></thead>'
         f'<tbody>{"".join(body)}</tbody><tfoot>{foot}</tfoot></table></div>'
     )
-    st.caption("Μισθοδοσία, δώρα, συμπληρωματικές και ΕΦΚΑ: στον μήνα που αφορούν "
-               "(συνήθως πληρώνονται τον επόμενο). ΑΑΔΕ: στον μήνα λήξης.")
+    st.caption("Μισθοδοσία, δώρα, συμπληρωματικές, ΕΦΚΑ και λογιστής: στον μήνα που αφορούν "
+               "(συνήθως πληρώνονται τον επόμενο). ΑΑΔΕ: στον μήνα λήξης. "
+               "Χειροκίνητα (π.χ. ΦΠΑ): στον μήνα πληρωμής τους.")

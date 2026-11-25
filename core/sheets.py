@@ -1663,3 +1663,84 @@ def clear_all_caches() -> None:
     load_setting.clear()
     load_agores.clear()
     load_pagia.clear()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ΧΕΙΡΟΚΙΝΗΤΑ ΠΑΓΙΑ — φύλλο «pagia_manual». Το γράφει ΜΟΝΟ ο χρήστης: ΠΟΤΕ δεν
+# καθαρίζεται (ούτε από το «Άδειασμα» της ανάκτησης, ούτε αν αλλάξει η κεφαλίδα).
+# ══════════════════════════════════════════════════════════════════════════════
+SHEET_PAGIA_MANUAL = "pagia_manual"
+MANUAL_COLS = ["id", "name", "amount", "freq", "start", "end", "day", "note"]
+
+
+def _manual_ws():
+    ss = _spreadsheet()
+    try:
+        return ss.worksheet(SHEET_PAGIA_MANUAL)
+    except Exception:
+        ws = ss.add_worksheet(title=SHEET_PAGIA_MANUAL, rows=200, cols=len(MANUAL_COLS))
+        ws.update([MANUAL_COLS], "A1")
+        return ws
+
+
+@st.cache_data(ttl=600, max_entries=1, show_spinner=False)
+def load_pagia_manual() -> list:
+    """→ [{id, name, amount(€), freq, start, end, day, note}]"""
+    try:
+        vals = _with_retry(lambda: _manual_ws().get_all_values())
+    except Exception:
+        return []
+    n = len(MANUAL_COLS)
+    out = []
+    for r in (vals or [])[1:]:
+        r = (r + [""] * n)[:n]
+        if not r[0] or not r[1]:
+            continue
+        d = dict(zip(MANUAL_COLS, r))
+        d["amount"] = from_cents(d["amount"])
+        out.append(d)
+    return out
+
+
+def add_pagia_manual(item: dict) -> str:
+    """Νέο χειροκίνητο πάγιο → το id του."""
+    import uuid
+    iid = uuid.uuid4().hex[:8]
+    row = [iid, str(item.get("name", "")).strip(), to_cents(item.get("amount") or 0),
+           str(item.get("freq", "")), str(item.get("start", "")), str(item.get("end", "") or ""),
+           str(item.get("day", "") or ""), str(item.get("note", "") or "")[:200]]
+    _append(_manual_ws(), [row])
+    load_pagia_manual.clear()
+    return iid
+
+
+def delete_pagia_manual(iid: str) -> bool:
+    ws = _manual_ws()
+    for idx, r in enumerate(_get_all(ws)[1:], start=2):
+        if r and r[0] == iid:
+            _with_retry(lambda: ws.delete_rows(idx))
+            load_pagia_manual.clear()
+            return True
+    return False
+
+
+def load_pagia_all(today) -> pd.DataFrame:
+    """
+    Αυτόματα πάγια (από τα email) + χειροκίνητα (ανά μήνα, ως το τέλος του
+    επόμενου έτους). Για τις σελίδες «Πάγια» και «Μήνας».
+    """
+    from datetime import date as _date
+    from core.pagia import expand_manual
+    df = load_pagia()
+    rows = expand_manual(load_pagia_manual(), _date(today.year + 1, 12, 31))
+    if not rows:
+        return df
+    man = pd.DataFrame(rows)
+    man["pay_date"] = pd.to_datetime(man["pay_date"])
+    man["email_date"] = pd.NaT
+    for col in PAGIA_COLS:
+        if col not in man.columns:
+            man[col] = ""
+    if df.empty:
+        return man
+    return pd.concat([df, man], ignore_index=True)
