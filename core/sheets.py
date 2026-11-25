@@ -1069,25 +1069,58 @@ def _pagia_log_ws():
     return _reset_ws(SHEET_PAGIA_LOG, PAGIA_LOG_COLS)
 
 
+def _log_key(r: list) -> tuple:
+    """Ταυτότητα ενός email στην αναφορά: ημ/νία + θέμα + αρχεία."""
+    return (str(r[0]).strip(), str(r[1]).strip(), str(r[2]).strip())
+
+
+def _log_dedupe(rows: list) -> list:
+    """ΕΝΑ ανά email — κρατά την ΠΙΟ ΠΡΟΣΦΑΤΗ καταγραφή (τελευταία στο φύλλο)."""
+    last = {}
+    for i, r in enumerate(rows):
+        last[_log_key(r)] = i
+    return [r for i, r in enumerate(rows) if last[_log_key(r)] == i]
+
+
 def append_pagia_log(entries: list) -> int:
-    """Γράφει γραμμές αναφοράς (dict με τα PAGIA_LOG_COLS)."""
+    """
+    Γράφει γραμμές αναφοράς (dict με τα PAGIA_LOG_COLS). Email που υπάρχει ΗΔΗ
+    (ίδια ημ/νία + θέμα + αρχεία, π.χ. από προηγούμενη ανάκτηση) ΑΝΤΙΚΑΘΙΣΤΑΤΑΙ —
+    ποτέ δύο φορές το ίδιο email. Καθαρίζει και παλιά διπλά, αν βρει.
+    """
     if not entries:
         return 0
+    n = len(PAGIA_LOG_COLS)
     rows = [[str(e.get(c, "") or "")[:5000] for c in PAGIA_LOG_COLS] for e in entries]
-    _append(_pagia_log_ws(), rows)
+    rows = _log_dedupe(rows)
+    ws = _pagia_log_ws()
+    vals = _get_all(ws)
+    old = [(r + [""] * n)[:n] for r in vals[1:] if r and any(str(x).strip() for x in r)]
+    new_keys = {_log_key(r) for r in rows}
+    kept = _log_dedupe([r for r in old if _log_key(r) not in new_keys])
+    if len(kept) == len(old):                     # τίποτα διπλό → απλή προσθήκη
+        _append(ws, rows)
+    else:                                          # ΜΙΑ εγγραφή, χωρίς clear (βλ. _rewrite_keep)
+        body = kept + rows
+        blank = [[""] * n for _ in range(max(0, len(vals) - 1 - len(body)))]
+        if ws.row_count < len(body) + 1:
+            _with_retry(lambda: ws.add_rows(len(body) + 1 - ws.row_count))
+        _with_retry(lambda: ws.update(body + blank, "A2", value_input_option="RAW"),
+                    tries=4, base_wait=5.0)
     load_pagia_log.clear()
     return len(rows)
 
 
 @st.cache_data(ttl=600, max_entries=1, show_spinner=False)
 def load_pagia_log() -> pd.DataFrame:
+    """Η αναφορά — ΕΝΑ ανά email (τα παλιά διπλά από επαναλήψεις δεν φαίνονται)."""
     try:
         vals = _with_retry(lambda: _pagia_log_ws().get_all_values())
     except Exception:
         return pd.DataFrame(columns=PAGIA_LOG_COLS)
     n = len(PAGIA_LOG_COLS)
     rows = [(r + [""] * n)[:n] for r in (vals or [])[1:] if r and any(r)]
-    return pd.DataFrame(rows, columns=PAGIA_LOG_COLS)
+    return pd.DataFrame(_log_dedupe(rows), columns=PAGIA_LOG_COLS)
 
 
 def reset_pagia_sheets() -> list:

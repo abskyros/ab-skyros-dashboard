@@ -255,12 +255,31 @@ def _run_report() -> None:
         return
     if log.empty:
         return
+    from core.pagia import ignore_reason
+
+    def mark(files: str) -> str:
+        """«x.png: δεν αναγνωρίστηκε» → «x.png: δεν χρειάζεται (εικόνα…)» για τα άσχετα."""
+        out = []
+        for ln in str(files or "").splitlines():
+            if ln.endswith(": δεν αναγνωρίστηκε"):
+                why = ignore_reason(ln[: -len(": δεν αναγνωρίστηκε")])
+                if why:
+                    ln = ln[: -len("δεν αναγνωρίστηκε")] + f"δεν χρειάζεται ({why})"
+            out.append(ln)
+        return "\n".join(out)
+
+    log = log.copy()
+    log["files"] = log["files"].map(mark)
     log = log.sort_values("email_date")
     months = sorted({str(d)[:7] for d in log["email_date"] if str(d)[:7]}, reverse=True)
     unknown = log["files"].astype(str).str.count("δεν αναγνωρίστηκε").sum()
+    skipped = log["files"].astype(str).str.count("δεν χρειάζεται").sum()
     warn = log["found"].astype(str).str.count("⚠").sum()
     with st.expander(f"Αναφορά ανάκτησης — {len(log)} email"
-                     + (f" · ⚠ {warn}" if warn else "") + (f" · {unknown} αρχεία δεν αναγνωρίστηκαν" if unknown else "")):
+                     + (f" · ⚠ {warn}" if warn else "")
+                     + (f" · {unknown} αρχεία ΔΕΝ διαβάστηκαν" if unknown else " · όλα τα χρήσιμα διαβάστηκαν")):
+        st.caption(f"{skipped} συνημμένα δεν χρειάζονται (υπογραφές, συμβάσεις, φορολογικά, myDATA…) — "
+                   "φαίνονται με γκρι.")
         st.caption(f"Τελευταία ανάκτηση: {log['run_at'].max() or '—'} · μήνας = μήνας ΑΠΟΣΤΟΛΗΣ του email")
         only = st.toggle("Μόνο όσα θέλουν προσοχή (⚠ ή αρχείο που δεν αναγνωρίστηκε)", key="pagia_log_only")
         m = st.selectbox("Μήνας email", ["Όλοι"] + months,
@@ -279,6 +298,8 @@ def _run_report() -> None:
                 e = html.escape(ln)
                 if "⚠" in ln or "δεν αναγνωρίστηκε" in ln:
                     e = f'<span style="color:#b45309"><b>{e}</b></span>'
+                elif "δεν χρειάζεται" in ln:
+                    e = f'<span style="opacity:.45">{e}</span>'
                 elif color:
                     e = f'<span style="color:{color}">{e}</span>'
                 out.append(e)

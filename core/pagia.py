@@ -49,14 +49,16 @@ KIND_EFKA = "ΕΦΚΑ/ΤΕΚΑ"
 KIND_PARTNERS = "ΕΦΚΑ εταίρων"
 KIND_AADE = "ΑΑΔΕ"
 KIND_ACCOUNTANT = "Λογιστής"
-KINDS = (KIND_PAYROLL, KIND_BONUS, KIND_SUPPL, KIND_EFKA, KIND_PARTNERS, KIND_AADE, KIND_ACCOUNTANT)
+KIND_VAT = "ΦΠΑ"
+KINDS = (KIND_PAYROLL, KIND_BONUS, KIND_SUPPL, KIND_EFKA, KIND_PARTNERS, KIND_AADE, KIND_ACCOUNTANT,
+         KIND_VAT)
 
 # Είδη που ΔΕΝ προβλέπονται για το μέλλον (έκτακτα) — βλ. metrics.pagia_events.
 NOT_PROJECTED = (KIND_SUPPL,)
 # Είδη που έρχονται ως ΑΠΟΔΕΙΞΗ (ήδη πληρωμένα) — ποτέ στις «Επόμενες πληρωμές».
 ALREADY_PAID = (KIND_SUPPL,)
 # Είδη που προβλέπονται ΜΟΝΟ από τον ίδιο μήνα πέρσι (εποχικά — όχι «όπως τελευταία»).
-SEASONAL = (KIND_BONUS,)
+SEASONAL = (KIND_BONUS, KIND_VAT)          # ΦΠΑ: ανά τρίμηνο → μόνο «ίδιος μήνας πέρσι»
 
 _MONTHS = {
     "ΙΑΝΟΥΑΡ": 1, "ΦΕΒΡΟΥΑΡ": 2, "ΜΑΡΤ": 3, "ΑΠΡΙΛ": 4, "ΜΑΙ": 5,
@@ -143,6 +145,7 @@ def _bonus(t: str) -> str | None:
 #   • μισθοδοτική (ΜΚ) = άθροισμα της μισθοδοσίας από τις λίστες τράπεζας
 
 _ROW = re.compile(r"(GR\d{25})\s+(.*?)\s+" + _AMOUNT + r"(\d{1,3})\s+(\d{4,6})\s+(\d{9})")
+_ROW_OLD = re.compile(r"^\s*\d{1,3}\s+(GR\d{25})\s+(.+?)\s+" + _AMOUNT + r"\s*$", re.M)
 _PERIOD = re.compile(r"\d{1,2}/\d{1,2}/20\d\d\s*-\s*(\d{1,2})/(\d{1,2})/(20\d\d)\s*-\s*([^\n]*)")
 _SUPPL_RE = re.compile(r"ΑΠΟΧΩΡ|ΑΠΟΖΗΜΙΩΣ|ΣΥΜΠΛΗΡΩΜ|ΑΠΟΛΥΣ|ΛΥΣΗ ΣΥΜΒ")
 
@@ -206,6 +209,11 @@ def src_statement(raw: str, name: str = "") -> list[dict]:
     for chunk, declared in chunks:
         rows = _ROW.findall(chunk)
         if not rows:
+            # ΠΑΛΙΑ μορφή (2024, «ΑΡΧΕΙΟ ΠΛΗΡΩΜΗΣ»): «Α/Α IBAN ΟΝΟΜΑ ΤΡΑΠΕΖΑ ποσό» — χωρίς
+            # κωδικό/ΑΦΜ → ο εργαζόμενος αναγνωρίζεται από το IBAN (βλ. combine_payroll).
+            rows = [(iban, " ".join(nm.split()[:2]), a, "", "ΙΒΑΝ:" + iban, "")
+                    for iban, nm, a in _ROW_OLD.findall(chunk)]
+        if not rows:
             continue
         per = _PERIOD.search(chunk)
         if per:
@@ -232,7 +240,8 @@ def src_statement(raw: str, name: str = "") -> list[dict]:
                 ok += 1
         out.append({"src": "statement", **ctx, "name": name, "label": label, "pay_date": pay,
                     "warn": warn, "ok": ok,
-                    "rows": [(code.zfill(4), _num(a), iban, " ".join(nm.split()))
+                    "rows": [(code if code.startswith("ΙΒΑΝ:") else code.zfill(4), _num(a), iban,
+                              " ".join(nm.split()))
                              for iban, nm, a, _aa, code, _afm in rows]})
     if out and grand is not None and all(c[1] is not None for c in chunks):
         decl = round(sum(c[1] for c in chunks), 2)
@@ -253,7 +262,7 @@ def src_xls(df, name: str = "") -> list[dict]:
     head = None
     for i in range(min(len(df), 12)):
         cells = [norm_greek(str(v)).strip() for v in df.iloc[i].values]
-        has_amt = any(c.startswith("ΠΟΣΟ") for c in cells)
+        has_amt = any(c.startswith(("ΠΟΣΟ", "ΠΛΗΡΩΤΕΟ")) for c in cells)   # 2024: «Πληρωτέο»
         has_id = any(c.startswith("ΚΩΔΙΚΟΣ") or "ΙΒΑΝ" in c or "ΛΟΓΑΡΙΑΣΜ" in c for c in cells)
         if has_amt and has_id:
             head = (i, cells)
@@ -277,6 +286,8 @@ def src_xls(df, name: str = "") -> list[dict]:
     if c_iban is None:
         c_iban = col(lambda c: "ΛΟΓΑΡΙΑΣΜ" in c)
     c_amt = col(lambda c: c.startswith("ΠΟΣΟ"))
+    if c_amt is None:
+        c_amt = col(lambda c: c.startswith("ΠΛΗΡΩΤΕΟ"))
     c_name = col(lambda c: "ΟΝΟΜΑΤΕΠ" in c or c.startswith("ΕΠΩΝΥΜ") or c.startswith("ΟΝΟΜΑ"))
     rows, footer = [], None
     for _, r in df.iloc[i + 1:].iterrows():
@@ -405,6 +416,10 @@ def src_receipts(raw: str, name: str = "") -> list[dict]:
     bonuses = [_bonus(p) for p in periods]
     if all(bonuses):
         ctx = {"kind": KIND_BONUS, "sub": bonuses[0]}
+    elif len(emps) >= 3 and not (_SUPPL_RE.search(t) or "ΑΝΑΛΟΓΙ" in t):
+        # Αποδείξεις ΟΛΟΥ του προσωπικού για έναν απλό μήνα (π.χ. «AP.pdf» 2024) =
+        # η ΜΗΝΙΑΙΑ μισθοδοσία, όχι συμπληρωματική.
+        ctx = {"kind": KIND_PAYROLL, "sub": ""}
     else:
         ctx = {"kind": KIND_SUPPL, "sub": ""}
     ctx["ref"] = next((r for r in (_ref_month(p) for p in periods) if r), None)
@@ -671,14 +686,26 @@ def parse_partners(raw: str, name: str = "") -> list[dict]:
     t = norm_greek(raw)
     if "ΕΙΔΟΠΟΙΗΣΗ ΠΛΗΡΩΜΗΣ ΑΣΦΑΛΙΣΤΙΚΩΝ ΕΙΣΦΟΡΩΝ" not in t:
         return []
+    # ΠΑΛΙΑ μορφή: «ΠΛΗΡΩΤΕΟ ΠΟΣΟ x» + «ΕΜΠΡΟΘΕΣΜΗΣ ΠΛΗΡΩΜΗΣ 10/2026 30/11/2026».
     amt = re.search(r"ΠΛΗΡΩΤΕΟ ΠΟΣΟ\s*" + _AMOUNT, t)
     per = re.search(r"ΕΜΠΡΟΘΕΣΜΗΣ ΠΛΗΡΩΜΗΣ\s*(\d{1,2})/(20\d\d)\s+" + _DATE, t)
-    afm = re.search(r"ΑΦΜ\s*:\s*(\d{9})", t)
+    # ΝΕΑ μορφή (από 2026): «ΑΝΑΛΥΣΗ ΜΗΝΙΑΙΑΣ ΕΙΣΦΟΡΑΣ (10/2026) ΕΜΠΡΟΘΕΣΜΗ ΠΛΗΡΩΜΗ ΕΩΣ:
+    # 30/11/2026» · ποσό = «ΣΥΝΟΛΟ:» της ενότητας «Δ. ΠΟΣΑ ΠΡΟΣ ΕΞΟΦΛΗΣΗ» (τρέχουσες +
+    # καθυστερούμενες), αλλιώς «ΣΥΝΟΛΟ ΜΗΝΙΑΙΑΣ ΕΙΣΦΟΡΑΣ».
+    if not per:
+        per = re.search(r"ΜΗΝΙΑΙΑΣ ΕΙΣΦΟΡΑΣ\s*\(\s*(\d{1,2})/(20\d\d)\s*\)\s*ΕΜΠΡΟΘΕΣΜΗ ΠΛΗΡΩΜΗ"
+                        r"\s*ΕΩΣ\s*:?\s*" + _DATE, t)
+    if not amt:
+        i = t.find("ΠΟΣΑ ΠΡΟΣ ΕΞΟΦΛΗΣΗ")
+        amt = (re.search(r"ΣΥΝΟΛΟ\s*:\s*" + _AMOUNT, t[i:i + 600]) if i >= 0 else None) \
+            or re.search(r"ΣΥΝΟΛΟ ΜΗΝΙΑΙΑΣ ΕΙΣΦΟΡΑΣ\s*:\s*" + _AMOUNT, t)
     if not (amt and per):
         return []
     ref = f"{int(per.group(2)):04d}-{int(per.group(1)):02d}"
     due = _date(per, base=3)
-    sub = f"…{afm.group(1)[-4:]}" if afm else ""
+    # ΑΦΜ του ΕΤΑΙΡΟΥ — ΟΧΙ του ΕΦΚΑ (997072577, γράφεται πρώτος στη νέα μορφή).
+    afms = [a for a in re.findall(r"ΑΦΜ\s*:\s*(\d{9})", t) if a != "997072577"]
+    sub = f"…{afms[0][-4:]}" if afms else ""
     return [{"kind": KIND_PARTNERS, "ref": ref, "sub": sub, "amount": _num(amt.group(1)),
              "pay_date": due, "detail": f"Εταίρος ΑΦΜ {sub}", "_doc": "partners"}]
 
@@ -804,8 +831,94 @@ def parse_accountant(raw: str, name: str = "") -> list[dict]:
     return []
 
 
-PARSERS = (parse_efka_body, parse_apd, parse_partners, parse_aade, parse_accountant)
+def _cents_all(t: str) -> list[int]:
+    return [_cents(_num(x)) for x in re.findall(_AMOUNT, t)]
+
+
+def parse_vat(raw: str, name: str = "") -> list[dict]:
+    """
+    ΔΗΛΩΣΗ ΦΠΑ «Φ2» (PDF της ΑΑΔΕ, όνομα «…_Φ2_2026_3ο_Αρχική.pdf»). Το έντυπο
+    έχει ΜΟΝΟ αριθμούς (χωρίς ετικέτες), άρα:
+      • ΤΙ είναι: από το ΟΝΟΜΑ αρχείου (έτος, τρίμηνο, Αρχική/Τροποποιητική)
+      • περίοδος: οι δύο ημερομηνίες «01/07/26 … 30/09/26»
+      • ΠΟΣΟ ΓΙΑ ΚΑΤΑΒΟΛΗ: το ποσό ΑΜΕΣΩΣ μετά τον ΑΦΜ + το σύνολο εκροών — και
+        ΕΛΕΓΧΟΣ: πρέπει να ισούται με ΦΠΑ εκροών − ΦΠΑ εισροών (δύο ποσά του ίδιου
+        εντύπου). Αλλιώς ΔΕΝ καταχωρείται (καλύτερα κενό από λάθος — ✎ διόρθωση).
+      • πληρωμή: τελευταία μέρα του επόμενου μήνα από τη λήξη της περιόδου.
+    Τροποποιητικές: ΔΕΝ μετράνε αυτόματα (μπορεί να ξαναγράφουν το αρχικό ποσό).
+    """
+    fn = norm_greek(re.sub(r"[_\-.]+", " ", name or ""))
+    m = re.search(r"Φ2 (20\d\d) (\d{1,2})Ο (ΑΡΧΙΚΗ|ΤΡΟΠΟΠΟΙΗΤΙΚΗ)", fn)
+    if not m:
+        return []
+    year, per_no, typ = int(m.group(1)), int(m.group(2)), m.group(3)
+    if typ != "ΑΡΧΙΚΗ":
+        return []
+    t = raw or ""
+    dates = re.findall(r"\b(\d{2})/(\d{2})/(\d{2})\b", t)
+    ends = [date(2000 + int(y), int(mo), int(d)) for d, mo, y in dates]
+    period_end = next((e for e in ends if e.year == year and e.day >= 28), None)
+    if period_end is None:
+        return []
+    after = re.search(r"\b\d{9}\s*\n\s*" + _AMOUNT + r"\s*\n\s*" + _AMOUNT, t)
+    if not after:
+        return []
+    x = _cents(_num(after.group(2)))
+    vals = set(_cents_all(t))
+    if not x or not any(a - b == x for a in vals for b in vals if a > b > x):
+        return []
+    y, mo = (period_end.year + 1, 1) if period_end.month == 12 else (period_end.year, period_end.month + 1)
+    due = date(y, mo, calendar.monthrange(y, mo)[1])
+    while due.weekday() >= 5:                       # Σάββατο/Κυριακή → Παρασκευή
+        due = date.fromordinal(due.toordinal() - 1)
+    start = next((e for e in ends if e < period_end), None)
+    per = f"{start:%d/%m}–{period_end:%d/%m/%Y}" if start else f"έως {period_end:%d/%m/%Y}"
+    return [{"kind": KIND_VAT, "ref": f"{due:%Y-%m}", "sub": f"№ Φ2 {year} {per_no}η περίοδος",
+             "amount": x / 100, "pay_date": due, "_doc": "vat",
+             "detail": f"Δήλωση ΦΠΑ {per_no}η περίοδος {year} ({per}) · ποσό για καταβολή",
+             "check": "✓ = ΦΠΑ εκροών − ΦΠΑ εισροών"}]
+
+
+PARSERS = (parse_efka_body, parse_apd, parse_partners, parse_aade, parse_accountant, parse_vat)
 SOURCES = (src_statement, src_mk, src_receipts)        # PDF/κείμενο → πηγές μισθοδοσίας
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ΑΣΧΕΤΑ ΣΥΝΗΜΜΕΝΑ — ο λογιστής στέλνει και πολλά που ΔΕΝ είναι πάγια (υπογραφές,
+# συμβάσεις, προσωπικά φορολογικά…). Στην αναφορά: «δεν χρειάζεται», όχι «χάθηκε».
+# ══════════════════════════════════════════════════════════════════════════════
+_IGNORE = (
+    # (λέξεις στο ΟΝΟΜΑ αρχείου, κανονικοποιημένο) → λόγος
+    (("MYDATA",), "myDATA εξόδων"),
+    (("ΑΠΟΔΕΙΞΕΙΣ ΜΙΣΘΟΔΟΣΙΑΣ", "ΑΠΟΔΕΙΞΕΙΣ_ΜΙΣΘΟΔΟΣΙΑΣ"), "αποδείξεις (ίδια ποσά με τις λίστες)"),
+    (("ΣΥΜΒ", "SYMB", "ΤΡΟΠ", "ΑΠΟΛΥΣ", "ΑΠΟΧ", "ΛΥΣΗ", "ΛΗΞΗ", "ΟΙΚΕΙΟΘ", "ΠΡΟΓΡΑΜΜΑ",
+      "ΠΡΟΣΛΗΨ", "ΕΝΤΥΠΟ_"), "σύμβαση / πρόσληψη / αποχώρηση"),
+    (("QR", "ΒΕΒΑΙΩΣ", "ΒΕΒ.", "ΠΙΣΤΟΠΟΙΗΤ", "IBAN", "ΑΦΜ", "ΣΤΟΙΧΕΙΑ ΕΠΙΧΕΙΡΗΣΗΣ", "ΚΩΔΙΚΟΙ"),
+     "βεβαίωση / στοιχεία"),
+    (("ΕΚΚΑΘΑΡΙΣΤΙΚΟ", "_Ε1", "_Ε2", "_Ε3", "Ε3_", "ΕΝΦΙΑ", "ΠΕΡΙΟΥΣΙΑΚΗ", "Φ.Ε.Ν.Π", "ΤΕΛΗ ΚΥΚΛΟΦΟΡΙΑΣ",
+      "ΔΗΛΩΣ"), "φορολογικό έγγραφο (όχι πάγιο)"),
+    (("PRINTINVOICE", "ΤΙΜΟΛΟΓ", "INVOICE", "_Β_", "ANAKOINWSH", "EKTIMISI", "ΕΚΠΤΩΣΗ", "ΜΕΤΑΦΟΡΙΚΟ",
+      "ΠΡΟΣΩΡΙΝ", "DOCUMENT"), "άλλο έγγραφο (όχι πάγιο)"),
+)
+_IMG_GENERIC = re.compile(r"^(IMAGE|ΕΙΚΟΝΑ|IMG|OUTLOOK|LOGO|SIGNATURE|ΥΠΟΓΡΑΦΗ)[\w\- ()]*\.(PNG|JPE?G|GIF|BMP)$")
+
+
+def ignore_reason(filename: str) -> str | None:
+    """Συνημμένο που ΔΕΝ είναι πάγιο → σύντομος λόγος· αλλιώς None (= αν δεν διαβάστηκε, χάθηκε)."""
+    t = norm_greek(filename or "").strip()
+    if "Φ2" in t and "ΤΡΟΠΟΠΟΙΗΤΙΚΗ" in t:
+        return "τροποποιητική ΦΠΑ — αν άλλαξε το ποσό: ✎ διόρθωση"
+    import unicodedata
+    raw = "".join(ch for ch in unicodedata.normalize("NFD", (filename or "").upper().strip())
+                  if not unicodedata.combining(ch))         # χωρίς «λατινικά → ελληνικά»
+    if _IMG_GENERIC.match(raw) or raw.endswith(".GIF"):
+        return "εικόνα (υπογραφή/στιγμιότυπο)"
+    if raw.endswith((".ZIP", ".7Z", ".RAR")) and "ΑΠΟΔΕΙΞ" not in t:
+        return "συμπιεσμένο αρχείο (δεν ανοίγεται)"
+    for words, why in _IGNORE:
+        if any(norm_greek(w) in t for w in words):
+            return why
+    return None
 
 
 def parse_text(raw: str, name: str = "") -> list[dict]:
