@@ -663,6 +663,16 @@ def parse_apd(raw: str, name: str = "") -> list[dict]:
     αρχείο λέει «ΤΕΚΑ». Η προθεσμία είναι στο κείμενο του email (parse_message).
     """
     t = norm_greek(raw)
+    if "ΣΥΝΟΔΕΥΤΙΚΟ ΕΝΤΥΠΟ" in t and "ΟΙΚΟΔΟΜΟΤΕΧΝΙΚΟΥ ΕΡΓΟΥ" in t:
+        # ΑΠΔ ΟΙΚΟΔΟΜΙΚΟΥ ΕΡΓΟΥ (κατασκευή καταστήματος 2023–24): γραμμή
+        # «/01 2024 51 2.191,20 1.651,56» = μήνας · ημέρες · αποδοχές · ΕΙΣΦΟΡΕΣ.
+        r = re.search(r"/\s*(\d{1,2})\s+(20\d\d)\s+\d+\s+" + _AMOUNT + r"\s+" + _AMOUNT, t)
+        if not r:
+            return []
+        amt = _num(r.group(4))
+        return [{"kind": KIND_EFKA, "ref": f"{int(r.group(2)):04d}-{int(r.group(1)):02d}",
+                 "sub": "ΕΦΚΑ οικοδομικού έργου", "amount": amt, "pay_date": None,
+                 "detail": f"Οικοδομικό έργο (ΑΠΔ) {_eur(amt)}", "_doc": "efka"}]
     if "ΣΥΝΟΔΕΥΤΙΚΟ ΕΝΤΥΠΟ" not in t or "ΚΑΤΑΒΛΗΘΕΙΣΩΝ" not in t:
         return []
     m = re.search(r"ΣΥΝΟΛΑ\s*\(ΧΩΡΙΣ[^)]*\)\s*" + _AMOUNT + r"\s+" + _AMOUNT, t)
@@ -831,55 +841,127 @@ def parse_accountant(raw: str, name: str = "") -> list[dict]:
     return []
 
 
+def parse_taxis_slip(raw: str, name: str = "") -> list[dict]:
+    """
+    TAXISnet «Σημείωμα για Πληρωμή» (2023–24, πριν τις καταστάσεις «Οφειλές προς το
+    Δημόσιο»): ΦΜΥ, παρακράτηση εργοληπτών κ.λπ. → ΑΑΔΕ στον μήνα λήξης.
+    Ταυτότητα = «Ταυτότητα Οφειλής» (η ίδια οφειλή σε δύο email = μία φορά).
+    """
+    t = norm_greek(raw)
+    if "ΣΗΜΕΙΩΜΑ ΓΙΑ ΠΛΗΡΩΜΗ" not in t:
+        return []
+    inst = re.search(r"ΠΟΣΟ ΔΟΣΗΣ ΔΗΛΩΣΗΣ ΤΗΣ\s*" + _DATE + r"\s*" + _AMOUNT, t)
+    tot = re.search(r"ΣΥΝΟΛΙΚΟ ΠΟΣΟ ΟΦΕΙΛΗΣ ΔΗΛΩΣΗΣ\s*" + _AMOUNT, t)
+    due = _date(inst) if inst else _date(re.search(r"ΜΕΧΡΙ ΤΙΣ\s*" + _DATE, t))
+    amt = _num(inst.group(4)) if inst else (_num(tot.group(1)) if tot else None)
+    if not (due and amt):
+        return []
+    kind_m = re.search(r"ΕΙΔΟΣ ΦΟΡΟΥ\s*([^\n]+)", t)
+    title = kind_m.group(1).strip() if kind_m else ""
+    label = "Παρακράτηση εργοληπτών" if "ΕΡΓΟΛΗΠΤ" in title else _aade_label(title)
+    per = re.search(r"ΗΜΕΡΟΛΟΓΙΑΚΗ ΠΕΡΙΟΔΟΣ\s*" + _DATE + r"\s*-\s*" + _DATE, t)
+    per_s = f" {per.group(2)}/{per.group(3)}" if per else ""
+    ident = re.search(r"ΤΑΥΤΟΤΗΤΑ ΟΦΕΙΛΗΣ\s*([\d ]{12,40})", t)
+    sub = "№ " + re.sub(r"\s", "", ident.group(1)) if ident else f"№ {label} {due:%Y-%m-%d} {amt:.2f}"
+    return [{"kind": KIND_AADE, "ref": f"{due:%Y-%m}", "sub": sub, "amount": round(amt, 2),
+             "pay_date": due, "detail": f"{label}{per_s} {_eur(amt)} (σημείωμα πληρωμής)", "_doc": "aade_slip"}]
+
+
+def parse_elpk(raw: str, name: str = "") -> list[dict]:
+    """«Ειδικός Λογαριασμός Παιδικών Κατασκηνώσεων» (ΕΛΠΚ) — εισφορά ΕΦΚΑ μία φορά τον χρόνο."""
+    t = norm_greek(raw)
+    if "ΠΑΙΔΙΚΩΝ ΚΑΤΑΣΚΗΝΩΣΕΩΝ" not in t:
+        return []
+    ref = _ref_month(t)
+    a = re.search(_AMOUNT, t)
+    if not (ref and a):
+        return []
+    amt = _num(a.group(1))
+    return [{"kind": KIND_EFKA, "ref": ref, "sub": "ΕΛΠΚ", "amount": amt, "pay_date": None,
+             "detail": f"Παιδικές κατασκηνώσεις (ΕΛΠΚ) {_eur(amt)}", "_doc": "efka"}]
+
+
 def _cents_all(t: str) -> list[int]:
     return [_cents(_num(x)) for x in re.findall(_AMOUNT, t)]
 
 
 def parse_vat(raw: str, name: str = "") -> list[dict]:
     """
-    ΔΗΛΩΣΗ ΦΠΑ «Φ2» (PDF της ΑΑΔΕ, όνομα «…_Φ2_2026_3ο_Αρχική.pdf»). Το έντυπο
-    έχει ΜΟΝΟ αριθμούς (χωρίς ετικέτες), άρα:
-      • ΤΙ είναι: από το ΟΝΟΜΑ αρχείου (έτος, τρίμηνο, Αρχική/Τροποποιητική)
-      • περίοδος: οι δύο ημερομηνίες «01/07/26 … 30/09/26»
-      • ΠΟΣΟ ΓΙΑ ΚΑΤΑΒΟΛΗ: το ποσό ΑΜΕΣΩΣ μετά τον ΑΦΜ + το σύνολο εκροών — και
-        ΕΛΕΓΧΟΣ: πρέπει να ισούται με ΦΠΑ εκροών − ΦΠΑ εισροών (δύο ποσά του ίδιου
-        εντύπου). Αλλιώς ΔΕΝ καταχωρείται (καλύτερα κενό από λάθος — ✎ διόρθωση).
-      • πληρωμή: τελευταία μέρα του επόμενου μήνα από τη λήξη της περιόδου.
+    ΔΗΛΩΣΗ ΦΠΑ (PDF της ΑΑΔΕ: «…_Φ2_2026_3ο_Αρχική.pdf», «…_ΦΠΑ_2025_4ο.pdf»,
+    «…_fpa_2024_01_10_2024_31_12_2024_Αρχική_….pdf»). Το έντυπο έχει ΜΟΝΟ αριθμούς
+    (χωρίς ετικέτες) και η διάταξή τους αλλάζει, άρα δουλεύουμε με ΑΡΙΘΜΗΤΙΚΗ:
+      D = ΦΠΑ εκροών − ΦΠΑ εισροών της περιόδου (γράφεται μετά τον ΑΦΜ)
+      C = πιστωτικό υπόλοιπο προηγούμενης περιόδου, N = πιστωτικό που μεταφέρεται
+      • C − D = N  ή  C + D = N  → ΠΙΣΤΩΤΙΚΗ: τίποτα για πληρωμή (εγγραφή 0 € —
+        φαίνεται στην αναφορά, δεν μετράει)
+      • D − C = P  → πληρωτέο P (το πιστωτικό κάλυψε μέρος)
+      • χωρίς πιστωτικό, D = εκροές − εισροές (εκροές > εισροές) → πληρωτέο D
+      • αλλιώς ΤΙΠΟΤΑ (καλύτερα κενό από λάθος — ✎ διόρθωση)
+    Πληρωμή: τελευταία εργάσιμη του επόμενου μήνα από τη λήξη της περιόδου.
     Τροποποιητικές: ΔΕΝ μετράνε αυτόματα (μπορεί να ξαναγράφουν το αρχικό ποσό).
     """
-    fn = norm_greek(re.sub(r"[_\-.]+", " ", name or ""))
-    m = re.search(r"Φ2 (20\d\d) (\d{1,2})Ο (ΑΡΧΙΚΗ|ΤΡΟΠΟΠΟΙΗΤΙΚΗ)", fn)
-    if not m:
-        return []
-    year, per_no, typ = int(m.group(1)), int(m.group(2)), m.group(3)
-    if typ != "ΑΡΧΙΚΗ":
+    import unicodedata
+    up = "".join(ch for ch in unicodedata.normalize("NFD", (name or "").upper())
+                 if not unicodedata.combining(ch))
+    if not re.search(r"(?:^|[_ ])(?:Φ2|ΦΠΑ|FPA)_", up) or "ΤΡΟΠΟΠΟΙΗΤΙΚ" in up:
         return []
     t = raw or ""
     dates = re.findall(r"\b(\d{2})/(\d{2})/(\d{2})\b", t)
-    ends = [date(2000 + int(y), int(mo), int(d)) for d, mo, y in dates]
-    period_end = next((e for e in ends if e.year == year and e.day >= 28), None)
-    if period_end is None:
+    try:
+        start, period_end = (date(2000 + int(y), int(mo), int(d)) for d, mo, y in dates[:2])
+    except ValueError:
         return []
-    after = re.search(r"\b\d{9}\s*\n\s*" + _AMOUNT + r"\s*\n\s*" + _AMOUNT, t)
-    if not after:
+    if period_end <= start:
         return []
-    x = _cents(_num(after.group(2)))
-    vals = set(_cents_all(t))
-    if not x or not any(a - b == x for a in vals for b in vals if a > b > x):
+    vals = _cents_all(t)
+    if not vals:
+        return []
+    first = {}
+    for i, v in enumerate(vals):
+        first.setdefault(v, i)
+    # Ποσά ΣΤΟ ΜΕΓΕΘΟΣ ΤΟΥ ΦΠΑ: ≥ 100 € και < μισό του μεγαλύτερου (εκεί είναι οι
+    # αξίες πωλήσεων/αγορών — αυτές δίνουν «τυχαία» αθροίσματα).
+    cap = max(vals) / 2
+    vat = {v for v in first if 10000 <= v < cap}
+    afm = list(re.finditer(r"(?m)^\s*\d{9}\s*$", t))
+    tail = _cents_all(t[afm[-1].end():]) if afm else []
+    def is_sum(v: int) -> bool:
+        """Σύνολο στήλης: ίσο με το άθροισμα των 2–4 ποσών ακριβώς πριν (π.χ. ΦΠΑ εκροών)."""
+        i = first[v]
+        return any(i >= k and sum(vals[i - k:i]) == v for k in (2, 3, 4))
+
+    pay = credit = None
+    for d in sorted({v for v in tail if v in vat}, reverse=True):   # η διαφορά = το μεγαλύτερο
+        pairs = [(c, n) for c in vat for n in vat if d not in (c, n) and first[c] < first[n]
+                 and (c - d == n or c + d == n)]
+        # εκροές − D = εισροές: ΚΑΙ τα δύο είναι σύνολα στηλών → ο υπολογισμός του ΦΠΑ
+        calc = [(c, n) for c, n in pairs if c - d == n and is_sum(c) and is_sum(n)]
+        # πιστωτικό ΠΡΙΝ (C) → πιστωτικό ΜΕΤΑ (N): ΟΧΙ σύνολα στηλών
+        chain = [(c, n) for c, n in pairs if not (is_sum(c) and is_sum(n))]
+        if chain:
+            credit, pay = max(chain, key=lambda cn: first[cn[0]])[1], 0
+            break
+        if calc:                                 # χρεωστική χωρίς πιστωτικό → πληρωτέο D
+            part = [p for c in vat for p in first if 0 < p < d and c not in (d,) + calc[0]
+                    and not is_sum(c) and d - c == p]
+            pay = part[0] if part else d         # μέρος καλύφθηκε από πιστωτικό → P
+            break
+    if pay is None:          # δεν βγαίνει με βεβαιότητα → τίποτα (φαίνεται στην αναφορά, ✎ διόρθωση)
         return []
     y, mo = (period_end.year + 1, 1) if period_end.month == 12 else (period_end.year, period_end.month + 1)
     due = date(y, mo, calendar.monthrange(y, mo)[1])
     while due.weekday() >= 5:                       # Σάββατο/Κυριακή → Παρασκευή
         due = date.fromordinal(due.toordinal() - 1)
-    start = next((e for e in ends if e < period_end), None)
-    per = f"{start:%d/%m}–{period_end:%d/%m/%Y}" if start else f"έως {period_end:%d/%m/%Y}"
-    return [{"kind": KIND_VAT, "ref": f"{due:%Y-%m}", "sub": f"№ Φ2 {year} {per_no}η περίοδος",
-             "amount": x / 100, "pay_date": due, "_doc": "vat",
-             "detail": f"Δήλωση ΦΠΑ {per_no}η περίοδος {year} ({per}) · ποσό για καταβολή",
-             "check": "✓ = ΦΠΑ εκροών − ΦΠΑ εισροών"}]
+    per = f"{start:%d/%m}–{period_end:%d/%m/%Y}"
+    detail = (f"Δήλωση ΦΠΑ {per} · ΠΙΣΤΩΤΙΚΗ — τίποτα για πληρωμή · πιστωτικό υπόλοιπο {_eur(credit / 100)}"
+              if credit is not None else f"Δήλωση ΦΠΑ {per} · ποσό για καταβολή")
+    return [{"kind": KIND_VAT, "ref": f"{due:%Y-%m}", "sub": f"№ ΦΠΑ {start:%Y-%m-%d}–{period_end:%Y-%m-%d}",
+             "amount": pay / 100, "pay_date": due, "_doc": "vat", "detail": detail,
+             "check": "✓ εκροές − εισροές − πιστωτικό"}]
 
 
-PARSERS = (parse_efka_body, parse_apd, parse_partners, parse_aade, parse_accountant, parse_vat)
+PARSERS = (parse_efka_body, parse_apd, parse_partners, parse_aade, parse_accountant, parse_vat,
+           parse_taxis_slip, parse_elpk)
 SOURCES = (src_statement, src_mk, src_receipts)        # PDF/κείμενο → πηγές μισθοδοσίας
 
 
