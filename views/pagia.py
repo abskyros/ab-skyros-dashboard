@@ -35,6 +35,7 @@ def render(df: pd.DataFrame, today: date) -> None:
         return
 
     _upcoming(df, today)
+    _aade_debt()
 
     years = sorted({int(r[:4]) for r in df["ref"].astype(str) if r[:4].isdigit()}, reverse=True)
     col, _ = st.columns([1, 2])
@@ -241,6 +242,23 @@ def _upcoming(df: pd.DataFrame, today: date) -> None:
              if not later.empty else "")
     c.html(f'<div style="font-size:.85rem;margin:.3rem 0 1rem">Σύνολο ως {month_end:%d/%m}: '
            f'<b>{c.eur(total)}</b>{extra}</div>')
+
+
+def _aade_debt() -> None:
+    """Συνολική οφειλή στην ΑΑΔΕ — από την πιο πρόσφατη κατάσταση «Οφειλές προς το Δημόσιο»."""
+    import json
+    try:
+        from core.sheets import load_setting
+        d = json.loads(load_setting("aade_debt", "") or "{}")
+    except Exception:
+        return
+    if not d.get("date"):
+        return
+    day = "/".join(reversed(str(d["date"]).split("-")))
+    c.html(f'<div style="font-size:.85rem;margin:-.4rem 0 1rem">Οφειλή ΑΑΔΕ στις {day}: '
+           f'<b>{c.eur(float(d.get("total") or 0))}</b> '
+           f'(εκτός ρύθμισης {c.eur(float(d.get("out") or 0))} · '
+           f'σε ρύθμιση {c.eur(float(d.get("in") or 0))})</div>')
 
 
 def _ref_label(ref: str) -> str:

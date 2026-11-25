@@ -1186,8 +1186,11 @@ def merge_pagia(records: list) -> int:
     from datetime import date as _date
     from core.pagia import key as pagia_key, _cents
 
-    recs = [r for r in records if r and r.get("kind") and r.get("amount")]
-    if not recs:
+    # ΑΑΔΕ με ημερομηνία κατάστασης: χωριστά (και τα σημάδια «καμία δόση», ποσό 0)
+    aade = [r for r in records if r and r.get("kind") == "ΑΑΔΕ" and r.get("snap")]
+    recs = [r for r in records if r and r.get("kind") and r.get("amount")
+            and not (r.get("kind") == "ΑΑΔΕ" and r.get("snap"))]
+    if not recs and not aade:
         return 0
     ws = _pagia_ws()
     wm = _misth_ws()
@@ -1206,10 +1209,13 @@ def merge_pagia(records: list) -> int:
     # Μόλις έρθουν οι εργαζόμενοι της ίδιας πληρωμής, το σκέτο σύνολο ΦΕΥΓΕΙ
     # (αλλιώς μετριέται δύο φορές).
     totals_at: dict[tuple, list] = {}
+    aade_rows: list[dict] = []
     for idx, r in enumerate(_get_all(ws)[1:], start=2):
         if not r or not r[0]:
             continue
         r = (r + [""] * n)[:n]
+        if r[0] == "ΑΑΔΕ":
+            aade_rows.append({"idx": idx, "due": r[4], "snap": r[6], "row": None})
         if r[0] in _PER_EMP_KINDS and not r[7]:
             totals_at.setdefault((r[0], r[1], r[2]), []).append(idx)
         toks = [t for t in r[7].split(",") if ":" in t]
@@ -1226,6 +1232,8 @@ def merge_pagia(records: list) -> int:
         have.add(pagia_key({"kind": r[0], "ref": r[1], "sub": r[2],
                             "amount": from_cents(r[3]), "pay_date": pay}))
     rows, mnew, drop = [], [], []
+    if aade:
+        _merge_aade(aade, aade_rows, rows, drop)
     # Πρώτα όσα έχουν εργαζόμενους: έτσι ένα σκέτο σύνολο της ίδιας πληρωμής βρίσκει
     # ότι υπάρχουν ήδη και δεν γράφεται.
     for r in sorted(recs, key=lambda x: (x["ref"], x["kind"], x.get("sub", ""), not x.get("emps"))):
@@ -1276,6 +1284,61 @@ def merge_pagia(records: list) -> int:
         resolve_misthodosies(wm)
         load_misthodosies.clear()
     return len(rows)
+
+
+def _merge_aade(aade: list, existing: list, rows: list, drop: list) -> None:
+    """
+    ΑΑΔΕ: κάθε κατάσταση «Οφειλές προς το Δημόσιο» είναι φωτογραφία της στιγμής S
+    (ημερομηνία πληροφόρησης· γράφεται στη στήλη email_date).
+      • Νεότερη κατάσταση → σβήνει τις δόσεις παλιότερων με λήξη ≥ S (αλλάζουν/κλείνουν).
+      • Παλιότερη κατάσταση (π.χ. η ανάκτηση διαβάζει ανάποδα) → δεν γράφει δόσεις
+        με λήξη ≥ της νεότερης που υπάρχει ήδη.
+      • Ίδια κατάσταση ξανά → τίποτα. Ληξιπρόθεσμη δόση (λήξη < S) που υπάρχει ήδη → τίποτα.
+    Η συνολική οφειλή της ΝΕΟΤΕΡΗΣ κατάστασης → ρύθμιση «aade_debt».
+    """
+    import json
+
+    def iso(d):
+        return d.strftime("%Y-%m-%d") if d else ""
+
+    alive = [dict(e) for e in existing]
+    groups: dict[str, list] = {}
+    for r in aade:
+        groups.setdefault(iso(r["snap"]), []).append(r)
+    newest = None
+    for snap in sorted(groups):
+        newer = [e["snap"] for e in alive if e["snap"] > snap]
+        cutoff = min(newer) if newer else None
+        for e in [e for e in alive if e["snap"] < snap and e["due"] >= snap]:
+            alive.remove(e)
+            if e["row"] is not None:
+                rows.remove(e["row"])
+            else:
+                drop.append(e["idx"])
+        for r in groups[snap]:
+            due = iso(r.get("pay_date"))
+            if not due or not r.get("amount"):
+                continue
+            if cutoff and due >= cutoff:
+                continue
+            if any(e["due"] == due and e["snap"] == snap for e in alive):
+                continue
+            if due < snap and any(e["due"] == due for e in alive):
+                continue
+            row = ["ΑΑΔΕ", r["ref"], "", to_cents(r["amount"]), due, str(r.get("detail", ""))[:200],
+                   snap, "", str(r.get("source", ""))[:200], ""]
+            rows.append(row)
+            alive.append({"idx": None, "due": due, "snap": snap, "row": row})
+        debt = next((r.get("debt") for r in groups[snap] if r.get("debt")), None)
+        if debt and not newer:
+            newest = {"date": snap, **debt}
+    if newest:
+        try:
+            old = json.loads(load_setting("aade_debt", "") or "{}")
+        except ValueError:
+            old = {}
+        if newest["date"] >= str(old.get("date", "")):
+            save_setting("aade_debt", json.dumps(newest))
 
 
 def resolve_misthodosies(wm=None) -> int:

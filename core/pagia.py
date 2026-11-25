@@ -676,20 +676,82 @@ def parse_partners(raw: str, name: str = "") -> list[dict]:
              "pay_date": due, "detail": f"Εταίρος ΑΦΜ {sub}", "_doc": "partners"}]
 
 
+_AADE_ROW = re.compile(r"\b\d{1,3}\s+" + _DATE + r"\s+" + _AMOUNT + r"\s*€\s+" + _AMOUNT
+                       + r"\s*€\s+" + _AMOUNT + r"\s*€")
+
+
+def _aade_label(title: str) -> str:
+    """Τίτλος οφειλής → σύντομο όνομα (για τις λεπτομέρειες της δόσης)."""
+    if "ΜΙΣΘΩΤ" in title:
+        return "ΦΜΥ"
+    if "ΑΜΟΙΒ" in title:
+        return "Παρακράτηση αμοιβών"
+    if "ΡΥΘΜΙΣ" in title or "ΔΟΣΕ" in title:
+        return "Ρύθμιση"
+    for k, v in (("Φ.Π.Α", "ΦΠΑ"), ("ΦΠΑ", "ΦΠΑ"), ("ΕΝΦΙΑ", "ΕΝΦΙΑ"), ("ΕΙΣΟΔΗΜ", "Φόρος εισοδήματος"),
+                 ("ΤΕΛΗ ΚΥΚΛΟΦ", "Τέλη κυκλοφορίας"), ("ΤΕΛΟΣ ΕΠΙΤΗΔ", "Τέλος επιτηδεύματος")):
+        if k in title:
+            return v
+    return " ".join(title.split())[:40] or "Οφειλή"
+
+
 def parse_aade(raw: str, name: str = "") -> list[dict]:
-    """Οφειλές προς ΑΑΔΕ: γραμμές δόσεων «Α/Α λήξη υπόλοιπο προσαυξήσεις σύνολο» → ανά λήξη."""
+    """
+    «Οφειλές προς το Δημόσιο» (PartyDebts): ΦΩΤΟΓΡΑΦΙΑ ΤΗΣ ΣΤΙΓΜΗΣ στην «Ημερομηνία
+    Πληροφόρησης» (`snap`). Δόσεις «Α/Α λήξη υπόλοιπο προσαυξήσεις σύνολο» → μία
+    εγγραφή ανά λήξη, με ανάλυση (π.χ. «ΦΜΥ 803,89 € + Παρακράτηση αμοιβών 80,00 €»).
+    Η ΝΕΟΤΕΡΗ κατάσταση αντικαθιστά τις παλιότερες (βλ. sheets.merge_pagia).
+    `debt` = συνολική οφειλή (εκτός/εντός ρύθμισης). Χωρίς δόσεις → μία εγγραφή-σημάδι
+    με ποσό 0 (ώστε να σβηστούν οι παλιές δόσεις).
+    """
     t = norm_greek(raw)
     if "ΟΦΕΙΛΕΣ ΠΡΟΣ ΤΟ ΔΗΜΟΣΙΟ" not in t and "ΑΑΔΕ" not in t:
         return []
+    info = re.search(r"ΗΜΕΡΟΜΗΝΙΑ ΠΛΗΡΟΦΟΡΗΣΗΣ\s*:?\s*" + _DATE, t)
+    snap = _date(info) if info else None
+    debt = None
+    i = t.find("ΣΥΝΟΛΙΚΟ ΠΟΣΟ ΟΦΕΙΛΗΣ ΕΝΤΟΣ ΚΙ ΕΚΤΟΣ")
+    if i >= 0:
+        j = t.find("ΟΦΕΙΛΕΣ ", i + 40)
+        v = [_num(x) for x in re.findall(_AMOUNT + r"\s*€", t[i:j if j > i else i + 1500])]
+        if len(v) >= 9 and _cents(v[3] + v[7]) == _cents(v[8]):
+            debt = {"total": v[8], "out": v[3], "in": v[7]}
+
     by_due: dict[date, float] = {}
-    for m in re.finditer(r"\b\d{1,3}\s+" + _DATE + r"\s+" + _AMOUNT + r"\s*€\s+" + _AMOUNT
-                         + r"\s*€\s+" + _AMOUNT + r"\s*€", t):
-        due = _date(m)
-        if due:
-            by_due[due] = by_due.get(due, 0.0) + _num(m.group(6))
-    return [{"kind": KIND_AADE, "ref": f"{due:%Y-%m}", "sub": "", "amount": round(amt, 2),
-             "pay_date": due, "detail": "Οφειλές προς ΑΑΔΕ (λήξη)", "_doc": "aade"}
-            for due, amt in sorted(by_due.items()) if amt > 0]
+    parts: dict[date, dict] = {}
+    title, prev = "", ""
+    for ln in t.splitlines():
+        s = ln.strip()
+        if re.fullmatch(r"\d{9}-\d+-\d+", s):
+            title = prev
+        for m in _AADE_ROW.finditer(ln):
+            due = _date(m)
+            if due:
+                amt = _num(m.group(6))
+                by_due[due] = by_due.get(due, 0.0) + amt
+                lab = _aade_label(title)
+                parts.setdefault(due, {})[lab] = parts.get(due, {}).get(lab, 0.0) + amt
+        if s:
+            prev = s
+    if not by_due:                         # παλιά διάταξη: γραμμές σπασμένες σε πολλές σειρές
+        for m in _AADE_ROW.finditer(t):
+            due = _date(m)
+            if due:
+                by_due[due] = by_due.get(due, 0.0) + _num(m.group(6))
+    out = []
+    for due, amt in sorted(by_due.items()):
+        if amt <= 0:
+            continue
+        p = parts.get(due) or {}
+        detail = (" + ".join(f"{k} {_eur(v)}" for k, v in sorted(p.items(), key=lambda x: -x[1]))
+                  if p else "Οφειλές προς ΑΑΔΕ (λήξη)")
+        out.append({"kind": KIND_AADE, "ref": f"{due:%Y-%m}", "sub": "", "amount": round(amt, 2),
+                    "pay_date": due, "detail": detail, "_doc": "aade", "snap": snap, "debt": debt})
+    if not out and snap:
+        out.append({"kind": KIND_AADE, "ref": f"{snap:%Y-%m}", "sub": "", "amount": 0.0,
+                    "pay_date": None, "detail": "Καμία δόση", "_doc": "aade", "snap": snap,
+                    "debt": debt, "_marker": True})
+    return out
 
 
 def parse_accountant(raw: str, name: str = "") -> list[dict]:
@@ -923,7 +985,9 @@ def key(r: dict) -> tuple:
     kind = r["kind"]
     if kind == KIND_AADE:
         pay = r.get("pay_date")
-        return (kind, pay.isoformat() if hasattr(pay, "isoformat") else str(pay))
+        snap = r.get("snap")
+        return (kind, pay.isoformat() if hasattr(pay, "isoformat") else str(pay),
+                snap.isoformat() if hasattr(snap, "isoformat") else str(snap or ""))
     if kind in (KIND_EFKA, KIND_PARTNERS):
         return (kind, r["ref"], r.get("sub", ""))
     emps = r.get("emps")
