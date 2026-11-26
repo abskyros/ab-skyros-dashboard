@@ -1926,6 +1926,25 @@ def set_provider_fields(iid: str, fields: dict) -> bool:
     return False
 
 
+def rename_provider_bills(old: str, new: str) -> int:
+    """Αλλαγή ονόματος παρόχου → οι λογαριασμοί του στο «pagia» παίρνουν το νέο όνομα (στήλη)."""
+    if not old or not new or old == new:
+        return 0
+    ws = _pagia_ws()
+    vals = _get_all(ws)
+    n = len(PAGIA_COLS)
+    body = [(list(r) + [""] * n)[:n] for r in vals[1:]]
+    moved = 0
+    for r in body:
+        if r[0] == old and str(r[2]).startswith("№ "):
+            r[0] = new
+            moved += 1
+    if moved:
+        _with_retry(lambda: ws.update(body, "A2", value_input_option="RAW"), tries=4, base_wait=5.0)
+        load_pagia.clear()
+    return moved
+
+
 def set_provider_active(iid: str, active: bool) -> bool:
     return set_provider_fields(iid, {"active": "1" if active else "0"})
 

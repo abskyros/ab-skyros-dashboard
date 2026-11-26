@@ -794,6 +794,39 @@ a.plain:hover > .row { border-color: var(--blue-soft); background: var(--surface
   color: var(--ink);
 }
 
+/* ── ΠΑΓΙΑ: πίνακας ανά μήνα (χρώμα ανά κατηγορία, μεγάλη μπάρα κύλισης) ───── */
+.pg-wrap { scrollbar-width: auto; scrollbar-color: var(--gold) var(--surface-alt); padding-bottom: 2px; }
+.pg-wrap::-webkit-scrollbar { height: 18px; }
+.pg-wrap::-webkit-scrollbar-track { background: var(--surface-alt); border-radius: 9px; }
+.pg-wrap::-webkit-scrollbar-thumb { background: var(--gold); border-radius: 9px; border: 4px solid var(--surface-alt); }
+.pg-wrap::-webkit-scrollbar-thumb:hover { background: var(--brand); border-width: 3px; }
+.tbl3.pg thead th.k { color: #fff; font-weight: 700; border-bottom: none; }
+.tbl3.pg thead th.day { position: sticky; left: 0; z-index: 2; }
+.tbl3.pg tbody td.v.now { font-weight: 600; }
+.tbl3.pg tfoot td { padding: .5rem .55rem; text-align: right; white-space: nowrap; }
+.tbl3.pg tfoot td.day { position: sticky; left: 0; background: var(--surface); z-index: 1; text-align: left; }
+
+/* ── ΠΑΓΙΑ: επόμενες πληρωμές ως συμπαγής λίστα ───────────────────────────── */
+.pg-mh { display: flex; justify-content: space-between; font-weight: 700; font-size: .9rem;
+         padding: .45rem 0 .3rem; border-bottom: 2px solid var(--gold); margin: .6rem 0 .45rem; }
+.pg-row { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto auto; gap: .6rem;
+          align-items: center; font-size: .88rem; line-height: 1.3; }
+.pg-row .dot { width: 10px; height: 10px; border-radius: 50%; }
+/* Γραμμή + «✓» ΠΑΝΤΑ δίπλα-δίπλα (και στο κινητό) */
+div[data-testid="stHorizontalBlock"]:has(.pg-row) { flex-wrap: nowrap !important; flex-direction: row !important;
+                                                     align-items: center !important; }
+div[data-testid="stHorizontalBlock"]:has(.pg-row) > div:first-child { flex: 1 1 auto; min-width: 0; }
+div[data-testid="stHorizontalBlock"]:has(.pg-row) > div:last-child { flex: 0 0 auto; }
+@media (max-width: 640px) {
+  .pg-row { grid-template-columns: 8px minmax(0, 1fr) auto; gap: .45rem; font-size: .84rem; }
+  .pg-row .pg-when { display: none; }
+  .pg-row .pg-amt::after { content: attr(data-when); display: block; font-size: .72rem;
+                           font-weight: 400; color: var(--muted); text-align: right; }
+}
+.pg-row .pg-sub { display: block; font-size: .76rem; color: var(--muted); }
+.pg-row .pg-amt { font-weight: 700; white-space: nowrap; }
+.pg-row .pg-when { font-size: .78rem; color: var(--muted); white-space: nowrap; text-align: right; }
+
 /* ── ΤΡΙ-ΕΤΗΣ ΠΙΝΑΚΑΣ (Φέτος · Πέρσι · Πρόπερσι) ─────────────────────────────
    Δικό μας HTML table — ΟΧΙ pandas Styler (ρίχνει το cloud). Το περιτύλιγμα
    κάνει σκρολ δεξιά στο κινητό, ώστε να χωρούν όλες οι χρονιές. */
