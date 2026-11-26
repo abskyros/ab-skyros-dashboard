@@ -1840,7 +1840,8 @@ def update_pagia_manual(iid: str, fields: dict) -> bool:
 # χρήστης. Οι λογαριασμοί τους (core/bills.py) μπαίνουν στο «pagia» με είδος = όνομα.
 # ══════════════════════════════════════════════════════════════════════════════
 SHEET_PROVIDERS = "pagia_providers"
-PROVIDER_COLS = ["id", "name", "email", "must", "days", "active", "note", "created"]
+PROVIDER_COLS = ["id", "name", "email", "must", "days", "active", "note", "created",
+                 "searched", "result"]          # τελευταία αναζήτηση: πότε · τι βρέθηκε
 
 
 def _providers_ws():
@@ -1889,15 +1890,29 @@ def add_provider(item: dict) -> str:
     return iid
 
 
-def set_provider_active(iid: str, active: bool) -> bool:
+def set_provider_fields(iid: str, fields: dict) -> bool:
+    """Αλλάζει πεδία ενός παρόχου (π.χ. {"active": "0"} ή {"searched": …, "result": …})."""
     ws = _providers_ws()
-    for idx, r in enumerate(_get_all(ws)[1:], start=2):
+    vals = _get_all(ws)
+    n = len(PROVIDER_COLS)
+    if vals and len(vals[0]) < n:                      # παλιά κεφαλίδα → νέες στήλες
+        if ws.col_count < n:
+            _with_retry(lambda: ws.add_cols(n - ws.col_count))
+        _with_retry(lambda: ws.update([PROVIDER_COLS], "A1"))
+    for idx, r in enumerate(vals[1:], start=2):
         if r and r[0] == iid:
-            col = chr(ord("A") + PROVIDER_COLS.index("active"))
-            _with_retry(lambda: ws.update([["1" if active else "0"]], f"{col}{idx}", value_input_option="RAW"))
+            row = (list(r) + [""] * n)[:n]
+            for k, v in fields.items():
+                if k in PROVIDER_COLS and k != "id":
+                    row[PROVIDER_COLS.index(k)] = str(v)[:300]
+            _with_retry(lambda: ws.update([row], f"A{idx}", value_input_option="RAW"))
             load_providers.clear()
             return True
     return False
+
+
+def set_provider_active(iid: str, active: bool) -> bool:
+    return set_provider_fields(iid, {"active": "1" if active else "0"})
 
 
 def delete_provider(iid: str, with_bills: bool = False) -> bool:
@@ -1915,6 +1930,100 @@ def delete_provider(iid: str, with_bills: bool = False) -> bool:
                 load_pagia.clear()
             return True
     return False
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ΠΡΟΠΛΗΡΩΜΕΝΑ — φύλλο «pagia_paid». Ο χρήστης πατά «✓ Πληρώθηκε» σε μια επόμενη
+# πληρωμή → φεύγει από τις «Επόμενες πληρωμές» ΚΑΙ από την Πρόβλεψη (μένει στον
+# πίνακα ανά μήνα — είναι έξοδο του μήνα). Δεν το αγγίζει καμία ανάκτηση.
+# ══════════════════════════════════════════════════════════════════════════════
+SHEET_PAGIA_PAID = "pagia_paid"
+PAID_COLS = ["key", "kind", "ref", "sub", "amount", "pay_date", "paid_on"]
+
+
+def paid_key(kind, ref, sub, pay_date) -> str:
+    """Ταυτότητα μιας πληρωμής: είδος · μήνας · υποκατηγορία · ημερομηνία πληρωμής."""
+    pd_s = pay_date.strftime("%Y-%m-%d") if hasattr(pay_date, "strftime") else str(pay_date or "")[:10]
+    return f"{kind}|{ref}|{sub or ''}|{pd_s}"
+
+
+def _paid_ws():
+    ss = _spreadsheet()
+    try:
+        return ss.worksheet(SHEET_PAGIA_PAID)
+    except Exception:
+        ws = ss.add_worksheet(title=SHEET_PAGIA_PAID, rows=200, cols=len(PAID_COLS))
+        ws.update([PAID_COLS], "A1")
+        return ws
+
+
+@st.cache_data(ttl=600, max_entries=1, show_spinner=False)
+def load_pagia_paid() -> dict:
+    """→ {key: {kind, ref, sub, amount(€), pay_date, paid_on}}"""
+    try:
+        vals = _with_retry(lambda: _paid_ws().get_all_values())
+    except Exception:
+        return {}
+    n = len(PAID_COLS)
+    out = {}
+    for r in (vals or [])[1:]:
+        r = (r + [""] * n)[:n]
+        if r[0]:
+            d = dict(zip(PAID_COLS, r))
+            d["amount"] = from_cents(d["amount"])
+            out[r[0]] = d
+    return out
+
+
+def mark_pagia_paid(rows: list) -> int:
+    """rows = [{kind, ref, sub, amount, pay_date}] → σημειώνονται «πληρώθηκε σήμερα»."""
+    from datetime import date as _d
+    have = load_pagia_paid()
+    new = []
+    for r in rows:
+        k = paid_key(r["kind"], r["ref"], r.get("sub", ""), r.get("pay_date"))
+        if k in have:
+            continue
+        pd_s = k.rsplit("|", 1)[1]
+        new.append([k, str(r["kind"]), str(r["ref"]), str(r.get("sub", "") or ""),
+                    to_cents(float(r.get("amount") or 0)), pd_s, _d.today().isoformat()])
+    if new:
+        _append(_paid_ws(), new)
+        load_pagia_paid.clear()
+    return len(new)
+
+
+def unmark_pagia_paid(keys: list) -> int:
+    keys = set(keys)
+    gone = _rewrite_keep(_paid_ws(), lambda r: r[0] not in keys, len(PAID_COLS))
+    load_pagia_paid.clear()
+    return gone
+
+
+def with_paid(df: pd.DataFrame) -> pd.DataFrame:
+    """Προσθέτει στήλη «paid» (True = σημειώθηκε ως προπληρωμένο)."""
+    df = df.copy()
+    if df.empty:
+        df["paid"] = pd.Series(dtype=bool)
+        return df
+    paid = load_pagia_paid()
+    df["paid"] = [paid_key(k, r, s, p if pd.notna(p) else "") in paid
+                  for k, r, s, p in zip(df["kind"], df["ref"], df["sub"], df["pay_date"])]
+    return df
+
+
+def load_pagia_forecast(today) -> pd.DataFrame:
+    """
+    Πάγια για την ΠΡΟΒΛΕΨΗ: τα αυτόματα + «paid» (προπληρωμένα δεν μετράνε) +
+    «no_project» (πάροχοι σε παύση: ΟΧΙ εκτιμήσεις για το μέλλον — άλλαξες πάροχο).
+    """
+    df = with_paid(load_pagia())
+    if df.empty:
+        df["no_project"] = pd.Series(dtype=bool)
+        return df
+    stopped = {p["name"] for p in load_providers() if not p["active"]}
+    df["no_project"] = df["kind"].isin(stopped)
+    return df
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2018,7 +2127,7 @@ def load_pagia_all(today) -> pd.DataFrame:
             if col not in man.columns:
                 man[col] = ""
         df = man if df.empty else pd.concat([df, man], ignore_index=True)
-    return apply_pagia_fix(df, load_pagia_fix())
+    return with_paid(apply_pagia_fix(df, load_pagia_fix()))
 
 
 # ══════════════════════════════════════════════════════════════════════════════

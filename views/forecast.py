@@ -79,5 +79,14 @@ def render(df_t: pd.DataFrame, df_s: pd.DataFrame, today: date) -> None:
     until = _horizon(today)
     forecast = cash_forecast(df_t, df_s, today, cash, fixed=fixed, until=until,
                              df_agores=load_agores(), df_invoices=load_invoices(),
-                             df_pagia=load_pagia())
+                             df_pagia=_pagia_for_forecast(today))
     _forecast_display(forecast)
+
+
+def _pagia_for_forecast(today):
+    """Πάγια χωρίς τα προπληρωμένα και χωρίς εκτιμήσεις για παρόχους σε παύση."""
+    try:
+        from core.sheets import load_pagia_forecast
+        return load_pagia_forecast(today)
+    except Exception:
+        return load_pagia()

@@ -1028,6 +1028,10 @@ def pagia_events(df: pd.DataFrame, today: date, until: date) -> list[dict]:
         return []
     d = df[df["pay_date"].notna()].copy()
     d["pd"] = d["pay_date"].dt.date
+    # «✓ Πληρώθηκε» (προπληρωμένα): μετράνε ως «ήρθε» αλλά ΔΕΝ είναι πια πληρωμή μπροστά.
+    paid = d["paid"].astype(bool) if "paid" in d.columns else pd.Series(False, index=d.index)
+    # Πάροχοι σε παύση (άλλαξες πάροχο): ΟΧΙ εκτιμήσεις για το μέλλον.
+    stop = set(d.loc[d["no_project"].astype(bool), "kind"]) if "no_project" in d.columns else set()
     out = []
     for kind in sorted(d["kind"].unique()):
         k = d[d["kind"] == kind].sort_values("pd")
@@ -1036,12 +1040,13 @@ def pagia_events(df: pd.DataFrame, today: date, until: date) -> list[dict]:
             in_month = k[k["pd"].map(lambda x: (x.year, x.month) == (y, m))]
             if not in_month.empty:
                 # Έχει έρθει: μόνο ό,τι δεν έχει πληρωθεί ακόμη, ανά ημερομηνία.
-                real = in_month[(in_month["pd"] >= today) & (in_month["pd"] <= until)]
+                real = in_month[(in_month["pd"] >= today) & (in_month["pd"] <= until)
+                                & ~paid.loc[in_month.index]]
                 for when, grp in real.groupby("pd"):
                     refs = sorted({f"{r[5:7]}/{r[:4]}" for r in grp["ref"]})
                     out.append({"date": when, "amount": float(grp["amount"].sum()),
                                 "name": f"{kind} {', '.join(refs)}", "estimated": False})
-            elif kind not in NOT_PROJECTED:
+            elif kind not in NOT_PROJECTED and kind not in stop:
                 ly = k[k["pd"].map(lambda x: (x.year, x.month) == (y - 1, m))]
                 if not ly.empty:
                     amount, day, tag = float(ly["amount"].sum()), int(ly["pd"].iloc[-1].day), "~πέρσι"

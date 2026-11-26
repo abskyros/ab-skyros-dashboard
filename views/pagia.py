@@ -113,15 +113,19 @@ def _manual_editor(today: date) -> None:
 
 def _providers(df: pd.DataFrame) -> None:
     """
-    ΠΑΡΟΧΟΙ ΜΕ EMAIL (ρεύμα, τηλέφωνο, νερό…): δηλώνεις αποστολέα → το GitHub
-    διαβάζει ΟΛΟΥΣ τους λογαριασμούς του (2 χρόνια πίσω) και μετά κάθε βράδυ τους
-    καινούργιους (core/bills.py). Κάθε πάροχος = δική του στήλη στον πίνακα.
+    ΠΑΡΟΧΟΙ ΜΕ EMAIL (ρεύμα, τηλέφωνο, νερό…): δηλώνεις αποστολέα → «🔍 Αναζήτηση»
+    → το GitHub διαβάζει ΟΛΑ τα email του από τον Ιανουάριο 2024 (κείμενο + PDF) και
+    καταχωρεί κάθε λογαριασμό· μετά κάθε βράδυ τους καινούργιους (core/bills.py).
+    Αλλαγή παρόχου: «⏸ Απενεργοποίηση» στον παλιό (το ιστορικό μένει, η Πρόβλεψη
+    σταματά να τον υπολογίζει) και προσθήκη του νέου.
     """
     from core.github import available as gh_available, trigger_workflow
     from core.sheets import add_provider, load_providers
 
     provs = load_providers()
-    with st.expander(f"Πάροχοι με email ({len(provs)}) — ρεύμα, τηλέφωνο… διαβάζονται αυτόματα"):
+    act = sum(1 for p in provs if p["active"])
+    with st.expander(f"Πάροχοι με email ({act} ενεργοί" + (f" · {len(provs) - act} σε παύση" if len(provs) > act else "")
+                     + ") — ρεύμα, τηλέφωνο… διαβάζονται αυτόματα"):
         msg = st.session_state.pop("pagia_prov_msg", None)
         if msg:
             c.note(*msg)
@@ -133,59 +137,79 @@ def _providers(df: pd.DataFrame) -> None:
             must = m1.text_input("Μόνο αν περιέχει (προαιρετικό)",
                                  placeholder="π.χ. NOVA — αν ο αποστολέας στέλνει για πολλές εταιρείες")
             days = m2.number_input("Μέρες προθεσμίας αν δεν γράφει λήξη", min_value=0, max_value=90, value=15)
-            if st.form_submit_button("➕ Προσθήκη & ανάγνωση παλιών λογαριασμών", type="primary"):
+            if st.form_submit_button("➕ Προσθήκη παρόχου", type="primary"):
                 email = email.strip().lower()
                 if not name.strip() or "@" not in email or " " in email:
                     st.error("Γράψε όνομα και σωστό email αποστολέα.")
                 else:
-                    iid = add_provider({"name": name, "email": email, "must": must, "days": days})
-                    st.session_state["pagia_prov_msg"] = _start_bills(
-                        iid, name.strip(), gh_available, trigger_workflow)
+                    add_provider({"name": name, "email": email, "must": must, "days": days})
+                    st.session_state["pagia_prov_msg"] = (
+                        f"Προστέθηκε <b>{name.strip()}</b> — ενεργός. Πάτα <b>«🔍 Αναζήτηση»</b> δίπλα του "
+                        "για τους λογαριασμούς από τον Ιανουάριο 2024· τους επόμενους τους πιάνει μόνο του κάθε βράδυ.",
+                        "ok")
                     st.rerun()
         if not provs:
             st.caption("Π.χ. «Ρεύμα» → mynrg@my-nrg.gr · «Τηλέφωνο» → epsilondigital-info@epsilonnet.gr "
                        "με «Μόνο αν περιέχει: NOVA». Το ποσό μπαίνει στον μήνα λήξης.")
             return
-        st.caption("Ποσό: «Πληρωτέο», «Συνολικό ποσό», «Ποσό πληρωμής»… · Λήξη: «λήξης», «Εξόφληση έως»… "
-                   "(αλλιώς έκδοση + μέρες). Ό,τι δεν διαβάστηκε → «Αναφορά ανάκτησης»· λάθος ποσό → ✎ διόρθωση.")
-        for p in provs:
-            sub = df[(df["kind"] == p["name"]) & df["sub"].astype(str).str.startswith("№ ")] \
-                if not df.empty else df
+        st.caption("Διαβάζει κείμενο email + PDF (όχι συνδέσμους που θέλουν κωδικό). Ποσό: «Πληρωτέο», "
+                   "«Συνολικό ποσό»… · Λήξη: «λήξης», «Εξόφληση έως»… (αλλιώς έκδοση + μέρες). "
+                   "Λάθος ποσό → ✎ διόρθωση. Αλλαγή παρόχου → «Αλλαγή» → Απενεργοποίηση.")
+        for p in sorted(provs, key=lambda x: (not x["active"], x["name"])):
+            sub = df[(df["kind"] == p["name"]) & df["sub"].astype(str).str.startswith("№ ")]                 if not df.empty else df
             last = sub.sort_values("pay_date").iloc[-1] if not sub.empty else None
             info = (f"{len(sub)} λογαριασμοί · τελευταίος {c.eur(float(last['amount']))} "
                     f"λήξη {last['pay_date']:%d/%m/%Y}" if last is not None and pd.notna(last["pay_date"])
                     else "κανένας λογαριασμός ακόμη")
-            col1, col2 = st.columns([5, 1.3])
-            col1.markdown(("" if p["active"] else "⏸ ") + f"**{p['name']}** · {p['email']}"
+            col1, col2, col3 = st.columns([4.2, 1.3, 1.1])
+            col1.markdown(("⏸ ~~" if not p["active"] else "")
+                          + f"**{p['name']}** · {p['email']}" + ("~~ (σε παύση)" if not p["active"] else "")
                           + (f" · μόνο με «{p['must']}»" if p.get("must") else "")
-                          + f" · {p['days']} μέρες · _{info}_")
-            with col2.popover("Αλλαγή", width="stretch"):
-                _provider_change(p, gh_available, trigger_workflow)
+                          + f" · _{info}_")
+            res = str(p.get("result") or "")
+            if res:
+                col1.caption(("⏳ " if res.startswith("⏳") else "🔍 ")
+                             + f"{p.get('searched') or ''} — {res.lstrip('⏳ ')}")
+            elif p["active"]:
+                col1.caption("Δεν έχει γίνει αναζήτηση ακόμη — πάτα «🔍 Αναζήτηση».")
+            if p["active"] and col2.button("🔍 Αναζήτηση", key=f"prov_search_{p['id']}", width="stretch",
+                                           help="Όλα τα email του από τον Ιανουάριο 2024 ως σήμερα (λίγα λεπτά)"):
+                st.session_state["pagia_prov_msg"] = _start_bills(p["id"], p["name"], gh_available, trigger_workflow)
+                st.rerun()
+            with col3.popover("Αλλαγή", width="stretch"):
+                _provider_change(p)
 
 
 def _start_bills(iid: str, name: str, gh_available, trigger_workflow) -> tuple:
-    """Ξεκινάει στο GitHub την ανάγνωση 2 ετών για τον πάροχο → (μήνυμα, είδος)."""
+    """«🔍 Αναζήτηση»: ξεκινάει στο GitHub την ανάγνωση από τον Ιανουάριο 2024 → (μήνυμα, είδος)."""
+    from datetime import datetime as _dt
+    from core.config import PAGIA_FROM
+    from core.sheets import set_provider_fields
     if not gh_available():
-        return (f"Προστέθηκε <b>{name}</b>. Οι λογαριασμοί θα έρθουν με τον βραδινό συγχρονισμό "
-                "(τελευταίοι 2 μήνες)· για τους παλιούς: GitHub → «Λογαριασμοί παρόχων» → Run workflow.", "warn")
-    ok, msg = trigger_workflow("bills_sync.yml", inputs={"provider": iid, "days": "730"})
+        return (f"<b>{name}</b>: η αναζήτηση γίνεται από το GitHub → «Λογαριασμοί παρόχων» → Run workflow "
+                f"(provider = {iid}). Τους επόμενους τους πιάνει μόνο του κάθε βράδυ.", "warn")
+    days = (date.today() - date.fromisoformat(PAGIA_FROM)).days + 1
+    ok, msg = trigger_workflow("bills_sync.yml", inputs={"provider": iid, "days": str(days)})
     if ok:
-        return (f"<b>{name}</b>: ξεκίνησε στο GitHub η ανάγνωση των λογαριασμών 2 ετών "
-                "(λίγα λεπτά). Μετά ανανέωσε τη σελίδα.", "ok")
-    return (f"Προστέθηκε <b>{name}</b>, αλλά η ανάγνωση δεν ξεκίνησε: {msg}", "bad")
+        set_provider_fields(iid, {"searched": _dt.now().strftime("%d/%m/%Y %H:%M"),
+                                  "result": "⏳ αναζήτηση σε εξέλιξη στο GitHub (λίγα λεπτά)"})
+        return (f"<b>{name}</b>: ξεκίνησε η αναζήτηση από {date.fromisoformat(PAGIA_FROM):%m/%Y} ως σήμερα "
+                "(λίγα λεπτά). Μετά ανανέωσε τη σελίδα — δίπλα στον πάροχο θα γράφει τι βρέθηκε.", "ok")
+    return (f"<b>{name}</b>: η αναζήτηση δεν ξεκίνησε: {msg}", "bad")
 
 
-def _provider_change(p: dict, gh_available, trigger_workflow) -> None:
+def _provider_change(p: dict) -> None:
     from core.sheets import delete_provider, set_provider_active
 
     st.markdown(f"**{p['name']}**")
-    if st.button("Ξαναδιάβασε (2 χρόνια)", key=f"prov_re_{p['id']}", width="stretch"):
-        st.session_state["pagia_prov_msg"] = _start_bills(p["id"], p["name"], gh_available, trigger_workflow)
-        st.rerun()
-    if st.button("Παύση" if p["active"] else "Ενεργοποίηση", key=f"prov_act_{p['id']}", width="stretch"):
+    if st.button("⏸ Απενεργοποίηση (άλλαξα πάροχο)" if p["active"] else "▶ Ενεργοποίηση",
+                 key=f"prov_act_{p['id']}", width="stretch",
+                 help="Σταματά να διαβάζει νέα email και να τον υπολογίζει στην Πρόβλεψη· οι παλιοί λογαριασμοί μένουν"
+                 if p["active"] else "Ξαναρχίζει να διαβάζει τα νέα email του"):
         set_provider_active(p["id"], not p["active"])
-        st.session_state["pagia_prov_msg"] = (f"<b>{p['name']}</b>: "
-                                              + ("σε παύση" if p["active"] else "ενεργός"), "ok")
+        st.session_state["pagia_prov_msg"] = (
+            (f"<b>{p['name']}</b>: σε παύση — οι παλιοί λογαριασμοί μένουν, η Πρόβλεψη δεν τον υπολογίζει πια."
+             if p["active"] else f"<b>{p['name']}</b>: ενεργός ξανά."), "ok")
         st.rerun()
     if st.button("Διαγραφή (κρατά τους παλιούς λογαριασμούς)", key=f"prov_del_{p['id']}", width="stretch"):
         delete_provider(p["id"])
@@ -360,6 +384,8 @@ def _detail_rows(rows: pd.DataFrame) -> None:
         chk_html = (f'<br><span style="color:#b45309"><b>{chk}</b></span>' if chk.startswith("⚠")
                     else (f'<br><span style="opacity:.7">{chk}</span>' if chk else ""))
         pay = f"{r['pay_date']:%d/%m/%Y}" if pd.notna(r["pay_date"]) else "—"
+        if bool(r.get("paid", False)):
+            pay += " ✓ προπληρώθηκε"
         lines.append(
             f'<tr><td class="day"><b>{r["kind"]}</b>'
             f'{" · " + str(r["sub"]) if str(r.get("sub", "") or "") else ""}</td>'
@@ -422,33 +448,88 @@ def _upcoming(df: pd.DataFrame, today: date) -> None:
     μόνο μια γραμμή με πλήθος και σύνολο)."""
     from core.pagia import ALREADY_PAID
     month_end = pd.Timestamp(today) + pd.offsets.MonthEnd(0)
-    ahead = df[df["pay_date"].notna() & (df["pay_date"] >= pd.Timestamp(today))
-               & ~df["kind"].isin(ALREADY_PAID)]           # συμπληρωματικές = ήδη πληρωμένες
+    paid = df["paid"].astype(bool) if "paid" in df.columns else pd.Series(False, index=df.index)
+    ahead_all = df[df["pay_date"].notna() & (df["pay_date"] >= pd.Timestamp(today))
+                   & ~df["kind"].isin(ALREADY_PAID) & (df["amount"] > 0)]  # συμπληρωματικές = ήδη πληρωμένες
+    prepaid = ahead_all[paid.loc[ahead_all.index]]
+    ahead = ahead_all[~paid.loc[ahead_all.index]]                # «✓ Πληρώθηκε» → έξω
     up = ahead[ahead["pay_date"] <= month_end].sort_values("pay_date")
-    later = ahead[ahead["pay_date"] > month_end]
-    if up.empty:
-        if not later.empty:
-            c.section("Επόμενες πληρωμές")
-            c.html(f'<div style="font-size:.85rem;margin:.3rem 0 1rem">Τίποτα ως το τέλος του μήνα · '
-                   f'+ {len(later)} αργότερα: <b>{c.eur(float(later["amount"].sum()))}</b></div>')
+    later = ahead[ahead["pay_date"] > month_end].sort_values("pay_date")
+    msg = st.session_state.pop("pagia_paid_msg", None)
+    if up.empty and later.empty and prepaid.empty and not msg:
         return
     c.section("Επόμενες πληρωμές")
-    cards = []
-    # Ίδιο είδος + ίδια μέρα = μία κάρτα (π.χ. ΕΦΚΑ + ΤΕΚΑ, ή οι δύο εταίροι).
-    for (kind, when_ts), grp in up.groupby(["kind", "pay_date"], sort=False):
-        when = when_ts.date()
-        days = (when - today).days
-        badge = "σήμερα" if days == 0 else ("αύριο" if days == 1 else f"σε {days} μέρες")
-        refs = " · ".join(sorted({_ref_label(r) for r in grp["ref"]}))
-        detail = " + ".join(str(x) for x in grp["detail"] if str(x))
-        cards.append(c.kpi(f"{kind} · {refs}", float(grp["amount"].sum()),
-                           badge=badge, foot=f"Πληρωμή {when:%d/%m/%Y} · {detail}"))
-    total = float(up["amount"].sum())
-    c.grid(*cards, cols=min(len(cards), 3))
-    extra = (f' · + {len(later)} αργότερα: {c.eur(float(later["amount"].sum()))}'
-             if not later.empty else "")
-    c.html(f'<div style="font-size:.85rem;margin:.3rem 0 1rem">Σύνολο ως {month_end:%d/%m}: '
-           f'<b>{c.eur(total)}</b>{extra}</div>')
+    if msg:
+        c.note(msg, "ok")
+    if up.empty:
+        if not later.empty:
+            c.html(f'<div style="font-size:.85rem;margin:.3rem 0 1rem">Τίποτα ως το τέλος του μήνα · '
+                   f'+ {len(later)} αργότερα: <b>{c.eur(float(later["amount"].sum()))}</b></div>')
+    else:
+        cards, groups = [], []
+        # Ίδιο είδος + ίδια μέρα = μία κάρτα (π.χ. ΕΦΚΑ + ΤΕΚΑ, ή οι δύο εταίροι).
+        for (kind, when_ts), grp in up.groupby(["kind", "pay_date"], sort=False):
+            when = when_ts.date()
+            days = (when - today).days
+            badge = "σήμερα" if days == 0 else ("αύριο" if days == 1 else f"σε {days} μέρες")
+            refs = " · ".join(sorted({_ref_label(r) for r in grp["ref"]}))
+            detail = " + ".join(str(x) for x in grp["detail"] if str(x))
+            cards.append(c.kpi(f"{kind} · {refs}", float(grp["amount"].sum()),
+                               badge=badge, foot=f"Πληρωμή {when:%d/%m/%Y} · {detail}"))
+            groups.append((f"{kind} {when:%d/%m}", grp))
+        total = float(up["amount"].sum())
+        c.grid(*cards, cols=min(len(cards), 3))
+        extra = (f' · + {len(later)} αργότερα: {c.eur(float(later["amount"].sum()))}'
+                 if not later.empty else "")
+        c.html(f'<div style="font-size:.85rem;margin:.3rem 0 .4rem">Σύνολο ως {month_end:%d/%m}: '
+               f'<b>{c.eur(total)}</b>{extra}</div>')
+        # ✓ ΠΛΗΡΩΘΗΚΕ — όταν πληρώνεις νωρίτερα από τη λήξη (φεύγει και από την Πρόβλεψη).
+        cols = st.columns(min(len(groups), 3))
+        for i, (label, grp) in enumerate(groups):
+            if cols[i % len(cols)].button(f"✓ Πληρώθηκε · {label}", key=f"paid_{i}_{label}",
+                                          width="stretch"):
+                _mark_paid(grp, label)
+    _paid_tools(later, prepaid)
+
+
+def _mark_paid(grp: pd.DataFrame, label: str) -> None:
+    from core.sheets import mark_pagia_paid
+    mark_pagia_paid([{"kind": r["kind"], "ref": r["ref"], "sub": r.get("sub", ""),
+                      "amount": r["amount"], "pay_date": r["pay_date"]} for _, r in grp.iterrows()])
+    st.session_state["pagia_paid_msg"] = (f"<b>{label}</b> σημειώθηκε ως πληρωμένο — "
+                                          "βγήκε από τις επόμενες πληρωμές και την Πρόβλεψη.")
+    st.rerun()
+
+
+def _paid_tools(later: pd.DataFrame, prepaid: pd.DataFrame) -> None:
+    """Προπληρωμή και πιο μακρινών πληρωμών + λίστα προπληρωμένων με «Αναίρεση»."""
+    from core.sheets import paid_key, unmark_pagia_paid
+    if later.empty and prepaid.empty:
+        return
+    n_pre = prepaid.groupby(["kind", "pay_date"]).ngroups if not prepaid.empty else 0
+    title = "Προπληρωμή άλλης πληρωμής" + (f" · ✓ {n_pre} προπληρωμένα" if n_pre else "")
+    with st.expander(title):
+        if not later.empty:
+            opts = {}
+            for (kind, when_ts), grp in later.groupby(["kind", "pay_date"], sort=False):
+                opts[f"{kind} · {when_ts:%d/%m/%Y} · {c.eur(float(grp['amount'].sum()))}"] = \
+                    (f"{kind} {when_ts:%d/%m}", grp)
+            a, b = st.columns([3, 1.3])
+            pick = a.selectbox("Επόμενη πληρωμή", list(opts), key="paid_later_pick",
+                               label_visibility="collapsed")
+            if b.button("✓ Πληρώθηκε", key="paid_later_go", width="stretch"):
+                _mark_paid(opts[pick][1], opts[pick][0])
+        if not prepaid.empty:
+            st.caption("Προπληρωμένα (δεν μετράνε στις επόμενες πληρωμές και την Πρόβλεψη):")
+            groups = prepaid.sort_values("pay_date").groupby(["kind", "pay_date"], sort=False)
+            for i, ((kind, when_ts), grp) in enumerate(groups):
+                x, y = st.columns([4, 1.3])
+                x.markdown(f"✓ **{kind}** · {c.eur(float(grp['amount'].sum()))} · λήξη {when_ts:%d/%m/%Y}")
+                if y.button("Αναίρεση", key=f"paid_undo_{i}", width="stretch"):
+                    unmark_pagia_paid([paid_key(r["kind"], r["ref"], r.get("sub", ""), r["pay_date"])
+                                       for _, r in grp.iterrows()])
+                    st.session_state["pagia_paid_msg"] = f"Αναιρέθηκε: <b>{kind}</b> — ξαναμπήκε στις επόμενες."
+                    st.rerun()
 
 
 def _aade_debt() -> None:
