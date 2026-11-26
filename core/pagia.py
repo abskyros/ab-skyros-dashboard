@@ -1056,10 +1056,13 @@ def image_text(payload: bytes) -> str | None:
 
 
 def html_to_text(html: str) -> str:
+    """HTML email → κείμενο. ΟΛΟΙ οι κωδικοί HTML μεταφράζονται (&sigma; → σ, &#946; → β,
+    &nbsp; → κενό) — π.χ. η nrg γράφει όλα τα ελληνικά έτσι."""
+    import html as _html
     t = re.sub(r"(?is)<(script|style).*?</\1>", " ", html or "")
     t = re.sub(r"(?i)<br\s*/?>|</(p|div|tr|td|th|li|h\d)>", "\n", t)
     t = re.sub(r"<[^>]+>", " ", t)
-    t = t.replace("&nbsp;", " ").replace("&amp;", "&").replace("&euro;", "€")
+    t = _html.unescape(t).replace(" ", " ")
     return re.sub(r"[ \t]+", " ", t)
 
 

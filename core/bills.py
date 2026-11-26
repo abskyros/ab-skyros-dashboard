@@ -103,7 +103,9 @@ def bill_record(name: str, bill: dict, sent: date | None, days: int,
     """Λογαριασμός → εγγραφή «pagia» (είδος = όνομα παρόχου, μήνας = μήνας ΛΗΞΗΣ)."""
     base = bill.get("issue") or sent or date.today()
     due = bill.get("due") or (base + timedelta(days=max(int(days or 0), 0)))
-    ident = bill.get("ident") or ident or f"{due:%Y-%m-%d} {bill['amount']:.2f}"
+    # Ταυτότητα = ΛΗΞΗ + κωδικός (RF/αρχείο). Ο RF της nrg είναι ΙΔΙΟΣ σε όλους τους
+    # λογαριασμούς (κωδικός πελάτη) → μόνος του θα έκανε 20 λογαριασμούς έναν.
+    ident = f"{due:%Y-%m-%d} " + (bill.get("ident") or ident or f"{bill['amount']:.2f}")
     parts = []
     if bill.get("period"):
         parts.append(f"περίοδος {bill['period']}")
