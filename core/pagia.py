@@ -1283,7 +1283,7 @@ def expand_manual(items: list[dict], until: date) -> list[dict]:
                         "pay_date": date(y, m, min(day, dim) if day > 0 else dim),
                         "detail": "χειροκίνητο" + (f" · {note}" if note else ""),
                         "email_date": None, "emps": "", "source": "χειροκίνητο", "check": "",
-                        "manual_id": str(it.get("id") or "")})
+                        "manual_id": str(it.get("id") or ""), "rf": str(it.get("rf") or "")})
             if not step:
                 break
             m += step

@@ -1766,7 +1766,7 @@ def clear_all_caches() -> None:
 # καθαρίζεται (ούτε από το «Άδειασμα» της ανάκτησης, ούτε αν αλλάξει η κεφαλίδα).
 # ══════════════════════════════════════════════════════════════════════════════
 SHEET_PAGIA_MANUAL = "pagia_manual"
-MANUAL_COLS = ["id", "name", "amount", "freq", "start", "end", "day", "note"]
+MANUAL_COLS = ["id", "name", "amount", "freq", "start", "end", "day", "note", "rf"]   # rf = κωδικός πληρωμής
 
 
 def _manual_ws():
@@ -1798,14 +1798,26 @@ def load_pagia_manual() -> list:
     return out
 
 
+def _manual_header(ws) -> None:
+    """Παλιό φύλλο με λιγότερες στήλες (π.χ. χωρίς «rf») → νέα κεφαλίδα."""
+    head = _with_retry(lambda: ws.row_values(1))
+    if len(head) < len(MANUAL_COLS):
+        if ws.col_count < len(MANUAL_COLS):
+            _with_retry(lambda: ws.add_cols(len(MANUAL_COLS) - ws.col_count))
+        _with_retry(lambda: ws.update([MANUAL_COLS], "A1"))
+
+
 def add_pagia_manual(item: dict) -> str:
     """Νέο χειροκίνητο πάγιο → το id του."""
     import uuid
     iid = uuid.uuid4().hex[:8]
     row = [iid, str(item.get("name", "")).strip(), to_cents(item.get("amount") or 0),
            str(item.get("freq", "")), str(item.get("start", "")), str(item.get("end", "") or ""),
-           str(item.get("day", "") or ""), str(item.get("note", "") or "")[:200]]
-    _append(_manual_ws(), [row])
+           str(item.get("day", "") or ""), str(item.get("note", "") or "")[:200],
+           str(item.get("rf", "") or "")[:60]]
+    ws = _manual_ws()
+    _manual_header(ws)
+    _append(ws, [row])
     load_pagia_manual.clear()
     return iid
 
@@ -1823,6 +1835,8 @@ def delete_pagia_manual(iid: str) -> bool:
 def update_pagia_manual(iid: str, fields: dict) -> bool:
     """Αλλάζει πεδία ενός χειροκίνητου παγίου (π.χ. {"end": "2026-11"} ή {"amount": 52.0})."""
     ws = _manual_ws()
+    if "rf" in fields:
+        _manual_header(ws)
     for idx, r in enumerate(_get_all(ws)[1:], start=2):
         if r and r[0] == iid:
             row = (r + [""] * len(MANUAL_COLS))[:len(MANUAL_COLS)]
@@ -1841,7 +1855,8 @@ def update_pagia_manual(iid: str, fields: dict) -> bool:
 # ══════════════════════════════════════════════════════════════════════════════
 SHEET_PROVIDERS = "pagia_providers"
 PROVIDER_COLS = ["id", "name", "email", "must", "days", "active", "note", "created",
-                 "searched", "result"]          # τελευταία αναζήτηση: πότε · τι βρέθηκε
+                 "searched", "result",          # τελευταία αναζήτηση: πότε · τι βρέθηκε
+                 "rf"]                          # κωδικός πληρωμής (γράφεται με το χέρι)
 
 
 def _providers_ws():

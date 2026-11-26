@@ -94,8 +94,12 @@ def parse_bill(raw: str) -> dict | None:
         period = f"{a:%d/%m}–{b:%d/%m/%Y}"
     rf = re.search(r"\bRF\s?\d{2}[\dA-Z ]{8,30}", (raw or "").upper())
     ident = re.sub(r"\s", "", rf.group(0)) if rf else ""
+    # Αριθμός παροχής (π.χ. «παροχή Ηλεκτρισμού 4 44059457 02») — για τις πληροφορίες.
+    sp = re.search(r"(?:ΑΡ(?:ΙΘΜΟΣ|\.)?\s*)?ΠΑΡΟΧΗΣ?\s+(?:ΗΛΕΚΤΡΙΣΜΟΥ|ΡΕΥΜΑΤΟΣ|ΝΕΡΟΥ|ΦΥΣΙΚΟΥ ΑΕΡΙΟΥ)?\s*:?\s*"
+                   r"(\d[\d ]{4,18}\d)", t)
     return {"amount": round(amount, 2), "due": _date_of(dm), "issue": _date_of(im),
-            "period": period, "ident": ident, "key_word": key_word}
+            "period": period, "ident": ident, "key_word": key_word,
+            "supply": " ".join(sp.group(1).split()) if sp else ""}
 
 
 def bill_record(name: str, bill: dict, sent: date | None, days: int,
@@ -107,6 +111,8 @@ def bill_record(name: str, bill: dict, sent: date | None, days: int,
     # λογαριασμούς (κωδικός πελάτη) → μόνος του θα έκανε 20 λογαριασμούς έναν.
     ident = f"{due:%Y-%m-%d} " + (bill.get("ident") or ident or f"{bill['amount']:.2f}")
     parts = []
+    if bill.get("supply"):
+        parts.append(f"παροχή {bill['supply']}")
     if bill.get("period"):
         parts.append(f"περίοδος {bill['period']}")
     if bill.get("issue"):

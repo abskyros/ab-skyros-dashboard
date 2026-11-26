@@ -71,16 +71,19 @@ def _manual_editor(today: date) -> None:
             amount = b.number_input("Ποσό (€)", min_value=0.0, step=10.0, format="%.2f")
             freq = f.selectbox("Επανάληψη", list(FREQS))
             y1, m1, d1 = st.columns(3)
-            years = list(range(today.year - 2, today.year + 2))
+            years = list(range(today.year - 2, today.year + 3))
+            end_years = list(range(today.year - 2, today.year + 16))   # λήξη: έως 15 χρόνια μπροστά
             sy = y1.selectbox("Πρώτος μήνας — έτος", years, index=years.index(today.year))
             sm = m1.selectbox("Πρώτος μήνας", list(range(1, 13)), index=today.month - 1,
                               format_func=month_name)
             day = d1.number_input("Μέρα πληρωμής (0 = τέλος μήνα)", min_value=0, max_value=31, value=0)
             e1, e2, e3 = st.columns(3)
             has_end = e1.checkbox("Μέχρι κάποιον μήνα")
-            ey = e2.selectbox("Τελευταίος — έτος", years + [today.year + 2], index=years.index(today.year))
+            ey = e2.selectbox("Τελευταίος — έτος", end_years, index=end_years.index(today.year))
             em = e3.selectbox("Τελευταίος μήνας", list(range(1, 13)), index=11, format_func=month_name)
-            note = st.text_input("Σημείωση (προαιρετικά)")
+            n1, n2 = st.columns([1.3, 1])
+            rf = n1.text_input("Κωδικός πληρωμής RF (προαιρετικά)", placeholder="π.χ. RF12 3456 7890 …")
+            note = n2.text_input("Σημείωση (προαιρετικά)")
             if st.form_submit_button("➕ Προσθήκη", type="primary"):
                 if not name.strip() or amount <= 0:
                     st.error("Γράψε όνομα και ποσό.")
@@ -90,7 +93,8 @@ def _manual_editor(today: date) -> None:
                     add_pagia_manual({"name": name.strip(), "amount": amount, "freq": freq,
                                       "start": f"{sy:04d}-{sm:02d}",
                                       "end": f"{ey:04d}-{em:02d}" if has_end else "",
-                                      "day": int(day) or "", "note": note})
+                                      "day": int(day) or "", "note": note,
+                                      "rf": " ".join(rf.upper().split())})
                     st.session_state["pagia_manual_msg"] = f"Προστέθηκε: <b>{name.strip()}</b> {c.eur(amount)} · {freq}"
                     st.rerun()
         if not items:
@@ -106,7 +110,8 @@ def _manual_editor(today: date) -> None:
             col1, col2 = st.columns([5, 1.3])
             col1.markdown(("~~" if ended else "") + f"**{it['name']}** · {c.eur(it['amount'])} · {it['freq']} · "
                           f"από {ym(it['start'])} έως {ym(it['end'])} · {day_s}" + ("~~" if ended else "")
-                          + (f" · _{it['note']}_" if it.get("note") else ""))
+                          + (f" · _{it['note']}_" if it.get("note") else "")
+                          + (f" · RF **{it['rf']}**" if it.get("rf") else ""))
             with col2.popover("Αλλαγή", width="stretch"):
                 _manual_change(it, today)
 
@@ -172,12 +177,46 @@ def _providers(df: pd.DataFrame) -> None:
                              + f"{p.get('searched') or ''} — {res.lstrip('⏳ ')}")
             elif p["active"]:
                 col1.caption("Δεν έχει γίνει αναζήτηση ακόμη — πάτα «🔍 Αναζήτηση».")
+            rf = str(p.get("rf") or "").strip() or _rf_of(sub.sort_values("pay_date").tail(1))
+            if rf:
+                col1.caption(f"Κωδικός πληρωμής: **{rf}**" + ("" if p.get("rf") else " (από τον λογαριασμό)"))
             if p["active"] and col2.button("🔍 Αναζήτηση", key=f"prov_search_{p['id']}", width="stretch",
                                            help="Όλα τα email του από τον Ιανουάριο 2024 ως σήμερα (λίγα λεπτά)"):
                 st.session_state["pagia_prov_msg"] = _start_bills(p["id"], p["name"], gh_available, trigger_workflow)
                 st.rerun()
             with col3.popover("Αλλαγή", width="stretch"):
                 _provider_change(p)
+            if not sub.empty and st.toggle(f"📂 Λογαριασμοί {p['name']} ({len(sub)})", key=f"prov_hist_{p['id']}"):
+                _bill_history(sub)
+
+
+def _bill_history(sub: pd.DataFrame) -> None:
+    """Όλοι οι λογαριασμοί ενός παρόχου: περίοδος · λήξη · ποσό · κατάσταση · email + σύνολα ανά έτος."""
+    import re
+    today = pd.Timestamp(date.today())
+    rows = []
+    for _, r in sub.sort_values("pay_date", ascending=False).iterrows():
+        det = str(r.get("detail") or "")
+        per = re.search(r"περίοδος ([^·]+)", det)
+        sup = re.search(r"παροχή ([^·]+)", det)
+        if bool(r.get("paid", False)):
+            state = "✓ προπληρώθηκε"
+        elif pd.notna(r["pay_date"]) and r["pay_date"] >= today:
+            state = "επόμενη"
+        else:
+            state = "πληρωμένος (έληξε)"
+        ed = r.get("email_date")
+        rows.append({"Περίοδος": per.group(1).strip() if per else "",
+                     "Λήξη": f"{r['pay_date']:%d/%m/%Y}" if pd.notna(r["pay_date"]) else "—",
+                     "Ποσό": c.eur(float(r["amount"])), "Κατάσταση": state,
+                     "Παροχή": sup.group(1).strip() if sup else "",
+                     "RF": _rf_of(pd.DataFrame([r])),
+                     "Email": (f"{ed:%d/%m/%Y} · " if pd.notna(ed) and hasattr(ed, "strftime") else "")
+                              + str(r.get("source") or "").replace("πάροχος · ", "")})
+    st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+    yr = sub[sub["pay_date"].notna()].groupby(sub["pay_date"].dt.year)["amount"].agg(["sum", "count"])
+    st.caption(" · ".join(f"{int(y)}: {c.eur(float(s))} ({int(n)} λογ., μ.ό. {c.eur(float(s) / n)})"
+                          for y, (s, n) in yr.sort_index(ascending=False).iterrows()))
 
 
 def _start_bills(iid: str, name: str, gh_available, trigger_workflow) -> tuple:
@@ -202,6 +241,13 @@ def _provider_change(p: dict) -> None:
     from core.sheets import delete_provider, set_provider_active
 
     st.markdown(f"**{p['name']}**")
+    rf = st.text_input("Κωδικός πληρωμής (RF)", value=str(p.get("rf") or ""), key=f"prov_rf_{p['id']}",
+                       placeholder="π.χ. RF66 9025 4800 0044 4059 4570 2")
+    if st.button("Αποθήκευση κωδικού", key=f"prov_rf_save_{p['id']}", width="stretch"):
+        from core.sheets import set_provider_fields
+        set_provider_fields(p["id"], {"rf": " ".join(rf.upper().split())})
+        st.session_state["pagia_prov_msg"] = (f"<b>{p['name']}</b>: κωδικός πληρωμής αποθηκεύτηκε.", "ok")
+        st.rerun()
     if st.button("⏸ Απενεργοποίηση (άλλαξα πάροχο)" if p["active"] else "▶ Ενεργοποίηση",
                  key=f"prov_act_{p['id']}", width="stretch",
                  help="Σταματά να διαβάζει νέα email και να τον υπολογίζει στην Πρόβλεψη· οι παλιοί λογαριασμοί μένουν"
@@ -232,7 +278,7 @@ def _manual_change(it: dict, today: date) -> None:
 
     iid = it["id"]
     st.markdown(f"**{it['name']}**")
-    years = list(range(today.year - 2, today.year + 3))
+    years = list(range(today.year - 2, today.year + 16))       # λήξη: έως 15 χρόνια μπροστά
     y1, m1 = st.columns(2)
     y = y1.selectbox("Έτος", years, index=years.index(today.year), key=f"pmc_y_{iid}")
     m = m1.selectbox("Μήνας", list(range(1, 13)), index=today.month - 1,
@@ -259,6 +305,11 @@ def _manual_change(it: dict, today: date) -> None:
             return
         update_pagia_manual(iid, {"end": ref})
         st.session_state["pagia_manual_msg"] = f"<b>{it['name']}</b>: λήγει {_ref_label(ref)}"
+        st.rerun()
+    rf = st.text_input("Κωδικός πληρωμής (RF)", value=str(it.get("rf") or ""), key=f"pmc_rf_{iid}")
+    if st.button("Αποθήκευση κωδικού", key=f"pmc_rf_save_{iid}", width="stretch"):
+        update_pagia_manual(iid, {"rf": " ".join(rf.upper().split())})
+        st.session_state["pagia_manual_msg"] = f"<b>{it['name']}</b>: κωδικός πληρωμής αποθηκεύτηκε"
         st.rerun()
     if st.button("Διαγραφή από όλους τους μήνες", key=f"pmc_del_{iid}", width="stretch"):
         delete_pagia_manual(iid)
@@ -343,15 +394,62 @@ def _run_report() -> None:
             st.caption(f"Εμφανίζονται τα 300 πιο πρόσφατα από {len(cards)} — διάλεξε μήνα.")
 
 
+def _warn_key(r) -> str:
+    """Ταυτότητα ειδοποίησης = είδος · μήνας · υποκατηγορία · ΚΕΙΜΕΝΟ ελέγχου (αν αλλάξει
+    το αποτέλεσμα, π.χ. ήρθε το αρχείο που έλειπε → νέα ειδοποίηση, ξαναφαίνεται)."""
+    import hashlib
+    raw = f"{r['kind']}|{r['ref']}|{r.get('sub', '')}|{r.get('check', '')}"
+    return hashlib.md5(raw.encode("utf-8")).hexdigest()[:12]
+
+
+def _warn_seen() -> set:
+    import json
+    try:
+        from core.sheets import load_setting
+        return set(json.loads(load_setting("pagia_warn_seen", "") or "[]"))
+    except Exception:
+        return set()
+
+
+def _warn_save(seen: set) -> None:
+    import json
+    from core.sheets import save_setting
+    save_setting("pagia_warn_seen", json.dumps(sorted(seen)))
+
+
 def _warnings(df: pd.DataFrame, year: int) -> None:
-    """Μισθοδοσίες που ΔΕΝ συμφωνούν με τα σύνολα των αρχείων τους — πάνω-πάνω."""
+    """Μισθοδοσίες που ΔΕΝ συμφωνούν με τα σύνολα των αρχείων τους — πάνω-πάνω.
+    «✓ Το είδα» → κρύβεται (και το ⚠ του μήνα στον πίνακα)· «Εμφάνιση κρυμμένων» → πίσω."""
     if "check" not in df.columns:
         return
     bad = df[df["check"].astype(str).str.startswith("⚠")
              & df["ref"].astype(str).str.startswith(str(year))]
+    if bad.empty:
+        return
+    seen = _warn_seen()
+    hidden = 0
     for _, r in bad.sort_values("ref").iterrows():
-        c.note(f"⚠ <b>{r['kind']} {_ref_label(r['ref'])}{' · ' + r['sub'] if r['sub'] else ''}</b>: "
-               f"{str(r['check'])[2:]}", "warn")
+        k = _warn_key(r)
+        if k in seen:
+            hidden += 1
+            continue
+        a, b = st.columns([6, 1.2])
+        with a:
+            c.note(f"⚠ <b>{r['kind']} {_ref_label(r['ref'])}{' · ' + r['sub'] if r['sub'] else ''}</b>: "
+                   f"{str(r['check'])[2:]}", "warn")
+        if b.button("✓ Το είδα", key=f"warn_seen_{k}", width="stretch"):
+            _warn_save(seen | {k})
+            st.rerun()
+    if hidden and st.toggle(f"Κρυμμένες ειδοποιήσεις: {hidden} · εμφάνιση", key=f"warn_show_{year}"):
+        for _, r in bad.sort_values("ref").iterrows():
+            k = _warn_key(r)
+            if k not in seen:
+                continue
+            a, b = st.columns([6, 1.2])
+            a.caption(f"✓ {r['kind']} {_ref_label(r['ref'])}: {str(r['check'])[2:]}")
+            if b.button("Επαναφορά", key=f"warn_back_{k}", width="stretch"):
+                _warn_save(seen - {k})
+                st.rerun()
 
 
 def _details(df: pd.DataFrame, year: int) -> None:
@@ -443,52 +541,75 @@ def _fix_editor(df: pd.DataFrame, ref: str) -> None:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+HORIZONS = {"Αυτός ο μήνας": 0, "+ επόμενος": 1, "+ 2 μήνες": 2, "+ 3 μήνες": 3, "6 μήνες": 5}
+
+
+def _rf_of(grp: pd.DataFrame) -> str:
+    """Κωδικός πληρωμής RF: από το πεδίο «rf» (χειροκίνητα/πάροχοι) ή από τον λογαριασμό."""
+    import re
+    for col in ("rf", "sub", "detail"):
+        if col in grp.columns:
+            for v in grp[col]:
+                m = re.search(r"RF\s?\d[\d ]{6,30}\d", str(v or "").upper())
+                if m:
+                    return re.sub(r"\s", "", m.group(0))
+    return ""
+
+
 def _upcoming(df: pd.DataFrame, today: date) -> None:
-    """Ό,τι έχει έρθει και πληρώνεται από σήμερα ΕΩΣ ΤΟ ΤΕΛΟΣ ΤΟΥ ΜΗΝΑ (τα πιο μακρινά:
-    μόνο μια γραμμή με πλήθος και σύνολο)."""
+    """
+    ΕΠΟΜΕΝΕΣ ΠΛΗΡΩΜΕΣ — ό,τι έχει έρθει ή είναι δηλωμένο (αυτόματα, χειροκίνητα,
+    πάροχοι) από σήμερα ως όσους μήνες μπροστά διαλέξεις, ΑΝΑ ΜΗΝΑ. Κάθε κάρτα έχει
+    «✓ Πληρώθηκε» (προπληρωμή → έξω από εδώ και από την Πρόβλεψη).
+    """
     from core.pagia import ALREADY_PAID
-    month_end = pd.Timestamp(today) + pd.offsets.MonthEnd(0)
     paid = df["paid"].astype(bool) if "paid" in df.columns else pd.Series(False, index=df.index)
     ahead_all = df[df["pay_date"].notna() & (df["pay_date"] >= pd.Timestamp(today))
                    & ~df["kind"].isin(ALREADY_PAID) & (df["amount"] > 0)]  # συμπληρωματικές = ήδη πληρωμένες
     prepaid = ahead_all[paid.loc[ahead_all.index]]
-    ahead = ahead_all[~paid.loc[ahead_all.index]]                # «✓ Πληρώθηκε» → έξω
-    up = ahead[ahead["pay_date"] <= month_end].sort_values("pay_date")
-    later = ahead[ahead["pay_date"] > month_end].sort_values("pay_date")
+    ahead = ahead_all[~paid.loc[ahead_all.index]].sort_values("pay_date")   # «✓ Πληρώθηκε» → έξω
     msg = st.session_state.pop("pagia_paid_msg", None)
-    if up.empty and later.empty and prepaid.empty and not msg:
+    if ahead.empty and prepaid.empty and not msg:
         return
     c.section("Επόμενες πληρωμές")
     if msg:
         c.note(msg, "ok")
-    if up.empty:
-        if not later.empty:
-            c.html(f'<div style="font-size:.85rem;margin:.3rem 0 1rem">Τίποτα ως το τέλος του μήνα · '
-                   f'+ {len(later)} αργότερα: <b>{c.eur(float(later["amount"].sum()))}</b></div>')
-    else:
+    h = st.segmented_control("Μπροστά", list(HORIZONS), default="+ επόμενος", key="pagia_horizon",
+                             label_visibility="collapsed") or "+ επόμενος"
+    k = today.year * 12 + today.month - 1 + HORIZONS[h]
+    end = pd.Timestamp(date(k // 12, k % 12 + 1, 1)) + pd.offsets.MonthEnd(0)
+    shown = ahead[ahead["pay_date"] <= end]
+    later = ahead[ahead["pay_date"] > end]
+    if shown.empty:
+        c.html('<div style="font-size:.85rem;margin:.3rem 0 .6rem">Τίποτα σε αυτό το διάστημα.</div>')
+    for ym, mon in shown.groupby(shown["pay_date"].dt.strftime("%Y-%m"), sort=True):
         cards, groups = [], []
         # Ίδιο είδος + ίδια μέρα = μία κάρτα (π.χ. ΕΦΚΑ + ΤΕΚΑ, ή οι δύο εταίροι).
-        for (kind, when_ts), grp in up.groupby(["kind", "pay_date"], sort=False):
+        for (kind, when_ts), grp in mon.groupby(["kind", "pay_date"], sort=False):
             when = when_ts.date()
             days = (when - today).days
             badge = "σήμερα" if days == 0 else ("αύριο" if days == 1 else f"σε {days} μέρες")
             refs = " · ".join(sorted({_ref_label(r) for r in grp["ref"]}))
             detail = " + ".join(str(x) for x in grp["detail"] if str(x))
-            cards.append(c.kpi(f"{kind} · {refs}", float(grp["amount"].sum()),
-                               badge=badge, foot=f"Πληρωμή {when:%d/%m/%Y} · {detail}"))
+            rf = _rf_of(grp)
+            cards.append(c.kpi(f"{kind} · {refs}", float(grp["amount"].sum()), badge=badge,
+                               foot=f"Πληρωμή {when:%d/%m/%Y} · {detail}" + (f" · {rf}" if rf else "")))
             groups.append((f"{kind} {when:%d/%m}", grp))
-        total = float(up["amount"].sum())
+        y, m = int(ym[:4]), int(ym[5:7])
+        c.html(f'<div style="font-weight:600;margin:.6rem 0 .3rem">{month_name(m)} {y} · '
+               f'{c.eur(float(mon["amount"].sum()))}</div>')
         c.grid(*cards, cols=min(len(cards), 3))
-        extra = (f' · + {len(later)} αργότερα: {c.eur(float(later["amount"].sum()))}'
-                 if not later.empty else "")
-        c.html(f'<div style="font-size:.85rem;margin:.3rem 0 .4rem">Σύνολο ως {month_end:%d/%m}: '
-               f'<b>{c.eur(total)}</b>{extra}</div>')
         # ✓ ΠΛΗΡΩΘΗΚΕ — όταν πληρώνεις νωρίτερα από τη λήξη (φεύγει και από την Πρόβλεψη).
         cols = st.columns(min(len(groups), 3))
         for i, (label, grp) in enumerate(groups):
-            if cols[i % len(cols)].button(f"✓ Πληρώθηκε · {label}", key=f"paid_{i}_{label}",
+            if cols[i % len(cols)].button(f"✓ Πληρώθηκε · {label}", key=f"paid_{ym}_{i}",
                                           width="stretch"):
                 _mark_paid(grp, label)
+    if not shown.empty:
+        extra = (f' · + {len(later)} αργότερα: {c.eur(float(later["amount"].sum()))}'
+                 if not later.empty else "")
+        c.html(f'<div style="font-size:.85rem;margin:.5rem 0 .4rem">Σύνολο ως {end:%d/%m/%Y}: '
+               f'<b>{c.eur(float(shown["amount"].sum()))}</b>{extra}</div>')
     _paid_tools(later, prepaid)
 
 
@@ -568,6 +689,7 @@ def _year_table(df: pd.DataFrame, year: int, today: date) -> None:
     fixed = set(zip(df.loc[df["source"] == FIX_SOURCE, "ref"].astype(str),
                     df.loc[df["source"] == FIX_SOURCE, "kind"].astype(str)))   # ✎ διορθώσεις
     head = "".join(f'<th class="now">{k}</th>' for k in kinds)
+    seen = _warn_seen()                       # «✓ Το είδα» → χωρίς ⚠ στον μήνα
     body, totals, ly_totals = [], {k: 0.0 for k in kinds}, {k: 0.0 for k in kinds}
     for m in range(1, 13):
         vals = [month_sum(year, m, k) for k in kinds]
@@ -582,8 +704,9 @@ def _year_table(df: pd.DataFrame, year: int, today: date) -> None:
         ref_m = f"{year:04d}-{m:02d}"
         cells = "".join(f'<td class="v now">{"✎ " if (ref_m, k) in fixed else ""}{c.eur(v)}</td>'
                         for k, v in zip(kinds, vals))
-        warn = "check" in df.columns and df[(df["ref"] == f"{year:04d}-{m:02d}")
-                                             & df["check"].astype(str).str.startswith("⚠")].shape[0] > 0
+        warn = "check" in df.columns and any(
+            _warn_key(r) not in seen for _, r in df[(df["ref"] == ref_m)
+                                                    & df["check"].astype(str).str.startswith("⚠")].iterrows())
         body.append(
             f'<tr><td class="day"><b>{month_name(m)}</b>{" ⚠" if warn else ""}</td>{cells}'
             f'<td class="v now"><b>{c.eur(row_sum or None)}</b></td>'
